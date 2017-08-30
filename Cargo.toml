@@ -1,0 +1,14 @@
+[package]
+name = "ceph_dead_disk"
+version = "0.1.0"
+authors = ["Chris Holcombe <xfactor973@gmail.com>"]
+
+[dependencies]
+blkid = "*"
+block-utils = {path = "/home/chris/repos/block-utils"}
+ceph-rust = "*"
+clap = "*"
+goji = "*"
+log = "*"
+rusqlite = "*"
+simplelog = "*"
