@@ -6,9 +6,11 @@
 extern crate blkid;
 extern crate block_utils;
 extern crate log;
+extern crate petgraph;
 
 use self::block_utils::{FilesystemType, RaidType};
 use self::blkid::BlkId;
+use self::petgraph::Graph;
 
 use std::fmt::Debug;
 use std::fs::File;
@@ -27,11 +29,34 @@ pub trait DiskCheck {
     fn repair(self, path: &PathBuf) -> Result<()>;
 }
 
-// TODO: Checks could probably be changed over to being a DirectedGraph
-// so that checks are run and remediations are run to the point where you can't
-// go any further and then we conclude either we don't know what to do or
-// the disk is dead and we should flag it for replacement
-pub fn run_checks<T: Copy + DiskCheck + Debug>(path: &PathBuf, checks: Vec<T>) -> Result<()> {
+/// Checks are a DirectedGraph so that checks are run and remediations
+/// are run to the point where you can't
+/// go any further and then we conclude either we don't know what to do or
+/// the disk is dead and we should flag it for replacement.
+/// A repair flow can be setup like the one below:
+///                                             -+-->can_i_repair -> Replace disk
+///                                             +
+///                       +------>is_filesystem_corrupted
+///                       +                     +
+///      +---->is_disk_writable                 +--->disk_is_repaired -> STOP
+///      +            ^   +
+///is_mounted         |   +----->disk_is_ok -> STOP
+///      +            |
+///      +--->unmount +
+///
+/// 1. First we check if the disk is mounted.  If it isn't then we proceed to
+/// a write check.  If it is then we unmount and then proceed to a write check
+/// 2. We then check if the disk is writeable.  If not then we check for filesystem
+/// corruption.  If it is then we conclude the disk is ok and stop
+/// 3. We then check if the filesystem is corrupted.  If it is then we proceed to
+/// filesystem repair.
+/// 4.
+pub fn run_checks<T, E>(path: &PathBuf, checks: Graph<T, E>) -> Result<()>
+where
+    T: Copy + DiskCheck + Debug,
+    E: Copy + DiskCheck + Debug,
+{
+    /*
     for check in checks {
         debug!("Running disk check {:?}", check);
         match check.check(path) {
@@ -52,6 +77,7 @@ pub fn run_checks<T: Copy + DiskCheck + Debug>(path: &PathBuf, checks: Vec<T>) -
             }
         }
     }
+    */
     Ok(())
 }
 
@@ -179,11 +205,23 @@ impl DiskCheck for Fsck {
                 debug!("Running xfs_repair -n to check for corruption");
                 let status = Command::new("xfs_repair").arg("-n").status()?;
                 match status.code() {
-                    0 => return Ok(()),
-                    1 => {
+                    Some(code) => {
+                        match code {
+                            0 => return Ok(()),
+                            1 => {
+                                return Err(Error::new(
+                                    ErrorKind::Other,
+                                    "Filesystem corruption detected",
+                                ))
+                            }
+                            _ => {}
+                        }
+                    }
+                    //Process terminated by signal
+                    None => {
                         return Err(Error::new(
-                            ErrorKind::Other,
-                            "Filesystem corruption detected",
+                            ErrorKind::Interrupted,
+                            "xfs_repair terminated by signal",
                         ))
                     }
                 }
@@ -195,6 +233,8 @@ impl DiskCheck for Fsck {
         };
         Ok(())
     }
+    // If filesystem repair fails we have a choice of either trying to reformat
+    // or marking the disk as bad and asking for a replacement
     fn repair(self, path: &PathBuf) -> Result<()> {
         // 1. Check for the disk filesystem type
         // 2. Run repair utility against it if available
@@ -213,7 +253,19 @@ impl DiskCheck for Fsck {
                 debug!("Running xfs_repair");
                 let status = Command::new("xfs_repair").status()?;
                 match status.code() {
-                    _ => {}
+                    Some(code) => {
+                        match code {
+                            0 => return Ok(()),
+                            _ => return Err(Error::new(ErrorKind::Other, "xfs_repair failed")),
+                        }
+                    }
+                    //Process terminated by signal
+                    None => {
+                        return Err(Error::new(
+                            ErrorKind::Interrupted,
+                            "e2fsck terminated by signal",
+                        ))
+                    }
                 };
             }
             FilesystemType::Zfs => {}

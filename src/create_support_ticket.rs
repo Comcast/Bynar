@@ -1,4 +1,5 @@
 extern crate goji;
+/*
 extern crate hyper;
 extern crate hyper_openssl;
 
@@ -32,3 +33,4 @@ pub fn create_support_ticket() {
         }
     }
 }
+*/

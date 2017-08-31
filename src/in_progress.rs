@@ -2,7 +2,9 @@
 extern crate rusqlite;
 extern crate time;
 
-use time::Timespec;
+use std::path::Path;
+
+use self::time::Timespec;
 use self::rusqlite::{Connection, Result};
 
 #[derive(Debug)]
@@ -13,7 +15,7 @@ struct DiskRepairTicket {
     data: Option<Vec<u8>>,
 }
 
-pub fn create_repair_database(db_path: &Path) -> Result<()> {
+pub fn create_repair_database(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
 
     conn.execute(
@@ -25,10 +27,11 @@ pub fn create_repair_database(db_path: &Path) -> Result<()> {
                   )",
         &[],
     )?;
+    Ok(conn)
 }
 
-pub fn get_outstanding_repair_tickets(db_path: &Path) -> Result<()> {
-    let me = Person {
+pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<()> {
+    let me = DiskRepairTicket {
         id: 0,
         name: "Steven".to_string(),
         time_created: time::get_time(),
@@ -44,7 +47,7 @@ pub fn get_outstanding_repair_tickets(db_path: &Path) -> Result<()> {
         "SELECT id, name, time_created, data FROM repairs",
     )?;
     let person_iter = stmt.query_map(&[], |row| {
-        Person {
+        DiskRepairTicket {
             id: row.get(0),
             name: row.get(1),
             time_created: row.get(2),
@@ -53,6 +56,7 @@ pub fn get_outstanding_repair_tickets(db_path: &Path) -> Result<()> {
     })?;
 
     for person in person_iter {
-        println!("Found person {:?}", person?());
+        println!("Found person {:?}", person);
     }
+    Ok(())
 }
