@@ -9,6 +9,7 @@ extern crate clap;
 extern crate log;
 extern crate simplelog;
 
+mod ceph;
 mod create_support_ticket;
 mod host_information;
 mod in_progress;
@@ -18,11 +19,11 @@ use std::path::PathBuf;
 
 use clap::{Arg, App};
 use simplelog::{Config, SimpleLogger};
-use test_disk::DiskCheck;
+use test_disk::run_checks;
 
 fn main() {
     let matches = App::new("Ceph migration")
-        .version("1.0")
+        .version("0.1")
         .author("Chris Holcombe <xfactor973@gmail.com>")
         .about(
             "Detect dead hard drives, create a support ticket and watch for resolution",
@@ -47,13 +48,5 @@ fn main() {
     let _ = SimpleLogger::init(level, Config::default());
 
     println!("Testing /dev/md0");
-    let f = test_disk::Fsck::new(&PathBuf::from("/dev/md0")).unwrap();
-    match f.check(&PathBuf::from("/dev/md0")) {
-        Ok(_) => {
-            println!("Check successful");
-        }
-        Err(e) => {
-            println!("Check failed: {}", e);
-        }
-    };
+    let f = run_checks(&PathBuf::from("/dev/md0")).unwrap();
 }

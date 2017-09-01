@@ -8,55 +8,66 @@ use self::time::Timespec;
 use self::rusqlite::{Connection, Result};
 
 #[derive(Debug)]
-struct DiskRepairTicket {
-    id: i32,
-    name: String,
-    time_created: Timespec,
-    data: Option<Vec<u8>>,
+pub struct DiskRepairTicket {
+    pub id: i32,
+    pub ticket_id: String,
+    pub time_created: Timespec,
+    pub disk_path: String,
 }
 
 pub fn create_repair_database(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
-
     conn.execute(
-        "CREATE TABLE repairs (
+        "CREATE TABLE if not exists repairs (
                   id              INTEGER PRIMARY KEY,
-                  name            TEXT NOT NULL,
+                  ticket_id       TEXT NOT NULL,
                   time_created    TEXT NOT NULL,
-                  data            BLOB
+                  disk_path       TEXT NOT NULL,
                   )",
         &[],
     )?;
     Ok(conn)
 }
 
-pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<()> {
-    let me = DiskRepairTicket {
+pub fn record_new_repair_ticket(
+    conn: &Connection,
+    ticket_id: &str,
+    disk_path: &Path,
+) -> Result<()> {
+    let ticket = DiskRepairTicket {
         id: 0,
-        name: "Steven".to_string(),
+        ticket_id: ticket_id.into(),
         time_created: time::get_time(),
-        data: None,
+        disk_path: disk_path.to_string_lossy().into_owned(),
     };
     conn.execute(
-        "INSERT INTO repairs (name, time_created, data)
+        "INSERT INTO repairs (ticket_id, time_created, disk_path)
                   VALUES (?1, ?2, ?3)",
-        &[&me.name, &me.time_created, &me.data],
+        &[
+            &ticket.ticket_id,
+            &ticket.time_created,
+            &ticket.disk_path,
+        ],
     )?;
+    Ok(())
+}
 
+pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<Vec<DiskRepairTicket>> {
+    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT id, name, time_created, data FROM repairs",
+        "SELECT id, ticket_id, time_created, disk_path FROM repairs",
     )?;
-    let person_iter = stmt.query_map(&[], |row| {
+    let repair_iter = stmt.query_map(&[], |row| {
         DiskRepairTicket {
             id: row.get(0),
-            name: row.get(1),
+            ticket_id: row.get(1),
             time_created: row.get(2),
-            data: row.get(3),
+            disk_path: row.get(3),
         }
     })?;
 
-    for person in person_iter {
-        println!("Found person {:?}", person);
+    for repair in repair_iter {
+        tickets.push(repair?);
     }
-    Ok(())
+    Ok(tickets)
 }

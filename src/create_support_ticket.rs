@@ -1,12 +1,5 @@
 extern crate goji;
-/*
-extern crate hyper;
-extern crate hyper_openssl;
-
-use hyper::Client;
-use hyper::net::HttpsConnector;
-use hyper_openssl::OpensslClient;
-use goji::{Credentials, Jira};
+use self::goji::{Credentials, Jira};
 
 use std::env;
 
@@ -20,12 +13,7 @@ pub fn create_support_ticket() {
         )
     {
         let query = env::args().nth(1).unwrap();
-
-        let ssl = OpensslClient::new().unwrap();
-        let connector = HttpsConnector::new(ssl);
-        let client = Client::with_connector(connector);
-
-        let jira = Jira::new(host, Credentials::Basic(user, pass), &client);
+        let jira = Jira::new(host, Credentials::Basic(user, pass)).unwrap();
 
         let results = jira.search().list(query, &Default::default());
         for issue in results.unwrap().issues {
@@ -33,4 +21,3 @@ pub fn create_support_ticket() {
         }
     }
 }
-*/
