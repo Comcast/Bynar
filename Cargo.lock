@@ -3,7 +3,7 @@ name = "ceph_dead_disk"
 version = "0.1.0"
 dependencies = [
  "blkid 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "block-utils 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "block-utils 0.2.1 (git+https://github.com/cholcombe973/block-utils)",
  "ceph-rust 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.26.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "goji 0.1.1 (git+https://github.com/cholcombe973/goji)",
@@ -126,7 +126,7 @@ dependencies = [
 [[package]]
 name = "block-utils"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/cholcombe973/block-utils#e06eb369f5fd5f718f60125e2d17ae5bf0901aef"
 dependencies = [
  "libudev 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 0.1.80 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -297,7 +297,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "goji"
 version = "0.1.1"
-source = "git+https://github.com/cholcombe973/goji#555d20d095d2a6e5bbf2fadbfb395d28cc3ef2a8"
+source = "git+https://github.com/cholcombe973/goji#ddf03764bdc2da8388ab82f175cf93de33aade08"
 dependencies = [
  "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1260,7 +1260,7 @@ dependencies = [
 "checksum bitflags 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4efd02e230a02e18f92fc2735f44597385ed02ad8f831e7c1c1156ee5e1ab3a5"
 "checksum blkid 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "af278a587d4d3477f8c573d6cc083b240c3446666ea2ec0922a2f1c1d49e3c07"
 "checksum blkid-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "45476fdf8e19cfe48c4b4681b77a926ac7f44f5afbad326edd78fa131e514f2e"
-"checksum block-utils 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5596abff51c44c93d7ab700e18c7362373c9c001e1d4fde127998515465356d3"
+"checksum block-utils 0.2.1 (git+https://github.com/cholcombe973/block-utils)" = "<none>"
 "checksum byteorder 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ff81738b726f5d099632ceaffe7fb65b90212e8dce59d518729e7e8634032d3d"
 "checksum bytes 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "d828f97b58cc5de3e40c421d0cf2132d6b2da4ee0e11b8632fa838f0f9333ad6"
 "checksum ceph-rust 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)" = "6e7fa9b2cc885702a17089979686cd3ec50ae8fb3d763b869d006956c2d136a3"

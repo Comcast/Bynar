@@ -14,12 +14,13 @@ extern crate blkid;
 extern crate block_utils;
 extern crate log;
 
-use self::block_utils::{FilesystemType, RaidType};
+use self::block_utils::{get_mount_device, FilesystemType, RaidType};
 use self::blkid::BlkId;
 
+use std::fs::File;
 use std::io::{Error, ErrorKind};
-use std::io::Result;
-use std::path::PathBuf;
+use std::io::{Result, Write};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn run_checks(path: &PathBuf) -> Result<()> {
@@ -28,6 +29,17 @@ pub fn run_checks(path: &PathBuf) -> Result<()> {
     probe.do_probe()?;
     let filesystem_type = FilesystemType::from_str(&probe.lookup_value("TYPE")?);
     info!("Filesystem type: {:?}", filesystem_type);
+
+    let corrupted = match check_writable(path) {
+        Ok(_) => false,
+        Err(e) => {
+            //Should proceed to error checking now
+            error!("Error writing to disk: {:?}", e);
+            true
+        }
+    };
+    let device = get_mount_device(path)?;
+    //if corrupted {}
 
     // NOTE: filesystems should be unmounted before this is run
     match filesystem_type {
@@ -42,13 +54,14 @@ pub fn run_checks(path: &PathBuf) -> Result<()> {
             check_ext()?;
         }
         FilesystemType::Xfs => {
-            check_xfs()?;
+            check_xfs(&device.unwrap())?;
         }
         FilesystemType::Zfs => {}
         FilesystemType::Unknown => {
             return Err(Error::new(ErrorKind::Other, "Unknown filesystem detected"))
         }
     }
+    /*
     // 2. Run repair utility against it if available
     match filesystem_type {
         FilesystemType::Btrfs => {}
@@ -67,13 +80,24 @@ pub fn run_checks(path: &PathBuf) -> Result<()> {
         FilesystemType::Zfs => {}
         FilesystemType::Unknown => {}
     };
+    */
     Ok(())
 }
-fn check_xfs() -> Result<()> {
+
+fn check_writable(path: &Path) -> Result<()> {
+    debug!("Checking if {:?} is writable", path);
+    let mut file = File::create(format!("{}/check_disk", path.to_string_lossy()))?;
+    file.write_all(b"Hello, world!")?;
+    Ok(())
+}
+
+fn check_xfs(device: &Path) -> Result<()> {
     //Any output that is produced when xfs_check is not run in verbose mode
     //indicates that the filesystem has an inconsistency.
     debug!("Running xfs_repair -n to check for corruption");
-    let status = Command::new("xfs_repair").arg("-n").status()?;
+    let status = Command::new("xfs_repair")
+        .args(&vec!["-n", &device.to_string_lossy()])
+        .status()?;
     match status.code() {
         Some(code) => {
             match code {

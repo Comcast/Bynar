@@ -1,23 +1,32 @@
 extern crate goji;
-use self::goji::{Credentials, Jira};
+extern crate log;
 
-use std::env;
+use self::goji::{Credentials, Jira};
+use self::goji::issues::*;
 
 //TODO: This is just example code
-pub fn create_support_ticket() {
-    if let (Ok(host), Ok(user), Ok(pass)) =
-        (
-            env::var("JIRA_HOST"),
-            env::var("JIRA_USER"),
-            env::var("JIRA_PASS"),
-        )
-    {
-        let query = env::args().nth(1).unwrap();
-        let jira = Jira::new(host, Credentials::Basic(user, pass)).unwrap();
+pub fn create_support_ticket(
+    host: String,
+    user: String,
+    pass: String,
+    title: String,
+    description: String,
+) {
+    let issue_description = CreateIssue {
+        fields: Fields {
+            assignee: Assignee { name: user.clone() },
+            components: vec![Component { name: "Ceph".into() }],
+            description: description,
+            issuetype: IssueType { id: "3".into() },
+            reporter: Assignee { name: user.clone() },
+            priority: Priority { id: "4".into() },
+            project: Project { key: "PLATINF".into() },
+            summary: title,
+        },
+    };
+    let jira = Jira::new(host, Credentials::Basic(user, pass)).unwrap();
+    let issue = Issues::new(&jira);
 
-        let results = jira.search().list(query, &Default::default());
-        for issue in results.unwrap().issues {
-            println!("{:#?}", issue)
-        }
-    }
+    let results = issue.create(issue_description);
+    println!("Result: {:?}", results);
 }

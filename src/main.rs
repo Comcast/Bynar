@@ -4,6 +4,7 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
+#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate log;
@@ -22,9 +23,9 @@ use simplelog::{Config, SimpleLogger};
 use test_disk::run_checks;
 
 fn main() {
-    let matches = App::new("Ceph migration")
-        .version("0.1")
-        .author("Chris Holcombe <xfactor973@gmail.com>")
+    let matches = App::new("Ceph Disk Manager")
+        .version(crate_version!())
+        .author(crate_authors!())
         .about(
             "Detect dead hard drives, create a support ticket and watch for resolution",
         )
@@ -48,5 +49,5 @@ fn main() {
     let _ = SimpleLogger::init(level, Config::default());
 
     println!("Testing /dev/md0");
-    let f = run_checks(&PathBuf::from("/dev/md0")).unwrap();
+    let f = run_checks(&PathBuf::from("/var/lib/ceph/osd/ceph-72")).unwrap();
 }
