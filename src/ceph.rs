@@ -1,67 +1,125 @@
 extern crate blkid;
 extern crate ceph_rust;
+extern crate json;
+extern crate libc;
 
+use std::ffi::CString;
 use std::fs::create_dir;
 use std::path::Path;
 use std::process::Command;
 
+use self::libc::c_char;
 use self::blkid::BlkId;
 use self::ceph_rust::ceph::*;
 use self::ceph_rust::rados::rados_t;
+use self::json::JsonValue;
 
-fn run_ceph_command(cluster_handle: rados_t, name: &str, args: &Vec<&str>) -> Result<(), String> {
-    ceph_command(cluster_handle, "prefix", name, CephCommandTypes::Mon, args)
-        .map_err(|e| e.to_string())?;
-    Ok(())
+fn run_ceph_command(
+    cluster_handle: rados_t,
+    name: &str,
+    json_data: json::JsonValue,
+) -> Result<(Option<String>, Option<String>), String> {
+    let mut data: Vec<*mut c_char> = Vec::with_capacity(1);
+    let data_str = CString::new(json::stringify(json_data)).map_err(
+        |e| e.to_string(),
+    )?;
+    data.push(data_str.as_ptr() as *mut i8);
+
+    Ok(ceph_mon_command_with_data(
+        cluster_handle,
+        "prefix",
+        name,
+        None,
+        data,
+    ).map_err(|e| e.to_string())?)
 }
 
-fn osd_out(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "osd out", &args)?);
+fn osd_out(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "ids" => array![osd_id.to_string()]
+    };
+
+    Ok(run_ceph_command(cluster_handle, "osd out", id_data)?)
 }
 
-fn osd_crush_remove(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "osd crush remove", &args)?);
+fn osd_crush_remove(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "name" => osd_id.to_string()
+    };
+    Ok(run_ceph_command(
+        cluster_handle,
+        "osd crush remove",
+        id_data,
+    )?)
 }
 
-fn auth_del(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "auth del", &args)?);
+fn auth_del(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "entity" => osd_id.to_string()
+    };
+
+    Ok(run_ceph_command(cluster_handle, "auth del", id_data)?)
 }
 
-fn osd_rm(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "osd rm", &args)?);
+fn osd_rm(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "ids" => array![osd_id.to_string()]
+    };
+
+    Ok(run_ceph_command(cluster_handle, "osd rm", id_data)?)
+
 }
 
-fn osd_create(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "osd create", &args)?);
+fn osd_create(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "ids" => array![osd_id.to_string()]
+    };
+
+    Ok(run_ceph_command(cluster_handle, "osd create", id_data)?)
 }
 
-fn auth_add(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "auth add", &args)?);
+fn auth_add(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "ids" => array![osd_id.to_string()]
+    };
+
+    Ok(run_ceph_command(cluster_handle, "auth add", id_data)?)
 }
 
-fn osd_crush_add(cluster_handle: rados_t, osd_id: u64) -> Result<(), String> {
-    let id = osd_id.to_string();
-    let mut args: Vec<&str> = Vec::new();
-    args.push(&id);
-    return Ok(run_ceph_command(cluster_handle, "osd crush add", &args)?);
+fn osd_crush_add(
+    cluster_handle: rados_t,
+    osd_id: u64,
+) -> Result<(Option<String>, Option<String>), String> {
+    let id_data =
+        object!{
+        "ids" => array![osd_id.to_string()]
+    };
+
+    Ok(run_ceph_command(cluster_handle, "osd crush add", id_data)?)
 }
 
 pub fn remove_osd(path: &Path) -> Result<(), String> {

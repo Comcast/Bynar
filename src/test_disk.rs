@@ -14,7 +14,7 @@ extern crate blkid;
 extern crate block_utils;
 extern crate log;
 
-use self::block_utils::{get_mount_device, FilesystemType, RaidType};
+use self::block_utils::{get_mount_device, FilesystemType, is_mounted, RaidType};
 use self::blkid::BlkId;
 
 use std::fs::File;
@@ -26,9 +26,9 @@ use std::process::Command;
 pub fn run_checks(path: &PathBuf) -> Result<()> {
     debug!("Probing device with blkid");
     let probe = BlkId::new(&path)?;
-    probe.do_probe()?;
-    let filesystem_type = FilesystemType::from_str(&probe.lookup_value("TYPE")?);
-    info!("Filesystem type: {:?}", filesystem_type);
+    //probe.do_probe()?;
+    //let filesystem_type = FilesystemType::from_str(&probe.lookup_value("TYPE")?);
+    //info!("Filesystem type: {:?}", filesystem_type);
 
     let corrupted = match check_writable(path) {
         Ok(_) => false,
@@ -38,10 +38,29 @@ pub fn run_checks(path: &PathBuf) -> Result<()> {
             true
         }
     };
-    let device = get_mount_device(path)?;
+    match is_mounted(path) {
+        Ok(o) => {
+            info!("Device is mounted: {}", o);
+        }
+        Err(e) => {
+            error!("Unable to determine if device is mounted.  {:?}", e);
+        }
+    };
+    info!("Geting device mounted at {:?}", path);
+    let device = get_mount_device(path)?.unwrap();
+    debug!("device mounted at: {:?}", device);
+    let exists = Path::new(&device).exists();
+    debug!("Checking if device exists: {:?}", exists);
+    if exists {
+        check_xfs(&device)?;
+    } else {
+        debug!("Block device does not exist.  Cannot check any further");
+        return Ok(());
+    }
     //if corrupted {}
 
     // NOTE: filesystems should be unmounted before this is run
+    /*
     match filesystem_type {
         FilesystemType::Btrfs => {}
         FilesystemType::Ext2 => {
@@ -61,6 +80,7 @@ pub fn run_checks(path: &PathBuf) -> Result<()> {
             return Err(Error::new(ErrorKind::Other, "Unknown filesystem detected"))
         }
     }
+    */
     /*
     // 2. Run repair utility against it if available
     match filesystem_type {

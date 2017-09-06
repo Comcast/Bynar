@@ -7,6 +7,8 @@
 #[macro_use]
 extern crate clap;
 #[macro_use]
+extern crate json;
+#[macro_use]
 extern crate log;
 extern crate simplelog;
 
@@ -48,6 +50,12 @@ fn main() {
     };
     let _ = SimpleLogger::init(level, Config::default());
 
-    println!("Testing /dev/md0");
-    let f = run_checks(&PathBuf::from("/var/lib/ceph/osd/ceph-72")).unwrap();
+    println!("Testing /var/lib/ceph/osd/ceph-72");
+    let f = match run_checks(&PathBuf::from("/var/lib/ceph/osd/ceph-72")) {
+        Ok(o) => o,
+        Err(e) => {
+            println!("run_checks failed: {:?}", e);
+        }
+    };
+    host_information::server_serial().unwrap();
 }
