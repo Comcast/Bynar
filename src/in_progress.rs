@@ -17,6 +17,7 @@ pub struct DiskRepairTicket {
 
 pub fn create_repair_database(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
+    debug!("Opening or creating repairs table if needed");
     conn.execute(
         "CREATE TABLE if not exists repairs (
                   id              INTEGER PRIMARY KEY,
@@ -40,6 +41,7 @@ pub fn record_new_repair_ticket(
         time_created: time::get_time(),
         disk_path: disk_path.to_string_lossy().into_owned(),
     };
+    debug!("Recording new repair ticket: {:?}", ticket);
     conn.execute(
         "INSERT INTO repairs (ticket_id, time_created, disk_path)
                   VALUES (?1, ?2, ?3)",

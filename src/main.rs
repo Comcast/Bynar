@@ -7,7 +7,7 @@
 #[macro_use]
 extern crate clap;
 #[macro_use]
-extern crate json;
+extern crate serde_json;
 #[macro_use]
 extern crate log;
 extern crate simplelog;

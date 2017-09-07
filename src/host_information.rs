@@ -82,14 +82,16 @@ pub fn server_serial() -> Result<String> {
     ))
 }
 
-pub fn raid_info(dev: &Path) -> Result<()> {
+//TODO: smp-utils has a lot of use information about how to interface with sas enclosures
+// http://sg.danny.cz/sg/smp_utils.html#mozTocId356346
+fn raid_info(dev: &Path) -> Result<()> {
     let info = block_utils::get_raid_info().unwrap();
     println!("raid info: {:?}", info);
     Ok(())
 }
 
 /// Given a disk find out what chassis position this disk is located at
-pub fn disk_position(dev: &Path, raid_type: RaidType) -> Result<String> {
+fn disk_position(dev: &Path, raid_type: RaidType) -> Result<String> {
     //
     Ok("".into())
 }

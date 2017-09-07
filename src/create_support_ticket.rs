@@ -1,19 +1,20 @@
-extern crate chrono;
 extern crate goji;
 extern crate log;
+extern crate serde_json;
 
-use self::chrono::DateTime;
 use self::goji::{Credentials, Jira};
+use self::goji::Error as GojiError;
 use self::goji::issues::*;
+use self::serde_json::value::Value;
 
-//TODO: This is just example code
+/// Create a new JIRA support ticket and return the ticket ID associated with it
 pub fn create_support_ticket(
     host: String,
     user: String,
     pass: String,
     title: String,
     description: String,
-) -> Result<(), String> {
+) -> Result<String, GojiError> {
     let issue_description = CreateIssue {
         fields: Fields {
             assignee: Assignee { name: user.clone() },
@@ -26,35 +27,39 @@ pub fn create_support_ticket(
             summary: title,
         },
     };
-    let jira = Jira::new(host, Credentials::Basic(user, pass)).map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
+    let jira = Jira::new(host, Credentials::Basic(user, pass))?;
     let issue = Issues::new(&jira);
 
-    let results = issue.create(issue_description);
-    println!("Result: {:?}", results);
+    debug!(
+        "Creating JIRA ticket with information: {:?}",
+        issue_description
+    );
+    let results = issue.create(issue_description)?;
+    Ok(results.id)
 }
 
+/// Check to see if a JIRA support ticket is marked as resolved
 pub fn ticket_resolved(
     host: String,
     user: String,
     pass: String,
     issue_id: String,
-) -> Result<Option<DateTime>, String> {
-    let jira = Jira::new(host, Credentials::Basic(user, pass)).map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
+) -> Result<bool, GojiError> {
+    let jira = Jira::new(host, Credentials::Basic(user, pass))?;
     let issue = Issues::new(&jira);
-
-    let results = issue.get(issue_id).unwrap();
-    let resolved_date = results.fields.get("resolutiondate").unwrap();
-
-    let date_str = resolved_date.as_str().unwrap().to_string();
-    let date_time = DateTime::parse_from_str(&date_str, "%Y-%m-%dT%T%.3f%z")
-        .map_err(|e| e.to_string())?;
-    Ok(date_time_str)
+    debug!("Fetching issue: {} for resolution information", issue_id);
+    let results = issue.get(issue_id)?;
+    match results.fields.get("resolutiondate") {
+        Some(v) => {
+            match v {
+                //resolutiondate is null
+                &Value::Null => Ok(false),
+                //resolutiondate is set.
+                &Value::String(_) => Ok(true),
+                _ => Ok(false),
+            }
+        }
+        //resolutiondate doesn't exist
+        None => Ok(false),
+    }
 }

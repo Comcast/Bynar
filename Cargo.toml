@@ -7,7 +7,6 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 blkid = "*"
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 ceph-rust = "*"
-chrono = "*"
 clap = "*"
 dmi = {path = "/home/chris/repos/dmi"}
 goji = {git = "https://github.com/cholcombe973/goji"}
@@ -15,5 +14,7 @@ json = "*"
 libc = "*"
 log = "*"
 rusqlite = "*"
+serde_json = "*"
 simplelog = "*"
 time = "*"
+uuid = "*"
