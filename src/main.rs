@@ -50,12 +50,16 @@ fn main() {
     };
     let _ = SimpleLogger::init(level, Config::default());
 
-    println!("Testing /var/lib/ceph/osd/ceph-72");
-    let f = match run_checks(&PathBuf::from("/var/lib/ceph/osd/ceph-72")) {
+    println!("Testing /var/lib/ceph/osd/ceph-0");
+    /*
+    let f = match run_checks(&PathBuf::from("/var/lib/ceph/osd/ceph-0")) {
         Ok(o) => o,
         Err(e) => {
             println!("run_checks failed: {:?}", e);
         }
     };
-    host_information::server_serial().unwrap();
+    */
+    let remove_result = ceph::remove_osd(::std::path::Path::new("/var/lib/ceph/osd/ceph-0"));
+    println!("Remove osd result: {:?}", remove_result);
+    println!("Host information: {:?}", host_information::server_serial());
 }
