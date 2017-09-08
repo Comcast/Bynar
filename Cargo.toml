@@ -9,6 +9,7 @@ block-utils = {path = "/home/chris/repos/block-utils"}
 ceph-rust = {path = "/home/chris/repos/ceph-rust"}
 clap = "*"
 dmi = {path = "/home/chris/repos/dmi"}
+fstab = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
 json = "*"
 libc = "*"
