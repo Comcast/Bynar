@@ -59,7 +59,7 @@ fn main() {
         }
     };
     */
-    let remove_result = ceph::remove_osd(::std::path::Path::new("/var/lib/ceph/osd/ceph-0"));
-    println!("Remove osd result: {:?}", remove_result);
+    //let remove_result = ceph::remove_osd(::std::path::Path::new("/var/lib/ceph/osd/ceph-0"));
+    //println!("Remove osd result: {:?}", remove_result);
     println!("Host information: {:?}", host_information::server_serial());
 }

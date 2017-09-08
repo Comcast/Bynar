@@ -5,7 +5,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 blkid = "*"
-block-utils = {git = "https://github.com/cholcombe973/block-utils"}
+block-utils = {path = "/home/chris/repos/block-utils"}
 ceph-rust = {path = "/home/chris/repos/ceph-rust"}
 clap = "*"
 dmi = {path = "/home/chris/repos/dmi"}
