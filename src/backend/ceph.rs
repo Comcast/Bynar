@@ -6,21 +6,93 @@ extern crate libc;
 extern crate serde_json;
 extern crate uuid;
 
+use std::env::home_dir;
 use std::ffi::CString;
 use std::fs::{create_dir, File};
-use std::io::{Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::io::Result as IOResult;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
+use backend::Backend;
+
 use self::blkid::BlkId;
-use self::ceph_rust::ceph::{connect_to_ceph, ceph_mon_command_without_data};
+use self::ceph_rust::ceph::{connect_to_ceph, ceph_mon_command_without_data, disconnect_from_ceph};
 use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
 use self::libc::c_char;
 use self::serde_json::Value;
-use super::host_information::hostname;
+use super::super::host_information::hostname;
+
+/// Ceph cluster
+pub struct CephBackend {
+    cluster_handle: rados_t,
+}
+
+#[derive(Deserialize, Debug)]
+struct CephConfig {
+    /// The location of the ceph.conf file
+    config_file: String,
+    /// The cephx user to connect to the Ceph service with
+    user_id: String,
+}
+
+impl CephBackend {
+    pub fn new(config_dir: Option<&Path>) -> IOResult<CephBackend> {
+        let ceph_config: CephConfig = match config_dir {
+            Some(config) => {
+                info!(
+                    "Reading ceph config file: {}/{}",
+                    config.display(),
+                    "ceph.json"
+                );
+                let mut f = File::open(config.join("ceph.json"))?;
+                let mut s = String::new();
+                f.read_to_string(&mut s)?;
+
+                let deserialized: CephConfig = serde_json::from_str(&s)?;
+                deserialized
+            }
+            None => {
+                info!(
+                    "Reading ceph config file: {}/{}",
+                    home_dir().unwrap().to_string_lossy(),
+                    ".config/ceph.json"
+                );
+                let mut f = File::open(format!(
+                    "{}/{}",
+                    home_dir().unwrap().to_string_lossy(),
+                    ".config/ceph.json"
+                ))?;
+                let mut s = String::new();
+                f.read_to_string(&mut s)?;
+
+                let deserialized: CephConfig = serde_json::from_str(&s)?;
+                deserialized
+            }
+        };
+        info!("Connecting to Ceph");
+        let cluster_handle = connect_to_ceph(&ceph_config.user_id, &ceph_config.config_file)
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        info!("Connected to ceph");
+        Ok(CephBackend { cluster_handle: cluster_handle })
+    }
+}
+impl Drop for CephBackend {
+    fn drop(&mut self) {
+        disconnect_from_ceph(self.cluster_handle);
+    }
+}
+
+impl Backend for CephBackend {
+    fn add_disk(&self, device: &Path) -> IOResult<()> {
+        Ok(())
+    }
+    fn remove_disk(&self, device: &Path) -> IOResult<()> {
+        Ok(())
+    }
+}
 
 fn osd_out(
     cluster_handle: rados_t,

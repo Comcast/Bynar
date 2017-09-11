@@ -14,8 +14,8 @@ extern crate blkid;
 extern crate block_utils;
 extern crate log;
 
-use self::block_utils::{get_mount_device, FilesystemType, is_mounted, RaidType};
-use self::blkid::BlkId;
+use self::block_utils::{Device, get_block_devices, get_mount_device, get_mountpoint,
+                        FilesystemType, is_mounted, MediaType, RaidType};
 
 use std::fs::File;
 use std::io::{Error, ErrorKind};
@@ -23,85 +23,111 @@ use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn run_checks(path: &PathBuf) -> Result<()> {
-    debug!("Probing device with blkid");
-    let probe = BlkId::new(&path)?;
-    //probe.do_probe()?;
-    //let filesystem_type = FilesystemType::from_str(&probe.lookup_value("TYPE")?);
-    //info!("Filesystem type: {:?}", filesystem_type);
+/// After a disk is checked this Status is returned
+#[derive(Debug)]
+pub struct Status {
+    /// Disk was corrupted
+    pub corrupted: bool,
+    /// This was able to repair it
+    pub repaired: bool,
+    /// Disk that was operated on
+    pub device: Device,
+    /// Osd that was operated on
+    pub mount_path: PathBuf,
+}
 
-    let corrupted = match check_writable(path) {
-        Ok(_) => false,
-        Err(e) => {
-            //Should proceed to error checking now
-            error!("Error writing to disk: {:?}", e);
-            true
-        }
-    };
-    match is_mounted(path) {
-        Ok(o) => {
-            info!("Device is mounted: {}", o);
-        }
-        Err(e) => {
-            error!("Unable to determine if device is mounted.  {:?}", e);
-        }
-    };
-    info!("Geting device mounted at {:?}", path);
-    let device = get_mount_device(path)?.unwrap();
-    debug!("device mounted at: {:?}", device);
-    let exists = Path::new(&device).exists();
-    debug!("Checking if device exists: {:?}", exists);
-    if exists {
-        check_xfs(&device)?;
-    } else {
-        debug!("Block device does not exist.  Cannot check any further");
-        return Ok(());
-    }
-    //if corrupted {}
+pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
+    let mut results: Vec<Result<Status>> = Vec::new();
+    let devices = block_utils::get_block_devices().map_err(|e| {
+        Error::new(ErrorKind::Other, e)
+    })?;
 
-    // NOTE: filesystems should be unmounted before this is run
-    /*
-    match filesystem_type {
-        FilesystemType::Btrfs => {}
-        FilesystemType::Ext2 => {
-            check_ext()?;
-        }
-        FilesystemType::Ext3 => {
-            check_ext()?;
-        }
-        FilesystemType::Ext4 => {
-            check_ext()?;
-        }
-        FilesystemType::Xfs => {
-            check_xfs(&device.unwrap())?;
-        }
-        FilesystemType::Zfs => {}
-        FilesystemType::Unknown => {
-            return Err(Error::new(ErrorKind::Other, "Unknown filesystem detected"))
-        }
+    // Gather info on all devices and skip Loopback devices
+    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
+        .map_err(|e| Error::new(ErrorKind::Other, e))?
+        .into_iter()
+        .filter(|d| !(d.media_type == MediaType::Loopback))
+        .collect();
+
+    for device in device_info {
+        results.push(run_checks(&device));
     }
-    */
-    /*
-    // 2. Run repair utility against it if available
-    match filesystem_type {
-        FilesystemType::Btrfs => {}
-        FilesystemType::Ext2 => {
-            repair_ext()?;
-        }
-        FilesystemType::Ext3 => {
-            repair_ext()?;
-        }
-        FilesystemType::Ext4 => {
-            repair_ext()?;
-        }
-        FilesystemType::Xfs => {
-            repair_xfs()?;
-        }
-        FilesystemType::Zfs => {}
-        FilesystemType::Unknown => {}
+    Ok(results)
+}
+
+fn run_checks(device_info: &Device) -> Result<Status> {
+    let mut disk_status = Status {
+        corrupted: false,
+        repaired: false,
+        device: device_info.clone(),
+        mount_path: PathBuf::from(""),
     };
-    */
-    Ok(())
+    let dev_path = format!("/dev/{}", device_info.name);
+    let device = Path::new(&dev_path);
+    match get_mountpoint(&device) {
+        Ok(mount_info) => {
+            match mount_info {
+                Some(s) => {
+                    // mounted at s
+                    info!("Device is mounted at: {:?}", s);
+                    debug!("Checking if device exists: {:?}", device);
+                    match device.exists() {
+                        true => {
+                            debug!("udev Probing device {:?}", device);
+                            let info = block_utils::get_device_info(&device).map_err(|e| {
+                                Error::new(ErrorKind::Other, e)
+                            })?;
+
+                            let corrupted = match check_writable(&s) {
+                                Ok(_) => false,
+                                Err(e) => {
+                                    //Should proceed to error checking now
+                                    error!("Error writing to disk: {:?}", e);
+                                    disk_status.corrupted = true;
+                                    true
+                                }
+                            };
+                            if corrupted {
+                                check_filesystem(&info.fs_type, &device);
+                                repair_filesystem(&info.fs_type, &device);
+                            }
+                        }
+                        false => {
+                            // OSD is mounted but disk device does not exist.  Did someone
+                            // pull the disk?
+                        }
+                    };
+                }
+                None => {
+                    // It's not mounted.  Lets run an check/repair on it
+                }
+            };
+        }
+        Err(e) => {
+            error!("Failed to determine if device is mounted.  {:?}", e);
+        }
+    };
+    Ok(disk_status)
+}
+
+fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()> {
+    match filesystem_type {
+        &FilesystemType::Ext2 => Ok(check_ext(device)?),
+        &FilesystemType::Ext3 => Ok(check_ext(device)?),
+        &FilesystemType::Ext4 => Ok(check_ext(device)?),
+        &FilesystemType::Xfs => Ok(check_xfs(device)?),
+        _ => Err(Error::new(ErrorKind::Other, "Unknown filesystem detected")),
+    }
+}
+
+fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()> {
+    match filesystem_type {
+        &FilesystemType::Ext2 => Ok(repair_ext(device)?),
+        &FilesystemType::Ext3 => Ok(repair_ext(device)?),
+        &FilesystemType::Ext4 => Ok(repair_ext(device)?),
+        &FilesystemType::Xfs => Ok(repair_xfs(device)?),
+        _ => Err(Error::new(ErrorKind::Other, "Unknown filesystem detected")),
+    }
 }
 
 fn check_writable(path: &Path) -> Result<()> {
@@ -141,7 +167,8 @@ fn check_xfs(device: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn repair_xfs() -> Result<()> {
+
+fn repair_xfs(device: &Path) -> Result<()> {
     debug!("Running xfs_repair");
     let status = Command::new("xfs_repair").status()?;
     match status.code() {
@@ -160,7 +187,8 @@ fn repair_xfs() -> Result<()> {
         }
     };
 }
-fn check_ext() -> Result<()> {
+
+fn check_ext(device: &Path) -> Result<()> {
     debug!("running e2fsck -n to check for errors");
     let status = Command::new("e2fsck").arg("-n").status()?;
     match status.code() {
@@ -193,7 +221,7 @@ fn check_ext() -> Result<()> {
     }
 }
 
-fn repair_ext() -> Result<()> {
+fn repair_ext(device: &Path) -> Result<()> {
     //Run a noninteractive fix.  This will exit with return code 4
     //if it needs human intervention.
     debug!("running e2fsck -p for noninteractive repair");

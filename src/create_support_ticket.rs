@@ -9,25 +9,28 @@ use self::serde_json::value::Value;
 
 /// Create a new JIRA support ticket and return the ticket ID associated with it
 pub fn create_support_ticket(
-    host: String,
-    user: String,
-    pass: String,
-    title: String,
-    description: String,
+    host: &str,
+    user: &str,
+    pass: &str,
+    title: &str,
+    description: &str,
 ) -> Result<String, GojiError> {
     let issue_description = CreateIssue {
         fields: Fields {
-            assignee: Assignee { name: user.clone() },
+            assignee: Assignee { name: user.to_string() },
             components: vec![Component { name: "Ceph".into() }],
-            description: description,
+            description: description.into(),
             issuetype: IssueType { id: "3".into() },
-            reporter: Assignee { name: user.clone() },
+            reporter: Assignee { name: user.to_string() },
             priority: Priority { id: "4".into() },
             project: Project { key: "PLATINF".into() },
-            summary: title,
+            summary: title.into(),
         },
     };
-    let jira = Jira::new(host, Credentials::Basic(user, pass))?;
+    let jira: Jira = Jira::new(
+        host.to_string(),
+        Credentials::Basic(user.into(), pass.into()),
+    )?;
     let issue = Issues::new(&jira);
 
     debug!(
@@ -40,12 +43,15 @@ pub fn create_support_ticket(
 
 /// Check to see if a JIRA support ticket is marked as resolved
 pub fn ticket_resolved(
-    host: String,
-    user: String,
-    pass: String,
-    issue_id: String,
+    host: &str,
+    user: &str,
+    pass: &str,
+    issue_id: &str,
 ) -> Result<bool, GojiError> {
-    let jira = Jira::new(host, Credentials::Basic(user, pass))?;
+    let jira: Jira = Jira::new(
+        host.to_string(),
+        Credentials::Basic(user.into(), pass.into()),
+    )?;
     let issue = Issues::new(&jira);
     debug!("Fetching issue: {} for resolution information", issue_id);
     let results = issue.get(issue_id)?;
