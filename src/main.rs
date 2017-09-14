@@ -87,13 +87,13 @@ Server Serial: {}
                     let _ = backend
                         .remove_disk(&Path::new(&format!("/dev/{}", status.device.name)))
                         .map_err(|e| e.to_string())?;
-                    create_support_ticket(
+                    let _ = create_support_ticket(
                         &config.jira_host,
                         &config.jira_user,
                         &config.jira_password,
                         "Dead disk",
                         &description,
-                    );
+                    ).map_err(|e| format!("{:?}", e))?;
                 }
             }
             Err(e) => {
@@ -121,19 +121,14 @@ fn add_repaired_disks(config_dir: &str) -> Result<(), String> {
         },
     )?;
     for ticket in tickets {
-        let resolved = match ticket_resolved(
+        let resolved = ticket_resolved(
             &config.jira_host,
             &config.jira_user,
             &config.jira_password,
             &ticket.id.to_string(),
-        ) {
-            Ok(o) => o,
-            Err(e) => {
-                return Err(format!("ticket_resolved failed with error: {:?}", e));
-            }
-        };
+        ).map_err(|e| e.to_string())?;
         if resolved {
-            backend.add_disk(&Path::new(&ticket.disk_path));
+            let _ = backend.add_disk(&Path::new(&ticket.disk_path)).map_err(|e| e.to_string())?;
         }
     }
     Ok(())

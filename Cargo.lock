@@ -312,7 +312,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "goji"
 version = "0.1.1"
-source = "git+https://github.com/cholcombe973/goji#cd8995c4e4ec4585d90dcca10b9ab25e3435df49"
+source = "git+https://github.com/cholcombe973/goji#a8843d3c161607b77753f363c1cebcc2ab367620"
 dependencies = [
  "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
