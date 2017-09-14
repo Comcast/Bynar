@@ -1,0 +1,63 @@
+syntax = "proto2";
+option optimize_for = SPEED;
+
+package ceph_disk;
+
+message Osd {
+  required string fsid = 1;
+  required uint64 id = 2;
+  optional string block_device = 3;
+  // Active or spare
+  required bool active = 4;
+
+  // Usage details
+  required uint64 used_space = 5;
+  required uint64 total_space = 6;
+}
+
+message RepairResponse{
+  required bool corrupted = 0;
+  required bool repaired = 1;
+  required bool in_progress = 2;
+  required string tracking_ticket_id = 3;
+  required Disk disk = 4;
+  optional string mount_path = 5;
+}
+
+message Disk{
+  required Type type = 1;
+  required string dev_path = 2; 
+  optional string serial_number = 3;
+  
+  enum Type {
+    SOLID_STATE = 0;
+    ROTATIONAL = 1;
+  }
+}
+
+message Disks {
+  repeated Disk disk = 1;
+}
+
+message Result{
+  OK = 0;
+  ERR = 1;
+  optional string error_msg = 2;
+}
+
+service CephDiskService {
+  // Check a disk and repair if needed
+  rpc CheckDisk(Disk) returns (RepairResponse);
+
+  // Add a disk back into the cluster
+  rpc AddDisk(Disk) returns (Result);
+
+  // Remove a disk from the cluster
+  rpc RemoveDisk(Disk) returns (Result);
+
+  // List all the block devices on the machine
+  rpc ListDisks() returns (Disks);
+}
+
+
+
