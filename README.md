@@ -25,3 +25,10 @@ information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it. F
  "jira_host": "https://tickets.jira.com",
 }
 ```
+
+## TODO: 
+- [ ] LSI Raid integration
+- [ ] HP Raid integration
+- [ ] NVME integration
+- [ ] libatasmart integration
+- [ ] raid slot detection
