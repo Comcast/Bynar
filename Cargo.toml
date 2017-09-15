@@ -12,6 +12,7 @@ dmi = {path = "/home/chris/repos/dmi"}
 fstab = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
 json = "*"
+libatasmart = "*"
 libc = "*"
 log = "*"
 protobuf = "*"
