@@ -10,8 +10,9 @@
 //!is_disk_writable            +------>is_mounted      |   +----->repair_disk
 //!       + yes                              + yes     +
 //!       +----->disk_is_ok                  +---->unmoun
-extern crate blkid;
+//extern crate blkid;
 extern crate block_utils;
+extern crate libatasmart;
 extern crate log;
 
 use self::block_utils::{Device, get_block_devices, get_mount_device, get_mountpoint,
@@ -252,4 +253,15 @@ fn repair_ext(device: &Path) -> Result<()> {
             ))
         }
     }
+}
+
+// Run smart checks against the disk
+fn run_smart_checks(device: &Path) -> Result<bool> {
+    let mut smart = libatasmart::Disk::new(device).map_err(|e| {
+        Error::new(ErrorKind::Other, e)
+    })?;
+    let status = smart.get_smart_status().map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
+    Ok(status)
 }

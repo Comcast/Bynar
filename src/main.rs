@@ -27,7 +27,7 @@ use std::path::Path;
 
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use clap::{Arg, App};
-use host_information::{hostname, server_serial, server_type};
+use host_information::Host;
 use simplelog::{Config, SimpleLogger};
 
 #[derive(Debug, Deserialize)]
@@ -58,20 +58,21 @@ fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
 fn check_for_failed_disks(config_dir: &str) -> Result<(), String> {
     let config = load_config(config_dir)?;
     //Host information to use in ticket creation
-    let s_hostname = hostname().map_err(|e| e.to_string())?;
-    let s_serial = server_serial().map_err(|e| e.to_string())?;
-    let s_type = server_type().map_err(|e| e.to_string())?;
+    let host_info = Host::new().map_err(|e| e.to_string())?;
     let mut description = format!(
-        r#"A disk on {} failed. Please investigate.
-Details:
-Hostname: {}
-Server type: {}
-Server Serial: {}
-"#,
-        s_hostname,
-        s_hostname,
-        s_type,
-        s_serial
+        " disk on {} failed. Please investigate.
+Details: Disk {} as failed.  Please replace if necessary",
+        host_info.hostname,
+        ""
+    );
+    let mut environment =
+        format!(
+        "Hostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
+        host_info.hostname,
+        host_info.server_type,
+        host_info.serial_number,
+        host_info.machine_architecture,
+        host_info.kernel,
     );
 
 
@@ -93,6 +94,7 @@ Server Serial: {}
                         &config.jira_password,
                         "Dead disk",
                         &description,
+                        &environment,
                     ).map_err(|e| format!("{:?}", e))?;
                 }
             }
@@ -128,7 +130,11 @@ fn add_repaired_disks(config_dir: &str) -> Result<(), String> {
             &ticket.id.to_string(),
         ).map_err(|e| e.to_string())?;
         if resolved {
-            let _ = backend.add_disk(&Path::new(&ticket.disk_path)).map_err(|e| e.to_string())?;
+            let _ = backend.add_disk(&Path::new(&ticket.disk_path)).map_err(
+                |e| {
+                    e.to_string()
+                },
+            )?;
         }
     }
     Ok(())

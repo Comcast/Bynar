@@ -23,10 +23,11 @@ information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it. F
  "jira_user": "test_user",
  "jira_password": "user_password",
  "jira_host": "https://tickets.jira.com",
+ "jira_ticket_assignee": "username",
 }
 ```
 
-## TODO: 
+## TODO:
 - [ ] LSI Raid integration
 - [ ] HP Raid integration
 - [ ] NVME integration

@@ -6,6 +6,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 [dependencies]
 blkid = "*"
 block-utils = {path = "/home/chris/repos/block-utils"}
+ceph-safe-disk = {path = "/home/chris/repos/ceph_safe_disk"}
 ceph-rust = {path = "/home/chris/repos/ceph-rust"}
 clap = "*"
 dmi = {path = "/home/chris/repos/dmi"}
@@ -15,6 +16,7 @@ json = "*"
 libatasmart = "*"
 libc = "*"
 log = "*"
+mktemp = "*"
 protobuf = "*"
 rusqlite = "*"
 serde = "*"
@@ -22,4 +24,5 @@ serde_derive = "*"
 serde_json = "*"
 simplelog = "*"
 time = "*"
+uname = "*"
 uuid = "*"

@@ -1,8 +1,10 @@
 extern crate blkid;
 extern crate block_utils;
 extern crate ceph_rust;
+extern crate ceph_safe_disk;
 extern crate fstab;
 extern crate libc;
+extern crate mktemp;
 extern crate serde_json;
 extern crate uuid;
 
@@ -22,8 +24,9 @@ use self::ceph_rust::ceph::{connect_to_ceph, ceph_mon_command_without_data, disc
 use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
 use self::libc::c_char;
+use self::mktemp::Temp;
 use self::serde_json::Value;
-use super::super::host_information::hostname;
+use super::super::host_information::Host;
 
 /// Ceph cluster
 pub struct CephBackend {
@@ -78,6 +81,105 @@ impl CephBackend {
         info!("Connected to ceph");
         Ok(CephBackend { cluster_handle: cluster_handle })
     }
+
+    /// Add a new /dev/ path as an osd.
+    fn add_osd(&self, dev_path: &Path) -> Result<(), String> {
+        //Format the drive
+        let xfs_options = block_utils::Filesystem::Xfs {
+            stripe_size: None,
+            stripe_width: None,
+            block_size: None,
+            inode_size: Some(2048),
+            force: true,
+        };
+        debug!(
+            "Formatting {:?} with XFS options: {:?}",
+            dev_path,
+            xfs_options
+        );
+        block_utils::format_block_device(dev_path, &xfs_options)?;
+
+        // Probe the drive
+        debug!("udev Probing device {:?}", dev_path);
+        let info = block_utils::get_device_info(dev_path)?;
+        debug!("udev info {:?}", info);
+        if info.id.is_none() {
+            return Err(format!(
+                "Formatted device {:?} doesn't have a filesystem UUID.  Please investigate",
+                dev_path
+            ));
+        }
+
+        // Create a new osd id
+        let new_osd_id = osd_create(self.cluster_handle, info.id.unwrap())?;
+        debug!("New osd id created: {}", new_osd_id);
+
+        // Mount the drive
+        let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id);
+        create_dir(&mount_point).map_err(|e| e.to_string())?;
+        block_utils::mount_device(&info, &mount_point)?;
+
+        // Format the osd with the osd filesystem
+        debug!("Running ceph-osd --mkfs");
+        Command::new("ceph-osd")
+            .args(&["-i", &new_osd_id.to_string(), "--mkfs", "mkkey"])
+            .output()
+            .expect("Failed to run ceph-osd mkfs");
+        debug!("Creating ceph authorization entry");
+        auth_add(self.cluster_handle, new_osd_id)?;
+        let auth_key = auth_get_key(self.cluster_handle, new_osd_id)?;
+        debug!("Saving ceph keyring");
+        save_keyring(new_osd_id, &auth_key).map_err(
+            |e| e.to_string(),
+        )?;
+        let host_info = Host::new().map_err(|e| e.to_string())?;
+        debug!(
+            "Adding OSD {} to crushmap under host {}",
+            new_osd_id,
+            host_info.hostname
+        );
+        osd_crush_add(
+            self.cluster_handle,
+            new_osd_id,
+            0.00_f64,
+            &host_info.hostname,
+        )?;
+        add_osd_to_fstab(&info, new_osd_id)?;
+        // This step depends on whether it's systemctl, upstart, etc
+        // sudo start ceph-osd id={osd-num}
+        Ok(())
+    }
+
+    fn remove_osd(&self, dev_path: &Path) -> Result<(), String> {
+        //If the OSD is still running we can query its version.  If not then we
+        //should ask either another OSD or a monitor.
+        let mount_point = match block_utils::get_mount_device(&dev_path).map_err(
+            |e| e.to_string(),
+        )? {
+            Some(osd_path) => osd_path,
+            None => {
+                let temp_dir = Temp::new_dir().map_err(|e| e.to_string())?;
+                temp_dir.to_path_buf()
+            }
+        };
+        debug!("OSD mounted at: {:?}", mount_point);
+
+        let osd_id = get_osd_id(&mount_point)?;
+        debug!("Setting osd {} out", osd_id);
+        osd_out(self.cluster_handle, osd_id)?;
+        debug!("Removing osd {} from crush", osd_id);
+        osd_crush_remove(self.cluster_handle, osd_id)?;
+        debug!("Deleting osd {} auth key", osd_id);
+        auth_del(self.cluster_handle, osd_id)?;
+        debug!("Removing osd {}", osd_id);
+        osd_rm(self.cluster_handle, osd_id)?;
+
+        // Wipe the disk
+        debug!("Erasing disk {:?}", dev_path);
+        block_utils::erase_block_device(&dev_path)?;
+
+        Ok(())
+    }
 }
 impl Drop for CephBackend {
     fn drop(&mut self) {
@@ -87,9 +189,15 @@ impl Drop for CephBackend {
 
 impl Backend for CephBackend {
     fn add_disk(&self, device: &Path) -> IOResult<()> {
+        self.add_osd(device).map_err(
+            |e| Error::new(ErrorKind::Other, e),
+        )?;
         Ok(())
     }
     fn remove_disk(&self, device: &Path) -> IOResult<()> {
+        self.remove_osd(device).map_err(
+            |e| Error::new(ErrorKind::Other, e),
+        )?;
         Ok(())
     }
 }
@@ -299,45 +407,6 @@ fn add_osd_to_fstab(device_info: &block_utils::Device, osd_id: u64) -> Result<()
     Ok(())
 }
 
-pub fn remove_osd(path: &Path) -> Result<(), String> {
-    //If the OSD is still running we can query its version.  If not then we
-    //should ask either another OSD or a monitor.
-
-    //let version = ceph_version("/var/lib/ceph/osd/xx");
-    //println!("ceph_version: {:?}", version);
-    let cluster_handle = connect_to_ceph("admin", "/etc/ceph/ceph.conf").map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
-    let osd_id = get_osd_id(path)?;
-    debug!("Setting osd {} out", osd_id);
-    osd_out(cluster_handle, osd_id)?;
-    debug!("Removing osd {} from crush", osd_id);
-    osd_crush_remove(cluster_handle, osd_id)?; //ceph osd crush remove osd.i
-    debug!("Deleting osd {} auth key", osd_id);
-    auth_del(cluster_handle, osd_id)?; //ceph auth del osd.i
-    debug!("Removing osd {}", osd_id);
-    osd_rm(cluster_handle, osd_id)?; //ceph osd rm i
-
-    // Wipe the disk if it's still mounted
-    debug!("Erasing the disk {}", osd_id);
-    let mount_point = block_utils::get_mount_device(&path).map_err(
-        |e| e.to_string(),
-    )?;
-    match mount_point {
-        Some(disk) => {
-            debug!("Disk mounted for {:?}.", disk);
-            block_utils::erase_block_device(&disk)?;
-        }
-        None => {
-            // No disk mounted.  Nothing to do
-            debug!("No disk mounted for {:?}.  Nothing to do", path);
-        }
-    };
-    Ok(())
-}
-
 fn get_device_uuid(path: &Path) -> Result<String, String> {
     debug!("Probing device with blkid");
     let probe = BlkId::new(&path).map_err(|e| e.to_string())?;
@@ -389,66 +458,5 @@ fn add_filestore_osd(dev_path: &Path) -> Result<(), String> {
 // a848a7ba-e1c1-4df2-aef5-58895d77895a
 fn add_bluestore_osd(dev_path: &Path) -> Result<(), String> {
     //
-    Ok(())
-}
-
-/// Add a new /dev/ path as an osd.
-pub fn add_osd(dev_path: &Path) -> Result<(), String> {
-    //Connect to ceph
-    let cluster_handle = connect_to_ceph("admin", "/etc/ceph/ceph.conf").map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
-    //Format the drive
-    let xfs_options = block_utils::Filesystem::Xfs {
-        stripe_size: None,
-        stripe_width: None,
-        block_size: None,
-        inode_size: Some(2048),
-        force: true,
-    };
-    debug!("Formatting {:?} with XFS options: {:?}", dev_path, xfs_options);
-    block_utils::format_block_device(dev_path, &xfs_options)?;
-
-    // Probe the drive
-    debug!("udev Probing device {:?}", dev_path);
-    let info = block_utils::get_device_info(dev_path)?;
-    debug!("udev info {:?}", info);
-    if info.id.is_none() {
-        return Err(
-            format!("Formatted device {:?} doesn't have a filesystem UUID.  Please investigate",
-            dev_path),
-        );
-    }
-
-    // Create a new osd id
-    let new_osd_id = osd_create(cluster_handle, info.id.unwrap())?;
-    debug!("New osd id created: {}", new_osd_id);
-
-    // Mount the drive
-    let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id);
-    create_dir(&mount_point).map_err(|e| e.to_string())?;
-    block_utils::mount_device(&info, &mount_point)?;
-
-    // Format the osd with the osd filesystem
-    debug!("Running ceph-osd --mkfs");
-    Command::new("ceph-osd")
-        .args(&["-i", &new_osd_id.to_string(), "--mkfs", "mkkey"])
-        .output()
-        .expect("Failed to run ceph-osd mkfs");
-    debug!("Creating ceph authorization entry");
-    auth_add(cluster_handle, new_osd_id)?;
-    let auth_key = auth_get_key(cluster_handle, new_osd_id)?;
-    debug!("Saving ceph keyring");
-    save_keyring(new_osd_id, &auth_key).map_err(
-        |e| e.to_string(),
-    )?;
-    let hostname = hostname().map_err(|e| e.to_string())?;
-    debug!("Adding OSD {} to crushmap under host {}", new_osd_id, hostname);
-    osd_crush_add(cluster_handle, new_osd_id, 0.00_f64, &hostname)?;
-    add_osd_to_fstab(&info, new_osd_id)?;
-    // This step depends on whether it's systemctl, upstart, etc
-    // sudo start ceph-osd id={osd-num}
     Ok(())
 }

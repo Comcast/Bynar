@@ -14,12 +14,14 @@ pub fn create_support_ticket(
     pass: &str,
     title: &str,
     description: &str,
+    environment: &str,
 ) -> Result<String, GojiError> {
     let issue_description = CreateIssue {
         fields: Fields {
-            assignee: Assignee { name: user.to_string() },
+            assignee: Assignee { name: "Cloud_Services_Storage_SRE".to_string() },
             components: vec![Component { name: "Ceph".into() }],
             description: description.into(),
+            environment: environment.into(),
             issuetype: IssueType { id: "3".into() },
             reporter: Assignee { name: user.to_string() },
             priority: Priority { id: "4".into() },
