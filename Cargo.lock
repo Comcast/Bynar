@@ -3,11 +3,11 @@ name = "ceph_dead_disk"
 version = "0.1.0"
 dependencies = [
  "blkid 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "block-utils 0.3.3",
- "ceph-rust 0.1.17",
- "ceph-safe-disk 0.1.2",
+ "block-utils 0.3.3 (git+https://github.com/cholcombe973/block-utils)",
+ "ceph-rust 0.1.17 (git+https://github.com/cholcombe973/ceph-rust)",
+ "ceph-safe-disk 0.1.2 (git+https://github.com/cholcombe973/ceph_safe_disk)",
  "clap 2.26.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "dmi 0.1.0",
+ "dmi 0.1.0 (git+https://github.com/cholcombe973/dmi)",
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "goji 0.1.1 (git+https://github.com/cholcombe973/goji)",
  "json 0.11.9 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -131,6 +131,7 @@ dependencies = [
 [[package]]
 name = "block-utils"
 version = "0.3.3"
+source = "git+https://github.com/cholcombe973/block-utils#a9a9fefc246c7b5289f5720db61539a687c39385"
 dependencies = [
  "libudev 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "nom 3.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -156,6 +157,7 @@ dependencies = [
 [[package]]
 name = "ceph-rust"
 version = "0.1.17"
+source = "git+https://github.com/cholcombe973/ceph-rust#59a64513f4d4d64115b80502b2e4ace39b033194"
 dependencies = [
  "bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -169,6 +171,7 @@ dependencies = [
 [[package]]
 name = "ceph-safe-disk"
 version = "0.1.2"
+source = "git+https://github.com/cholcombe973/ceph_safe_disk#4312562dfab01518d6c101bb44a3721748b2d760"
 dependencies = [
  "ansi_term 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "getopts 0.2.15 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -260,6 +263,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "dmi"
 version = "0.1.0"
+source = "git+https://github.com/cholcombe973/dmi#9302e4f790c0fef229da1b8a30ce2199be3bb84f"
 dependencies = [
  "plain 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1324,8 +1328,11 @@ dependencies = [
 "checksum bitflags 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4efd02e230a02e18f92fc2735f44597385ed02ad8f831e7c1c1156ee5e1ab3a5"
 "checksum blkid 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "af278a587d4d3477f8c573d6cc083b240c3446666ea2ec0922a2f1c1d49e3c07"
 "checksum blkid-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "45476fdf8e19cfe48c4b4681b77a926ac7f44f5afbad326edd78fa131e514f2e"
+"checksum block-utils 0.3.3 (git+https://github.com/cholcombe973/block-utils)" = "<none>"
 "checksum byteorder 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ff81738b726f5d099632ceaffe7fb65b90212e8dce59d518729e7e8634032d3d"
 "checksum bytes 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "d828f97b58cc5de3e40c421d0cf2132d6b2da4ee0e11b8632fa838f0f9333ad6"
+"checksum ceph-rust 0.1.17 (git+https://github.com/cholcombe973/ceph-rust)" = "<none>"
+"checksum ceph-safe-disk 0.1.2 (git+https://github.com/cholcombe973/ceph_safe_disk)" = "<none>"
 "checksum cexpr 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "cdbb21df6ff3497a61df5059994297f746267020ba38ce237aad9c875f7b4313"
 "checksum cfg-if 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "d4c819a1287eb618df47cc647173c5c4c66ba19d888a6e50d605672aed3140de"
 "checksum clang-sys 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)" = "822ea22bbbef9f5934e9477860545fb0311a1759e43a276de42e2856c605aa2b"
@@ -1335,6 +1342,7 @@ dependencies = [
 "checksum core-foundation-sys 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "065a5d7ffdcbc8fa145d6f0746f3555025b9097a9e9cda59f7467abae670c78d"
 "checksum crypt32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e34988f7e069e0b2f3bfc064295161e489b2d4e04a2e4248fb94360cdf00b4ec"
 "checksum custom_derive 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "ef8ae57c4978a2acd8b869ce6b9ca1dfe817bff704c220209fdef2c0b75a01b9"
+"checksum dmi 0.1.0 (git+https://github.com/cholcombe973/dmi)" = "<none>"
 "checksum dtoa 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "09c3753c3db574d215cba4ea76018483895d7bff25a31b49ba45db21c48e50ab"
 "checksum env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3ddf21e73e016298f5cb37d6ef8e8da8e39f91f9ec8b0df44b7deb16a9f8cd5b"
 "checksum errno 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "b2c858c42ac0b88532f48fca88b0ed947cad4f1f64d904bcd6c9f138f7b95d70"

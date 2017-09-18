@@ -9,7 +9,6 @@ extern crate serde_json;
 extern crate uuid;
 
 use std::env::home_dir;
-use std::ffi::CString;
 use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::io::Result as IOResult;
@@ -23,9 +22,7 @@ use self::blkid::BlkId;
 use self::ceph_rust::ceph::{connect_to_ceph, ceph_mon_command_without_data, disconnect_from_ceph};
 use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
-use self::libc::c_char;
 use self::mktemp::Temp;
-use self::serde_json::Value;
 use super::super::host_information::Host;
 
 /// Ceph cluster
@@ -83,7 +80,7 @@ impl CephBackend {
     }
 
     /// Add a new /dev/ path as an osd.
-    fn add_osd(&self, dev_path: &Path) -> Result<(), String> {
+    fn add_osd(&self, dev_path: &Path, simulate: bool) -> Result<(), String> {
         //Format the drive
         let xfs_options = block_utils::Filesystem::Xfs {
             stripe_size: None,
@@ -97,7 +94,9 @@ impl CephBackend {
             dev_path,
             xfs_options
         );
-        block_utils::format_block_device(dev_path, &xfs_options)?;
+        if !simulate {
+            block_utils::format_block_device(dev_path, &xfs_options)?;
+        }
 
         // Probe the drive
         debug!("udev Probing device {:?}", dev_path);
@@ -111,27 +110,31 @@ impl CephBackend {
         }
 
         // Create a new osd id
-        let new_osd_id = osd_create(self.cluster_handle, info.id.unwrap())?;
+        let new_osd_id = osd_create(self.cluster_handle, info.id.unwrap(), simulate)?;
         debug!("New osd id created: {}", new_osd_id);
 
         // Mount the drive
         let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id);
-        create_dir(&mount_point).map_err(|e| e.to_string())?;
-        block_utils::mount_device(&info, &mount_point)?;
+        if !simulate {
+            create_dir(&mount_point).map_err(|e| e.to_string())?;
+            block_utils::mount_device(&info, &mount_point)?;
+        }
 
         // Format the osd with the osd filesystem
         debug!("Running ceph-osd --mkfs");
-        Command::new("ceph-osd")
-            .args(&["-i", &new_osd_id.to_string(), "--mkfs", "mkkey"])
-            .output()
-            .expect("Failed to run ceph-osd mkfs");
+        if !simulate {
+            Command::new("ceph-osd")
+                .args(&["-i", &new_osd_id.to_string(), "--mkfs", "mkkey"])
+                .output()
+                .expect("Failed to run ceph-osd mkfs");
+        }
         debug!("Creating ceph authorization entry");
-        auth_add(self.cluster_handle, new_osd_id)?;
-        let auth_key = auth_get_key(self.cluster_handle, new_osd_id)?;
+        auth_add(self.cluster_handle, new_osd_id, simulate)?;
+        let auth_key = auth_get_key(self.cluster_handle, new_osd_id, simulate)?;
         debug!("Saving ceph keyring");
-        save_keyring(new_osd_id, &auth_key).map_err(
-            |e| e.to_string(),
-        )?;
+        save_keyring(new_osd_id, &auth_key, simulate).map_err(|e| {
+            e.to_string()
+        })?;
         let host_info = Host::new().map_err(|e| e.to_string())?;
         debug!(
             "Adding OSD {} to crushmap under host {}",
@@ -143,14 +146,15 @@ impl CephBackend {
             new_osd_id,
             0.00_f64,
             &host_info.hostname,
+            simulate,
         )?;
-        add_osd_to_fstab(&info, new_osd_id)?;
+        add_osd_to_fstab(&info, new_osd_id, simulate)?;
         // This step depends on whether it's systemctl, upstart, etc
         // sudo start ceph-osd id={osd-num}
         Ok(())
     }
 
-    fn remove_osd(&self, dev_path: &Path) -> Result<(), String> {
+    fn remove_osd(&self, dev_path: &Path, simulate: bool) -> Result<(), String> {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
         let mount_point = match block_utils::get_mount_device(&dev_path).map_err(
@@ -164,19 +168,21 @@ impl CephBackend {
         };
         debug!("OSD mounted at: {:?}", mount_point);
 
-        let osd_id = get_osd_id(&mount_point)?;
+        let osd_id = get_osd_id(&mount_point, simulate)?;
         debug!("Setting osd {} out", osd_id);
-        osd_out(self.cluster_handle, osd_id)?;
+        osd_out(self.cluster_handle, osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
-        osd_crush_remove(self.cluster_handle, osd_id)?;
+        osd_crush_remove(self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
-        auth_del(self.cluster_handle, osd_id)?;
+        auth_del(self.cluster_handle, osd_id, simulate)?;
         debug!("Removing osd {}", osd_id);
-        osd_rm(self.cluster_handle, osd_id)?;
+        osd_rm(self.cluster_handle, osd_id, simulate)?;
 
         // Wipe the disk
         debug!("Erasing disk {:?}", dev_path);
-        block_utils::erase_block_device(&dev_path)?;
+        if !simulate {
+            block_utils::erase_block_device(&dev_path)?;
+        }
 
         Ok(())
     }
@@ -188,90 +194,85 @@ impl Drop for CephBackend {
 }
 
 impl Backend for CephBackend {
-    fn add_disk(&self, device: &Path) -> IOResult<()> {
-        self.add_osd(device).map_err(
-            |e| Error::new(ErrorKind::Other, e),
-        )?;
+    fn add_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
+        self.add_osd(device, simulate).map_err(|e| {
+            Error::new(ErrorKind::Other, e)
+        })?;
         Ok(())
     }
-    fn remove_disk(&self, device: &Path) -> IOResult<()> {
-        self.remove_osd(device).map_err(
-            |e| Error::new(ErrorKind::Other, e),
-        )?;
+    fn remove_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
+        self.remove_osd(device, simulate).map_err(|e| {
+            Error::new(ErrorKind::Other, e)
+        })?;
         Ok(())
     }
 }
 
-fn osd_out(
-    cluster_handle: rados_t,
-    osd_id: u64,
-) -> Result<(Option<String>, Option<String>), String> {
+fn osd_out(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), String> {
     let cmd = json!({
         "prefix": "osd out",
         "ids": [osd_id.to_string()]
     });
     debug!("osd out: {:?}", cmd.to_string());
 
-    Ok(ceph_mon_command_without_data(
-        cluster_handle,
-        &cmd.to_string(),
-    ).map_err(|e| e.to_string())?)
+    if !simulate {
+        ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
-fn osd_crush_remove(
-    cluster_handle: rados_t,
-    osd_id: u64,
-) -> Result<(Option<String>, Option<String>), String> {
+fn osd_crush_remove(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), String> {
     let cmd = json!({
         "prefix": "osd crush remove",
         "name": format!("osd.{}", osd_id),
     });
     debug!("osd crush remove: {:?}", cmd.to_string());
-    Ok(ceph_mon_command_without_data(
-        cluster_handle,
-        &cmd.to_string(),
-    ).map_err(|e| e.to_string())?)
+    if !simulate {
+        ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
-fn auth_del(
-    cluster_handle: rados_t,
-    osd_id: u64,
-) -> Result<(Option<String>, Option<String>), String> {
+fn auth_del(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), String> {
     let cmd = json!({
         "prefix": "auth del",
         "entity": format!("osd.{}", osd_id)
     });
     debug!("auth del: {:?}", cmd.to_string());
 
-    Ok(ceph_mon_command_without_data(
-        cluster_handle,
-        &cmd.to_string(),
-    ).map_err(|e| e.to_string())?)
+    if !simulate {
+        ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
-fn osd_rm(
-    cluster_handle: rados_t,
-    osd_id: u64,
-) -> Result<(Option<String>, Option<String>), String> {
+fn osd_rm(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), String> {
     let cmd = json!({
         "prefix": "osd rm",
         "ids": [osd_id.to_string()]
     });
     debug!("osd rm: {:?}", cmd.to_string());
 
-    Ok(ceph_mon_command_without_data(
-        cluster_handle,
-        &cmd.to_string(),
-    ).map_err(|e| e.to_string())?)
+    if !simulate {
+        ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 
 }
 
-fn osd_create(cluster_handle: rados_t, uuid: uuid::Uuid) -> Result<u64, String> {
+fn osd_create(cluster_handle: rados_t, uuid: uuid::Uuid, simulate: bool) -> Result<u64, String> {
     let cmd = json!({
             "prefix": "osd create",
             "uuid": uuid.hyphenated().to_string()
         });
     debug!("osd create: {:?}", cmd.to_string());
+    if simulate {
+        return Ok(0);
+    }
 
     let result = ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
         .map_err(|e| e.to_string())?;
@@ -291,10 +292,7 @@ fn osd_create(cluster_handle: rados_t, uuid: uuid::Uuid) -> Result<u64, String> 
     Err(format!("Unable to parse osd create output: {:?}", result))
 }
 
-fn auth_add(
-    cluster_handle: rados_t,
-    osd_id: u64,
-) -> Result<(Option<String>, Option<String>), String> {
+fn auth_add(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), String> {
     let cmd = json!({
         "prefix": "auth add",
         "entity": format!("osd.{}", osd_id),
@@ -302,13 +300,14 @@ fn auth_add(
     });
     debug!("auth_add: {:?}", cmd.to_string());
 
-    Ok(ceph_mon_command_without_data(
-        cluster_handle,
-        &cmd.to_string(),
-    ).map_err(|e| e.to_string())?)
+    if !simulate {
+        ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
-fn auth_get_key(cluster_handle: rados_t, osd_id: u64) -> Result<String, String> {
+fn auth_get_key(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<String, String> {
     let cmd = json!({
         "prefix": "auth get-key",
         "entity": format!("osd.{}", osd_id),
@@ -340,7 +339,8 @@ fn osd_crush_add(
     osd_id: u64,
     weight: f64,
     host: &str,
-) -> Result<(Option<String>, Option<String>), String> {
+    simulate: bool,
+) -> Result<(), String> {
     let cmd = json!({
         "prefix": "osd crush add",
         "id": osd_id,
@@ -349,14 +349,15 @@ fn osd_crush_add(
     });
     debug!("osd crush add: {:?}", cmd.to_string());
 
-    Ok(ceph_mon_command_without_data(
-        cluster_handle,
-        &cmd.to_string(),
-    ).map_err(|e| e.to_string())?)
+    if !simulate {
+        ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 // Get an osd ID from the whoami file in the osd mount directory
-fn get_osd_id(path: &Path) -> Result<u64, String> {
+fn get_osd_id(path: &Path, simulate: bool) -> Result<u64, String> {
     let mut whoami_path = PathBuf::from(path);
     whoami_path.push("whoami");
     debug!("Discovering osd id number from: {:?}", whoami_path);
@@ -366,7 +367,7 @@ fn get_osd_id(path: &Path) -> Result<u64, String> {
     u64::from_str(buff.trim()).map_err(|e| e.to_string())
 }
 
-fn save_keyring(osd_id: u64, key: &str) -> IOResult<()> {
+fn save_keyring(osd_id: u64, key: &str, simulate: bool) -> IOResult<()> {
     let base_dir = format!("/var/lib/ceph/osd/ceph-{}", osd_id);
     if !Path::new(&base_dir).exists() {
         return Err(::std::io::Error::new(
@@ -374,14 +375,21 @@ fn save_keyring(osd_id: u64, key: &str) -> IOResult<()> {
             format!("{} directory doesn't exist", base_dir),
         ));
     }
-    let mut f = File::create(format!("{}/keyring", base_dir))?;
-    f.write_all(
-        format!("[osd.{}]\n\tkey = {}", osd_id, key).as_bytes(),
-    )?;
+    debug!("Creating {}/keyring", base_dir);
+    if !simulate {
+        let mut f = File::create(format!("{}/keyring", base_dir))?;
+        f.write_all(
+            format!("[osd.{}]\n\tkey = {}", osd_id, key).as_bytes(),
+        )?;
+    }
     Ok(())
 }
 
-fn add_osd_to_fstab(device_info: &block_utils::Device, osd_id: u64) -> Result<(), String> {
+fn add_osd_to_fstab(
+    device_info: &block_utils::Device,
+    osd_id: u64,
+    simulate: bool,
+) -> Result<(), String> {
     let fstab = FsTab::default();
     let entries = fstab.get_entries().map_err(|e| e.to_string())?;
 
@@ -399,11 +407,13 @@ fn add_osd_to_fstab(device_info: &block_utils::Device, osd_id: u64) -> Result<()
         fsck_order: 2,
     };
     debug!("Saving Fstab entry {:?}", fstab_entry);
-    let result = fstab.add_entry(fstab_entry).map_err(|e| e.to_string())?;
-    match result {
-        true => debug!("Fstab entry saved"),
-        false => debug!("Fstab entry was updated"),
-    };
+    if !simulate {
+        let result = fstab.add_entry(fstab_entry).map_err(|e| e.to_string())?;
+        match result {
+            true => debug!("Fstab entry saved"),
+            false => debug!("Fstab entry was updated"),
+        };
+    }
     Ok(())
 }
 
@@ -415,7 +425,7 @@ fn get_device_uuid(path: &Path) -> Result<String, String> {
     Ok(uuid.into())
 }
 
-fn ceph_mkfs(osd_id: u64, journal: Option<&Path>) -> Result<(), String> {
+fn ceph_mkfs(osd_id: u64, journal: Option<&Path>, simulate: bool) -> Result<(), String> {
     //
     debug!("Running ceph-osd --mkfs");
     let journal_str: String;
@@ -427,9 +437,12 @@ fn ceph_mkfs(osd_id: u64, journal: Option<&Path>) -> Result<(), String> {
         args.push("--journal");
         args.push(&journal_str);
     }
-    Command::new("ceph-osd").args(&args).output().map_err(|e| {
-        e.to_string()
-    })?;
+    debug!("cmd: ceph-osd {:?}", args);
+    if !simulate {
+        Command::new("ceph-osd").args(&args).output().map_err(|e| {
+            e.to_string()
+        })?;
+    }
     Ok(())
 }
 

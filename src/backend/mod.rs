@@ -11,13 +11,15 @@ use self::ceph::CephBackend;
 /// Different distributed storage clusters have different ways of adding and removing
 /// disks.  This will be consolidated here in trait impl's.
 pub trait Backend {
-    /// Remove a disk from a cluster
-    fn remove_disk(&self, device: &Path) -> Result<()>;
-
     /// Add a disk to a cluster.
     /// For ceph that involves osd id provisioning, formatting, auth keys, etc
     /// For gluster or other services it might be much easier
-    fn add_disk(&self, device: &Path) -> Result<()>;
+    /// If simulate is passed no action should be taken
+    fn add_disk(&self, device: &Path, simulate: bool) -> Result<()>;
+
+    /// Remove a disk from a cluster
+    /// If simulate is passed no action should be taken
+    fn remove_disk(&self, device: &Path, simulate: bool) -> Result<()>;
 }
 
 /// The supported backend types

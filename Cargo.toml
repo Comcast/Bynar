@@ -5,11 +5,11 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 blkid = "*"
-block-utils = {path = "/home/chris/repos/block-utils"}
-ceph-safe-disk = {path = "/home/chris/repos/ceph_safe_disk"}
-ceph-rust = {path = "/home/chris/repos/ceph-rust"}
+block-utils = {git = "https://github.com/cholcombe973/block-utils"}
+ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
+ceph-safe-disk = {git = "https://github.com/cholcombe973/ceph_safe_disk"}
 clap = "*"
-dmi = {path = "/home/chris/repos/dmi"}
+dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
 json = "*"

@@ -55,7 +55,7 @@ fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
     Ok(c)
 }
 
-fn check_for_failed_disks(config_dir: &str) -> Result<(), String> {
+fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     let config = load_config(config_dir)?;
     //Host information to use in ticket creation
     let host_info = Host::new().map_err(|e| e.to_string())?;
@@ -86,7 +86,10 @@ Details: Disk {} as failed.  Please replace if necessary",
                 if status.corrupted == true && status.repaired == false {
                     description.push_str(&format!("Disk path: /dev/{}", status.device.name));
                     let _ = backend
-                        .remove_disk(&Path::new(&format!("/dev/{}", status.device.name)))
+                        .remove_disk(
+                            &Path::new(&format!("/dev/{}", status.device.name)),
+                            simulate,
+                        )
                         .map_err(|e| e.to_string())?;
                     let _ = create_support_ticket(
                         &config.jira_host,
@@ -108,7 +111,7 @@ Details: Disk {} as failed.  Please replace if necessary",
     Ok(())
 }
 
-fn add_repaired_disks(config_dir: &str) -> Result<(), String> {
+fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     let config = load_config(config_dir)?;
     let config_location = Path::new(&config.db_location);
 
@@ -130,11 +133,9 @@ fn add_repaired_disks(config_dir: &str) -> Result<(), String> {
             &ticket.id.to_string(),
         ).map_err(|e| e.to_string())?;
         if resolved {
-            let _ = backend.add_disk(&Path::new(&ticket.disk_path)).map_err(
-                |e| {
-                    e.to_string()
-                },
-            )?;
+            let _ = backend
+                .add_disk(&Path::new(&ticket.disk_path), simulate)
+                .map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -177,11 +178,12 @@ fn main() {
         _ => log::LogLevelFilter::Trace,
     };
     let _ = SimpleLogger::init(level, Config::default());
+    let simulate = matches.is_present("simulate");
 
     let config_dir = matches.value_of("configdir").unwrap();
 
-    check_for_failed_disks(config_dir);
-    add_repaired_disks(config_dir);
+    check_for_failed_disks(config_dir, simulate);
+    add_repaired_disks(config_dir, simulate);
 
     //println!("Remove osd result: {:?}", remove_result);
     //println!("Host information: {:?}", host_information::server_serial());
