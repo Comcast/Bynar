@@ -1,4 +1,3 @@
-extern crate blkid;
 extern crate block_utils;
 extern crate ceph_rust;
 extern crate ceph_safe_disk;
@@ -18,7 +17,6 @@ use std::str::FromStr;
 
 use backend::Backend;
 
-use self::blkid::BlkId;
 use self::ceph_rust::ceph::{connect_to_ceph, ceph_mon_command_without_data, disconnect_from_ceph};
 use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
@@ -415,14 +413,6 @@ fn add_osd_to_fstab(
         };
     }
     Ok(())
-}
-
-fn get_device_uuid(path: &Path) -> Result<String, String> {
-    debug!("Probing device with blkid");
-    let probe = BlkId::new(&path).map_err(|e| e.to_string())?;
-    probe.do_probe().map_err(|e| e.to_string())?;
-    let uuid = probe.lookup_value("UUID").map_err(|e| e.to_string())?;
-    Ok(uuid.into())
 }
 
 fn ceph_mkfs(osd_id: u64, journal: Option<&Path>, simulate: bool) -> Result<(), String> {

@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
-blkid = "*"
+# blkid = "*"
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
 ceph-safe-disk = {git = "https://github.com/cholcombe973/ceph_safe_disk"}
