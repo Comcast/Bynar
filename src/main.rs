@@ -179,6 +179,12 @@ fn main() {
     };
     let _ = SimpleLogger::init(level, Config::default());
     info!("Starting up");
+
+    //Sanity check
+    if !Path::new("/etc/ceph_dead_disk").exists() {
+        error!("Config directory doesn't exist. Please create it or use the --configdir option");
+        return;
+    }
     let simulate = matches.is_present("simulate");
 
     let config_dir = matches.value_of("configdir").unwrap();
