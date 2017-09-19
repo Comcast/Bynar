@@ -79,7 +79,7 @@ Details: Disk {} as failed.  Please replace if necessary",
         host_info.kernel,
     );
 
-
+    debug!("Loading ceph backend");
     let backend = backend::load_backend(&backend::BackendType::Ceph, Some(Path::new(&config_dir)))?;
     info!("Checking all drives");
     for result in test_disk::check_all_disks().map_err(|e| e.to_string())? {

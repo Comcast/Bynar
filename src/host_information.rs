@@ -23,10 +23,13 @@ pub struct Host {
 impl Host {
     pub fn new() -> Result<Self> {
         //
+        debug!("Loading host information");
+        debug!("Gathering uname info");
         let uname_info = uname()?;
         let hostname = hostname()?;
         let server_type = server_type()?;
         let serial_number = server_serial()?;
+        debug!("Gathering raid info");
         let raid_info = block_utils::get_raid_info().map_err(|e| {
             Error::new(ErrorKind::Other, e)
         })?;
@@ -43,6 +46,7 @@ impl Host {
 
 /// Find the server hostname
 fn hostname() -> Result<String> {
+    debug!("Gathering hostname info");
     let mut buff = String::new();
     let mut f = File::open("/etc/hostname")?;
     f.read_to_string(&mut buff)?;
@@ -51,6 +55,7 @@ fn hostname() -> Result<String> {
 
 /// Find the server type
 fn server_type() -> Result<String> {
+    debug!("Gathering server type");
     let path = Path::new("/sys/class/dmi/id/product_name");
     if Path::exists(path) {
         let mut f = File::open(path)?;
@@ -65,6 +70,7 @@ fn server_type() -> Result<String> {
 }
 
 fn server_serial() -> Result<String> {
+    debug!("Gathering server serial");
     // Try the easy way first
     debug!("Checking for serial in /sys/class/dmi/id/product_serial");
     let path_1 = Path::new("/sys/class/dmi/id/product_serial");
