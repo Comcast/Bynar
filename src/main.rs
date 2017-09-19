@@ -178,13 +178,25 @@ fn main() {
         _ => log::LogLevelFilter::Trace,
     };
     let _ = SimpleLogger::init(level, Config::default());
+    info!("Starting up");
     let simulate = matches.is_present("simulate");
 
     let config_dir = matches.value_of("configdir").unwrap();
 
-    check_for_failed_disks(config_dir, simulate);
-    add_repaired_disks(config_dir, simulate);
-
-    //println!("Remove osd result: {:?}", remove_result);
-    //println!("Host information: {:?}", host_information::server_serial());
+    match check_for_failed_disks(config_dir, simulate) {
+        Err(e) => {
+            error!("Check for failed disks failed with error: {}", e);
+        }
+        _ => {
+            info!("check_for_failed_disks completed");
+        }
+    };
+    match add_repaired_disks(config_dir, simulate) {
+        Err(e) => {
+            error!("add_repaired_disks failed with error: {}", e);
+        }
+        _ => {
+            info!("add_repaired_disks completed");
+        }
+    };
 }
