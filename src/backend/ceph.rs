@@ -119,13 +119,7 @@ impl CephBackend {
         }
 
         // Format the osd with the osd filesystem
-        debug!("Running ceph-osd --mkfs");
-        if !simulate {
-            Command::new("ceph-osd")
-                .args(&["-i", &new_osd_id.to_string(), "--mkfs", "mkkey"])
-                .output()
-                .expect("Failed to run ceph-osd mkfs");
-        }
+        ceph_mkfs(new_osd_id, None, simulate)?;
         debug!("Creating ceph authorization entry");
         auth_add(self.cluster_handle, new_osd_id, simulate)?;
         let auth_key = auth_get_key(self.cluster_handle, new_osd_id, simulate)?;
@@ -389,8 +383,6 @@ fn add_osd_to_fstab(
     simulate: bool,
 ) -> Result<(), String> {
     let fstab = FsTab::default();
-    let entries = fstab.get_entries().map_err(|e| e.to_string())?;
-
     let fstab_entry = fstab::FsEntry {
         fs_spec: format!("UUID={}",
                      device_info.id

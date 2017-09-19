@@ -38,6 +38,10 @@ struct ConfigSettings {
     jira_user: String,
     jira_password: String,
     jira_host: String,
+    jira_issue_type: String,
+    jira_priority: String,
+    jira_project_id: String,
+    jira_ticket_assignee: String,
 }
 
 fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
@@ -95,6 +99,10 @@ Details: Disk {} as failed.  Please replace if necessary",
                         &config.jira_host,
                         &config.jira_user,
                         &config.jira_password,
+                        &config.jira_issue_type,
+                        &config.jira_priority,
+                        &config.jira_project_id,
+                        &config.jira_ticket_assignee,
                         "Dead disk",
                         &description,
                         &environment,

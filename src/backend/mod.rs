@@ -3,7 +3,7 @@ pub mod ceph;
 //pub mod gluster;
 
 use std::io::Result;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::result::Result as StdResult;
 
 use self::ceph::CephBackend;
@@ -39,7 +39,7 @@ pub fn load_backend(
         //#[cfg(feature = "gluster")]
         //&BackendType::Gluster => Box::new(GlusterBackend::new(config_dir)
         //.map_err(|e| e.to_string())?),
-        e => return Err(format!("Unknown backend: {:?}", e)),
+        //e => return Err(format!("Unknown backend: {:?}", e)),
     };
 
     Ok(backend)

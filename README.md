@@ -18,12 +18,16 @@ information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it. F
 ```
 {
  "ceph_config": "/etc/ceph/ceph.conf",
- "ceph_user_id": "admin"
+ "ceph_user_id": "admin",
  "db_location": "/etc/ceph_dead_disk/disks.sqlite3",
  "jira_user": "test_user",
  "jira_password": "user_password",
  "jira_host": "https://tickets.jira.com",
  "jira_ticket_assignee": "username",
+ "jira_issue_type": "3",
+ "jira_priority": "4",
+ "jira_project_id": "MyProject",
+ "jira_ticket_assignee": "assignee_username"
 }
 ```
 
