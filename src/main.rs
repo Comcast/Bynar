@@ -32,8 +32,7 @@ use simplelog::{Config, SimpleLogger};
 
 #[derive(Debug, Deserialize)]
 struct ConfigSettings {
-    ceph_config: String,
-    ceph_user_id: String,
+    backend: backend::BackendType,
     db_location: String,
     jira_user: String,
     jira_password: String,

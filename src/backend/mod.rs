@@ -23,7 +23,7 @@ pub trait Backend {
 }
 
 /// The supported backend types
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub enum BackendType {
     Ceph,
     //Gluster
