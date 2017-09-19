@@ -125,13 +125,16 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     info!("Connecting to database to find repaired drives");
     let conn = in_progress::create_repair_database(&config_location)
         .map_err(|e| e.to_string())?;
+    debug!("Loading Ceph backend");
     let backend =
         backend::load_backend(&backend::BackendType::Ceph, Some(&Path::new(&config_dir)))?;
+    info!("Getting outstanding repair tickets");
     let tickets = in_progress::get_outstanding_repair_tickets(&conn).map_err(
         |e| {
             e.to_string()
         },
     )?;
+    info!("Checking for resolved repair tickets");
     for ticket in tickets {
         let resolved = ticket_resolved(
             &config.jira_host,

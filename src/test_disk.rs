@@ -14,11 +14,13 @@
 extern crate block_utils;
 extern crate libatasmart;
 extern crate log;
+extern crate mktemp;
 
 use self::block_utils::{Device, get_block_devices, get_mount_device, get_mountpoint,
                         FilesystemType, is_mounted, MediaType, RaidType};
+use self::mktemp::Temp;
 
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind};
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
@@ -138,7 +140,8 @@ fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<
 
 fn check_writable(path: &Path) -> Result<()> {
     debug!("Checking if {:?} is writable", path);
-    let mut file = File::create(format!("{}/check_disk", path.to_string_lossy()))?;
+    let temp_file = Temp::new_file_in(path)?;
+    let mut file = OpenOptions::new().write(true).open(temp_file)?;
     file.write_all(b"Hello, world!")?;
     Ok(())
 }
