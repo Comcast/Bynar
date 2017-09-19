@@ -47,7 +47,12 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
     let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
         .map_err(|e| Error::new(ErrorKind::Other, e))?
         .into_iter()
+        // Get rid of loopback devices
         .filter(|d| !(d.media_type == MediaType::Loopback))
+        // Get rid of lvm devices
+        .filter(|d| !(d.media_type == MediaType::LVM))
+        // Get rid of ram devices
+        .filter(|d| !(d.media_type == MediaType::Ram))
         .collect();
 
     for device in device_info {
