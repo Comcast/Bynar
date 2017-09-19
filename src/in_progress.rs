@@ -23,8 +23,7 @@ pub fn create_repair_database(db_path: &Path) -> Result<Connection> {
                   id              INTEGER PRIMARY KEY,
                   ticket_id       TEXT NOT NULL,
                   time_created    TEXT NOT NULL,
-                  disk_path       TEXT NOT NULL,
-                  )",
+                  disk_path       TEXT NOT NULL)",
         &[],
     )?;
     Ok(conn)
