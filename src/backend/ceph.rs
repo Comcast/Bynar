@@ -36,42 +36,51 @@ struct CephConfig {
     user_id: String,
 }
 
+fn choose_ceph_config(config_dir: Option<&Path>) -> IOResult<PathBuf> {
+    match config_dir {
+        Some(config) => {
+            let mut json_path = config.to_path_buf();
+            json_path.push("ceph.json");
+            if !json_path.exists() {
+                let err_msg = format!("{} does not exist.  Please create", json_path.display());
+                error!("{}", err_msg);
+                return Err(Error::new(ErrorKind::NotFound, err_msg));
+            }
+            debug!(
+                "Loading ceph config from: {}",
+                json_path.display(),
+            );
+            Ok(json_path)
+        }
+        None => {
+            let home = home_dir().expect("HOME env variable not defined");
+            let mut json_path = PathBuf::from(home);
+            json_path.push(".config");
+            json_path.push("ceph.json");
+            if !json_path.exists() {
+                let err_msg = format!("{} does not exist.  Please create", json_path.display());
+                error!("{}", err_msg);
+                return Err(Error::new(ErrorKind::NotFound, err_msg));
+            }
+            info!(
+                "Reading ceph config file: {}",
+                json_path.display(),
+            );
+            Ok(json_path)
+        }
+    }
+}
+
 impl CephBackend {
     pub fn new(config_dir: Option<&Path>) -> IOResult<CephBackend> {
-        let ceph_config: CephConfig = match config_dir {
-            Some(config) => {
-                info!(
-                    "Reading ceph config file: {}/{}",
-                    config.display(),
-                    "ceph.json"
-                );
-                let mut f = File::open(config.join("ceph.json"))?;
-                let mut s = String::new();
-                f.read_to_string(&mut s)?;
+        let ceph_config = choose_ceph_config(config_dir)?;
+        let mut f = File::open(ceph_config)?;
+        let mut s = String::new();
+        f.read_to_string(&mut s)?;
+        let deserialized: CephConfig = serde_json::from_str(&s)?;
 
-                let deserialized: CephConfig = serde_json::from_str(&s)?;
-                deserialized
-            }
-            None => {
-                info!(
-                    "Reading ceph config file: {}/{}",
-                    home_dir().unwrap().to_string_lossy(),
-                    ".config/ceph.json"
-                );
-                let mut f = File::open(format!(
-                    "{}/{}",
-                    home_dir().unwrap().to_string_lossy(),
-                    ".config/ceph.json"
-                ))?;
-                let mut s = String::new();
-                f.read_to_string(&mut s)?;
-
-                let deserialized: CephConfig = serde_json::from_str(&s)?;
-                deserialized
-            }
-        };
         info!("Connecting to Ceph");
-        let cluster_handle = connect_to_ceph(&ceph_config.user_id, &ceph_config.config_file)
+        let cluster_handle = connect_to_ceph(&deserialized.user_id, &deserialized.config_file)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
         info!("Connected to ceph");
         Ok(CephBackend { cluster_handle: cluster_handle })
