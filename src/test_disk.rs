@@ -114,8 +114,10 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                                 }
                             };
                             if corrupted {
-                                check_filesystem(&info.fs_type, &device);
-                                repair_filesystem(&info.fs_type, &device);
+                                let check_result = check_filesystem(&info.fs_type, &device);
+                                debug!("check_filesystem result: {:?}", check_result);
+                                let repair_result = repair_filesystem(&info.fs_type, &device);
+                                debug!("repair_result result: {:?}", repair_result);
                             }
                         }
                         false => {
