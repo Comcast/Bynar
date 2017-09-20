@@ -121,11 +121,13 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                         false => {
                             // OSD is mounted but disk device does not exist.  Did someone
                             // pull the disk?
+                            debug!("Device does not exist: {:?}", device);
                         }
                     };
                 }
                 None => {
                     // It's not mounted.  Lets run an check/repair on it
+                    debug!("Device is not mounted: {:?}", device);
                 }
             };
         }
