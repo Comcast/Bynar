@@ -189,9 +189,18 @@ impl CephBackend {
         osd_rm(self.cluster_handle, osd_id, simulate)?;
 
         // Wipe the disk
-        debug!("Erasing disk {:?}", dev_path);
+        debug!("Erasing disk {}", dev_path.display());
         if !simulate {
-            block_utils::erase_block_device(&dev_path)?;
+            match block_utils::erase_block_device(&dev_path) {
+                Ok(_) => {
+                    debug!("{} erased", dev_path.display());
+                }
+                Err(e) => {
+                    // At this point the disk is about to be replaced anyways
+                    // so this doesn't really matter
+                    error!("{} failed to erase: {:?}", dev_path.display(), e);
+                }
+            };
         }
 
         Ok(())
