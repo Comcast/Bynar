@@ -129,9 +129,13 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                             }
                         }
                         false => {
-                            // OSD is mounted but disk device does not exist.  Did someone
-                            // pull the disk?
-                            debug!("Device does not exist: {:?}", device);
+                            // mountpoint exists for device that does not exist.  Lets flag it
+                            // so it gets checked out by a human
+                            debug!(
+                                "Device does not exist: {:?} but system thinks it is mounted",
+                                device
+                            );
+                            disk_status.corrupted = true;
                         }
                     };
                 }
