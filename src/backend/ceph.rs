@@ -169,7 +169,16 @@ impl CephBackend {
         };
         debug!("OSD mounted at: {:?}", mount_point);
 
-        let osd_id = get_osd_id(&mount_point, simulate)?;
+        let osd_id = match get_osd_id(&mount_point, simulate) {
+            Ok(osd_id) => osd_id,
+            Err(e) => {
+                error!(
+                    "Failed to discover osd id: {:?}.  Falling back on path name",
+                    e
+                );
+                get_osd_id_from_path(&mount_point)?
+            }
+        };
         debug!("Setting osd {} out", osd_id);
         osd_out(self.cluster_handle, osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
@@ -355,6 +364,21 @@ fn osd_crush_add(
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+// A fallback function to get the osd id from the mount path.  This isn't
+// 100% accurate but it should be good enough for most cases unless the disk
+// is mounted in the wrong location or is missing an osd id in the path name
+fn get_osd_id_from_path(path: &Path) -> Result<u64, String> {
+    match path.file_name() {
+        Some(name) => {
+            let name_string = name.to_string_lossy().into_owned();
+            let parts: Vec<&str> = name_string.split("-").collect();
+            let id = u64::from_str(parts[1]).map_err(|e| e.to_string())?;
+            Ok(id)
+        }
+        None => Err(format!("Unable to get filename from {}", path.display())),
+    }
 }
 
 // Get an osd ID from the whoami file in the osd mount directory
