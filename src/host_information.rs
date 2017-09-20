@@ -11,6 +11,7 @@ use self::block_utils::{RaidType, ScsiInfo};
 use self::uname::uname;
 
 /// All the host information we could gather
+#[derive(Debug)]
 pub struct Host {
     pub hostname: String,
     pub kernel: String,

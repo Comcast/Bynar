@@ -17,12 +17,10 @@ extern crate libatasmart;
 extern crate log;
 extern crate mktemp;
 
-use self::block_utils::{Device, get_block_devices, get_mount_device, get_mountpoint,
-                        FilesystemType, is_mounted, MediaType, RaidType};
-use self::fstab::{FsEntry, FsTab};
+use self::block_utils::{Device, get_mountpoint, FilesystemType, MediaType};
 use self::mktemp::Temp;
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Error, ErrorKind};
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};

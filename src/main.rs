@@ -63,6 +63,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
     let host_info = Host::new().map_err(|e| e.to_string())?;
+    debug!("Gathered host info: {:?}", host_info);
     let mut description = format!(
         " disk on {} failed. Please investigate.
 Details: Disk {} as failed.  Please replace if necessary",
@@ -95,7 +96,6 @@ Details: Disk {} as failed.  Please replace if necessary",
                         |e| e.to_string(),
                     )?;
                     if !simulate {
-                        // TODO: Double check that this disk isn't already in progress
                         info!("Connecting to database to check if disk is in progress");
                         let conn = in_progress::create_repair_database(&config_location)
                             .map_err(|e| e.to_string())?;

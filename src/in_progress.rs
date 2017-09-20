@@ -7,6 +7,34 @@ use std::path::Path;
 use self::time::Timespec;
 use self::rusqlite::{Connection, Result};
 
+#[cfg(test)]
+mod tests {
+    extern crate mktemp;
+
+    use std::path::Path;
+
+    use self::mktemp::Temp;
+
+    #[test]
+    fn test_in_progress() {
+        let temp_dir = Temp::new_dir().expect("mktemp creation failed");
+        let mut db_file = temp_dir.to_path_buf();
+        db_file.push("test_db.sqlite3");
+
+        let conn = super::create_repair_database(&db_file).expect("sqlite3 creation failed");
+        super::record_new_repair_ticket(&conn, "001", &Path::new("/dev/sda"))
+            .expect("Create repair ticket failed");
+        let result = super::is_disk_in_progress(&conn, &Path::new("/dev/sda"))
+            .expect("failed to query disk in progress");
+        println!(
+            "Outstanding repair tickets: {:?}",
+            super::get_outstanding_repair_tickets(&conn)
+        );
+
+        assert!(result);
+    }
+}
+
 #[derive(Debug)]
 pub struct DiskRepairTicket {
     pub id: i32,
@@ -35,20 +63,18 @@ pub fn record_new_repair_ticket(
     ticket_id: &str,
     disk_path: &Path,
 ) -> Result<()> {
-    let ticket = DiskRepairTicket {
-        id: 0,
-        ticket_id: ticket_id.into(),
-        time_created: time::get_time(),
-        disk_path: disk_path.to_string_lossy().into_owned(),
-    };
-    debug!("Recording new repair ticket: {:?}", ticket);
+    debug!(
+        "Recording new repair ticket: id: {}, disk_path: {}",
+        ticket_id,
+        disk_path.display()
+    );
     conn.execute(
         "INSERT INTO repairs (ticket_id, time_created, disk_path)
                   VALUES (?1, ?2, ?3)",
         &[
-            &ticket.ticket_id,
-            &ticket.time_created,
-            &ticket.disk_path,
+            &ticket_id.to_string(),
+            &time::get_time(),
+            &disk_path.to_string_lossy().into_owned(),
         ],
     )?;
     Ok(())
