@@ -64,12 +64,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
     //Host information to use in ticket creation
     let host_info = Host::new().map_err(|e| e.to_string())?;
     debug!("Gathered host info: {:?}", host_info);
-    let mut description = format!(
-        " disk on {} failed. Please investigate.
-Details: Disk {} as failed.  Please replace if necessary",
-        host_info.hostname,
-        ""
-    );
+    let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
     let mut environment =
         format!(
         "Hostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
@@ -91,7 +86,7 @@ Details: Disk {} as failed.  Please replace if necessary",
                 dev_path.push(status.device.name);
 
                 if status.corrupted == true && status.repaired == false {
-                    description.push_str(&format!("Disk path: {}", dev_path.display()));
+                    description.push_str(&format!("\nDisk path: {}", dev_path.display()));
                     let _ = backend.remove_disk(&dev_path, simulate).map_err(
                         |e| e.to_string(),
                     )?;
@@ -99,24 +94,25 @@ Details: Disk {} as failed.  Please replace if necessary",
                         info!("Connecting to database to check if disk is in progress");
                         let conn = in_progress::create_repair_database(&config_location)
                             .map_err(|e| e.to_string())?;
-                        let tickets = in_progress::is_disk_in_progress(&conn, &dev_path).map_err(
-                            |e| {
-                                e.to_string()
-                            },
-                        )?;
-
-                        let _ = create_support_ticket(
-                            &config.jira_host,
-                            &config.jira_user,
-                            &config.jira_password,
-                            &config.jira_issue_type,
-                            &config.jira_priority,
-                            &config.jira_project_id,
-                            &config.jira_ticket_assignee,
-                            "Dead disk",
-                            &description,
-                            &environment,
-                        ).map_err(|e| format!("{:?}", e))?;
+                        let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)
+                            .map_err(|e| e.to_string())?;
+                        if !in_progress {
+                            debug!("Creating support ticket");
+                            let _ = create_support_ticket(
+                                &config.jira_host,
+                                &config.jira_user,
+                                &config.jira_password,
+                                &config.jira_issue_type,
+                                &config.jira_priority,
+                                &config.jira_project_id,
+                                &config.jira_ticket_assignee,
+                                "Dead disk",
+                                &description,
+                                &environment,
+                            ).map_err(|e| format!("{:?}", e))?;
+                        } else {
+                            debug!("Device is already in the repair queue");
+                        }
                     }
                 }
             }
