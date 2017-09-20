@@ -204,15 +204,15 @@ fn main() {
             error!("Check for failed disks failed with error: {}", e);
         }
         _ => {
-            info!("check_for_failed_disks completed");
+            info!("Check for failed disks completed");
         }
     };
     match add_repaired_disks(config_dir, simulate) {
         Err(e) => {
-            error!("add_repaired_disks failed with error: {}", e);
+            error!("Add repaired disks failed with error: {}", e);
         }
         _ => {
-            info!("add_repaired_disks completed");
+            info!("Add repaired disks completed");
         }
     };
 }

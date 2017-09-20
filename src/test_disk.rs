@@ -12,12 +12,14 @@
 //!       +----->disk_is_ok                  +---->unmoun
 //extern crate blkid;
 extern crate block_utils;
+extern crate fstab;
 extern crate libatasmart;
 extern crate log;
 extern crate mktemp;
 
 use self::block_utils::{Device, get_block_devices, get_mount_device, get_mountpoint,
                         FilesystemType, is_mounted, MediaType, RaidType};
+use self::fstab::{FsEntry, FsTab};
 use self::mktemp::Temp;
 
 use std::fs::{File, OpenOptions};
@@ -41,6 +43,9 @@ pub struct Status {
 
 pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
     let mut results: Vec<Result<Status>> = Vec::new();
+    // Udev will only show the disks that are currently attached to the tree
+    // It will fail to show disks that have died and disconnected but are still
+    // shown as mounted in /etc/mtab
     let devices = block_utils::get_block_devices().map_err(|e| {
         Error::new(ErrorKind::Other, e)
     })?;
@@ -57,9 +62,22 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
         .filter(|d| !(d.media_type == MediaType::Ram))
         .collect();
 
-    for device in device_info {
-        results.push(run_checks(&device));
+    // Gather info on all the currently mounted devices
+    let mut mtab_devices: Vec<Device> = block_utils::get_mounted_devices()?;
+
+    // Remove any mtab_devices that udev already knows about leaving only ones
+    // that udev doesn't know about, ie broken mounted devices
+    mtab_devices.retain(|mtab_device| {
+        !device_info.iter().any(|udev_device| {
+            mtab_device.name.contains(&udev_device.name)
+        })
+    });
+
+    // Check any devices that udev doesn't know about that are still mounted
+    for mtab_device in mtab_devices {
+        results.push(run_checks(&mtab_device));
     }
+
     Ok(results)
 }
 
