@@ -83,7 +83,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "block-utils"
 version = "0.3.3"
-source = "git+https://github.com/cholcombe973/block-utils#ac5429fd166ba7ddc5ead3a0338e08bc212a081c"
+source = "git+https://github.com/cholcombe973/block-utils#67401428eca031a0e26130e6246ec0550277a008"
 dependencies = [
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libudev 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
