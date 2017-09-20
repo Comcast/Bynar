@@ -29,6 +29,7 @@ pub fn create_repair_database(db_path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Create a new repair ticket
 pub fn record_new_repair_ticket(
     conn: &Connection,
     ticket_id: &str,
@@ -53,6 +54,20 @@ pub fn record_new_repair_ticket(
     Ok(())
 }
 
+/// Check and return if a disk is in the database and awaiting repairs
+pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
+    debug!(
+        "Searching for repair ticket for disk: {}",
+        dev_path.display()
+    );
+    let mut stmt = conn.prepare(
+        "SELECT id, ticket_id, time_created, disk_path FROM repairs where disk_path=?",
+    )?;
+    let in_progress = stmt.exists(&[&dev_path.to_string_lossy().into_owned()])?;
+    Ok(in_progress)
+}
+
+/// Gather all the outstanding repair tickets
 pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<Vec<DiskRepairTicket>> {
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
     let mut stmt = conn.prepare(

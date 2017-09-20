@@ -23,7 +23,7 @@ mod test_disk;
 
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use clap::{Arg, App};
@@ -60,6 +60,7 @@ fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
 
 fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     let config = load_config(config_dir)?;
+    let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
     let host_info = Host::new().map_err(|e| e.to_string())?;
     let mut description = format!(
@@ -84,17 +85,26 @@ Details: Disk {} as failed.  Please replace if necessary",
     for result in test_disk::check_all_disks().map_err(|e| e.to_string())? {
         match result {
             Ok(status) => {
-                //
                 info!("Disk status: {:?}", status);
+                let mut dev_path = PathBuf::from("/dev");
+                dev_path.push(status.device.name);
+
                 if status.corrupted == true && status.repaired == false {
-                    description.push_str(&format!("Disk path: /dev/{}", status.device.name));
-                    let _ = backend
-                        .remove_disk(
-                            &Path::new(&format!("/dev/{}", status.device.name)),
-                            simulate,
-                        )
-                        .map_err(|e| e.to_string())?;
+                    description.push_str(&format!("Disk path: {}", dev_path.display()));
+                    let _ = backend.remove_disk(&dev_path, simulate).map_err(
+                        |e| e.to_string(),
+                    )?;
                     if !simulate {
+                        // TODO: Double check that this disk isn't already in progress
+                        info!("Connecting to database to check if disk is in progress");
+                        let conn = in_progress::create_repair_database(&config_location)
+                            .map_err(|e| e.to_string())?;
+                        let tickets = in_progress::is_disk_in_progress(&conn, &dev_path).map_err(
+                            |e| {
+                                e.to_string()
+                            },
+                        )?;
+
                         let _ = create_support_ticket(
                             &config.jira_host,
                             &config.jira_user,
