@@ -100,10 +100,7 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                     match device.exists() {
                         true => {
                             debug!("udev Probing device {:?}", device);
-                            let info = block_utils::get_device_info(&device).map_err(|e| {
-                                Error::new(ErrorKind::Other, e)
-                            })?;
-
+                            let info = block_utils::get_device_info(&device);
                             let corrupted = match check_writable(&s) {
                                 Ok(_) => false,
                                 Err(e) => {
@@ -114,10 +111,21 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                                 }
                             };
                             if corrupted {
-                                let check_result = check_filesystem(&info.fs_type, &device);
-                                debug!("check_filesystem result: {:?}", check_result);
-                                let repair_result = repair_filesystem(&info.fs_type, &device);
-                                debug!("repair_result result: {:?}", repair_result);
+                                // If udev doesn't know about the disk we can't repair it right?
+                                if let Ok(udev_info) = info {
+                                    let check_result =
+                                        check_filesystem(&udev_info.fs_type, &device);
+                                    debug!("check_filesystem result: {:?}", check_result);
+                                    let repair_result =
+                                        repair_filesystem(&udev_info.fs_type, &device);
+                                    debug!("repair_result result: {:?}", repair_result);
+                                } else {
+                                    error!(
+                                        "Failed to gather udev info on {:?}. error: {:?}",
+                                        device,
+                                        info
+                                    );
+                                }
                             }
                         }
                         false => {
