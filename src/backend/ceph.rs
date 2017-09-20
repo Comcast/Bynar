@@ -158,7 +158,7 @@ impl CephBackend {
     fn remove_osd(&self, dev_path: &Path, simulate: bool) -> Result<(), String> {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
-        let mount_point = match block_utils::get_mount_device(&dev_path).map_err(
+        let mount_point = match block_utils::get_mountpoint(&dev_path).map_err(
             |e| e.to_string(),
         )? {
             Some(osd_path) => osd_path,

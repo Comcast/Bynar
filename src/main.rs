@@ -94,18 +94,20 @@ Details: Disk {} as failed.  Please replace if necessary",
                             simulate,
                         )
                         .map_err(|e| e.to_string())?;
-                    let _ = create_support_ticket(
-                        &config.jira_host,
-                        &config.jira_user,
-                        &config.jira_password,
-                        &config.jira_issue_type,
-                        &config.jira_priority,
-                        &config.jira_project_id,
-                        &config.jira_ticket_assignee,
-                        "Dead disk",
-                        &description,
-                        &environment,
-                    ).map_err(|e| format!("{:?}", e))?;
+                    if !simulate {
+                        let _ = create_support_ticket(
+                            &config.jira_host,
+                            &config.jira_user,
+                            &config.jira_password,
+                            &config.jira_issue_type,
+                            &config.jira_priority,
+                            &config.jira_project_id,
+                            &config.jira_ticket_assignee,
+                            "Dead disk",
+                            &description,
+                            &environment,
+                        ).map_err(|e| format!("{:?}", e))?;
+                    }
                 }
             }
             Err(e) => {
