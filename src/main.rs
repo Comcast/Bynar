@@ -92,7 +92,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
-                    let conn = in_progress::create_repair_database(&config_location)
+                    let conn = in_progress::connect_to_repair_database(&config_location)
                         .map_err(|e| e.to_string())?;
                     let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path).map_err(
                         |e| {
@@ -136,7 +136,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     let config_location = Path::new(&config.db_location);
 
     info!("Connecting to database to find repaired drives");
-    let conn = in_progress::create_repair_database(&config_location)
+    let conn = in_progress::connect_to_repair_database(&config_location)
         .map_err(|e| e.to_string())?;
     debug!("Loading Ceph backend");
     let backend =
@@ -149,16 +149,27 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     )?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
-        let resolved = ticket_resolved(&config, &ticket.id.to_string()).map_err(
-            |e| {
-                e.to_string()
-            },
-        )?;
-        if resolved {
-            let _ = backend
-                .add_disk(&Path::new(&ticket.disk_path), simulate)
-                .map_err(|e| e.to_string())?;
-        }
+        match ticket_resolved(&config, &ticket.id.to_string()) {
+            Ok(resolved) => {
+                if resolved {
+                    match backend.add_disk(&Path::new(&ticket.disk_path), simulate) {
+                        Ok(_) => {
+                            debug!("Disk added successfully");
+                        }
+                        Err(e) => {
+                            error!("Failed to add disk: {:?}", e);
+                        }
+                    };
+                }
+            }
+            Err(e) => {
+                error!(
+                    "Error gatting resolved ticket status for {}.  {:?}",
+                    &ticket.id,
+                    e
+                );
+            }
+        };
     }
     Ok(())
 }

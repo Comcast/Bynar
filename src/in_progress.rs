@@ -43,7 +43,7 @@ pub struct DiskRepairTicket {
     pub disk_path: String,
 }
 
-pub fn create_repair_database(db_path: &Path) -> Result<Connection> {
+pub fn connect_to_repair_database(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
     debug!("Opening or creating repairs table if needed");
     conn.execute(
