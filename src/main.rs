@@ -91,16 +91,20 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                     if let Some(serial) = status.device.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
-                    let _ = backend.remove_disk(&dev_path, simulate).map_err(
-                        |e| e.to_string(),
+                    info!("Connecting to database to check if disk is in progress");
+                    let conn = in_progress::create_repair_database(&config_location)
+                        .map_err(|e| e.to_string())?;
+                    let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path).map_err(
+                        |e| {
+                            e.to_string()
+                        },
                     )?;
                     if !simulate {
-                        info!("Connecting to database to check if disk is in progress");
-                        let conn = in_progress::create_repair_database(&config_location)
-                            .map_err(|e| e.to_string())?;
-                        let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)
-                            .map_err(|e| e.to_string())?;
                         if !in_progress {
+                            debug!("Asking backend to remove disk");
+                            let _ = backend.remove_disk(&dev_path, simulate).map_err(
+                                |e| e.to_string(),
+                            )?;
                             debug!("Creating support ticket");
                             let ticket_id = create_support_ticket(
                                 &config,
