@@ -105,6 +105,7 @@ impl CephBackend {
         );
         if !simulate {
             block_utils::format_block_device(dev_path, &xfs_options)?;
+            settle_udev();
         }
 
         // Probe the drive
@@ -495,6 +496,17 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> Result<(), String> {
         }
     };
 
+    Ok(())
+}
+
+fn settle_udev() -> IOResult<()> {
+    let output = Command::new("udevadm").arg("settle").output()?;
+    if !output.status.success() {
+        return Err(::std::io::Error::new(
+            ::std::io::ErrorKind::NotFound,
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ));
+    }
     Ok(())
 }
 
