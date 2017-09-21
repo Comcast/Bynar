@@ -102,12 +102,15 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                             .map_err(|e| e.to_string())?;
                         if !in_progress {
                             debug!("Creating support ticket");
-                            let _ = create_support_ticket(
+                            let ticket_id = create_support_ticket(
                                 &config,
                                 "Dead disk",
                                 &description,
                                 &environment,
                             ).map_err(|e| format!("{:?}", e))?;
+                            debug!("Recording ticket id {} in database", ticket_id);
+                            in_progress::record_new_repair_ticket(&conn, &ticket_id, &dev_path)
+                                .map_err(|e| e.to_string())?;
                         } else {
                             debug!("Device is already in the repair queue");
                         }
