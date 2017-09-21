@@ -30,17 +30,18 @@ use clap::{Arg, App};
 use host_information::Host;
 use simplelog::{Config, SimpleLogger};
 
-#[derive(Debug, Deserialize)]
-struct ConfigSettings {
+#[derive(Clone, Debug, Deserialize)]
+pub struct ConfigSettings {
     backend: backend::BackendType,
     db_location: String,
-    jira_user: String,
-    jira_password: String,
-    jira_host: String,
-    jira_issue_type: String,
-    jira_priority: String,
-    jira_project_id: String,
-    jira_ticket_assignee: String,
+    pub jira_user: String,
+    pub jira_password: String,
+    pub jira_host: String,
+    pub jira_issue_type: String,
+    pub jira_priority: String,
+    pub jira_project_id: String,
+    pub jira_ticket_assignee: String,
+    pub proxy: Option<String>,
 }
 
 fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
@@ -99,13 +100,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                         if !in_progress {
                             debug!("Creating support ticket");
                             let _ = create_support_ticket(
-                                &config.jira_host,
-                                &config.jira_user,
-                                &config.jira_password,
-                                &config.jira_issue_type,
-                                &config.jira_priority,
-                                &config.jira_project_id,
-                                &config.jira_ticket_assignee,
+                                &config,
                                 "Dead disk",
                                 &description,
                                 &environment,
@@ -145,9 +140,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         let resolved = ticket_resolved(
-            &config.jira_host,
-            &config.jira_user,
-            &config.jira_password,
+            &config,
             &ticket.id.to_string(),
         ).map_err(|e| e.to_string())?;
         if resolved {

@@ -16,11 +16,14 @@ though could prove useful.
 
 ## Configuration:
 1. Create your configuration file.  The utility takes json config
-information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it. Fields for this file are:
+information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it. 
+An optional proxy field can be configured to send JIRA REST API requests through.
+Fields for this file are:
 ```
 {
  "backend": "Ceph",
  "db_location": "/etc/ceph_dead_disk/disks.sqlite3",
+ "proxy": "https://my.proxy",
  "jira_user": "test_user",
  "jira_password": "user_password",
  "jira_host": "https://tickets.jira.com",
