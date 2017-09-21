@@ -149,7 +149,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     )?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
-        match ticket_resolved(&config, &ticket.id.to_string()) {
+        match ticket_resolved(&config, &ticket.ticket_id.to_string()) {
             Ok(resolved) => {
                 if resolved {
                     match backend.add_disk(&Path::new(&ticket.disk_path), simulate) {
@@ -165,7 +165,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
             Err(e) => {
                 error!(
                     "Error gatting resolved ticket status for {}.  {:?}",
-                    &ticket.id,
+                    &ticket.ticket_id,
                     e
                 );
             }
