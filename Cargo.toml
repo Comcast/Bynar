@@ -11,7 +11,7 @@ ceph-safe-disk = "~0.1"
 clap = "*"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
-goji = "~0.2" # {git = "https://github.com/cholcombe973/goji"}
+goji = {git = "https://github.com/cholcombe973/goji"}
 json = "*"
 libatasmart = "*"
 libc = "*"

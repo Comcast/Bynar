@@ -88,7 +88,9 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
 
                 if status.corrupted == true && status.repaired == false {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    description.push_str(&format!("\nDisk serial: {}", status.device.serial_number));
+                    if let Some(serial) = status.device.serial_number {
+                        description.push_str(&format!("\nDisk serial: {}", serial));
+                    }
                     let _ = backend.remove_disk(&dev_path, simulate).map_err(
                         |e| e.to_string(),
                     )?;
@@ -140,10 +142,11 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     )?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
-        let resolved = ticket_resolved(
-            &config,
-            &ticket.id.to_string(),
-        ).map_err(|e| e.to_string())?;
+        let resolved = ticket_resolved(&config, &ticket.id.to_string()).map_err(
+            |e| {
+                e.to_string()
+            },
+        )?;
         if resolved {
             let _ = backend
                 .add_disk(&Path::new(&ticket.disk_path), simulate)
