@@ -5,13 +5,14 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 # blkid = "*"
-block-utils = {git = "https://github.com/cholcombe973/block-utils"}
+block-utils = "~0.4" # {git = "https://github.com/cholcombe973/block-utils"}
 ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
 ceph-safe-disk = "~0.1"
 clap = "*"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
+init-daemon = "*"
 json = "*"
 libatasmart = "*"
 libc = "*"

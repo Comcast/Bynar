@@ -2,6 +2,7 @@ extern crate block_utils;
 extern crate ceph_rust;
 extern crate ceph_safe_disk;
 extern crate fstab;
+extern crate init_daemon;
 extern crate libc;
 extern crate mktemp;
 extern crate serde_json;
@@ -20,6 +21,7 @@ use backend::Backend;
 use self::ceph_rust::ceph::{connect_to_ceph, ceph_mon_command_without_data, disconnect_from_ceph};
 use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
+use self::init_daemon::{detect_daemon, Daemon};
 use self::mktemp::Temp;
 use super::super::host_information::Host;
 
@@ -123,7 +125,10 @@ impl CephBackend {
         // Mount the drive
         let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id);
         if !simulate {
-            create_dir(&mount_point).map_err(|e| e.to_string())?;
+            if !Path::new(&mount_point).exists() {
+                debug!("Mount point {} doesn't exist.  Creating.", mount_point);
+                create_dir(&mount_point).map_err(|e| e.to_string())?;
+            }
             block_utils::mount_device(&info, &mount_point)?;
         }
 
@@ -137,20 +142,24 @@ impl CephBackend {
             e.to_string()
         })?;
         let host_info = Host::new().map_err(|e| e.to_string())?;
+        let gb_capacity = info.capacity / 1073741824;
+        let osd_weight = gb_capacity as f64 * 0.001_f64;
         debug!(
-            "Adding OSD {} to crushmap under host {}",
+            "Adding OSD {} to crushmap under host {} with weight: {}",
             new_osd_id,
-            host_info.hostname
+            host_info.hostname,
+            osd_weight
         );
         osd_crush_add(
             self.cluster_handle,
             new_osd_id,
-            0.00_f64,
+            osd_weight,
             &host_info.hostname,
             simulate,
         )?;
         add_osd_to_fstab(&info, new_osd_id, simulate)?;
         // This step depends on whether it's systemctl, upstart, etc
+        setup_osd_init(new_osd_id, simulate)?;
         // sudo start ceph-osd id={osd-num}
         Ok(())
     }
@@ -446,6 +455,46 @@ fn add_osd_to_fstab(
             false => debug!("Fstab entry was updated"),
         };
     }
+    Ok(())
+}
+
+fn setup_osd_init(osd_id: u64, simulate: bool) -> Result<(), String> {
+    debug!("Detecting init system");
+    let init_daemon = detect_daemon()?;
+    match init_daemon {
+        Daemon::Systemd => {
+            debug!("Systemd detected.  Starting OSD");
+            let mut cmd = Command::new("systemctl");
+            cmd.arg("start");
+            cmd.arg(format!("ceph-osd@{}", osd_id));
+            debug!("cmd: {:?}", cmd);
+            if !simulate {
+                let output = cmd.output().map_err(|e| e.to_string())?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+                }
+            }
+            return Ok(());
+        }
+        Daemon::Upstart => {
+            debug!("Upstart detected.  Starting OSD");
+            let mut cmd = Command::new("start");
+            cmd.arg("ceph-osd");
+            cmd.arg(format!("id={}", osd_id));
+            debug!("cmd: {:?}", cmd);
+            if !simulate {
+                let output = cmd.output().map_err(|e| e.to_string())?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+                }
+            }
+            return Ok(());
+        }
+        Daemon::Unknown => {
+            return Err("Unknown init system.  Cannot start osd service".to_string());
+        }
+    };
+
     Ok(())
 }
 
