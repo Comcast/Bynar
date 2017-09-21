@@ -80,6 +80,15 @@ pub fn record_new_repair_ticket(
     Ok(())
 }
 
+pub fn resolve_ticket(conn: &Connection, ticket_id: &str) -> Result<()> {
+    debug!("Resolving ticket: {}", ticket_id);
+    conn.execute(
+        "DELETE FROM repairs where ticket_id=?",
+        &[&ticket_id.to_string()],
+    )?;
+    Ok(())
+}
+
 /// Check and return if a disk is in the database and awaiting repairs
 pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
     debug!(

@@ -155,6 +155,18 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
                     match backend.add_disk(&Path::new(&ticket.disk_path), simulate) {
                         Ok(_) => {
                             debug!("Disk added successfully");
+                            match in_progress::resolve_ticket(&conn, &ticket.ticket_id) {
+                                Ok(_) => {
+                                    debug!("Database updated");
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed to delete record for {}.  {:?}",
+                                        ticket.ticket_id,
+                                        e
+                                    );
+                                }
+                            };
                         }
                         Err(e) => {
                             error!("Failed to add disk: {:?}", e);
