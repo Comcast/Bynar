@@ -2,7 +2,7 @@
 name = "ceph_dead_disk"
 version = "0.1.0"
 dependencies = [
- "block-utils 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "block-utils 0.4.0 (git+https://github.com/cholcombe973/block-utils)",
  "ceph-rust 0.1.17 (git+https://github.com/cholcombe973/ceph-rust)",
  "ceph-safe-disk 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.26.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -84,7 +84,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "block-utils"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/cholcombe973/block-utils#3f6d4562a426cb0919d85bc6a48269d41cf24673"
 dependencies = [
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libudev 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1088,7 +1088,7 @@ dependencies = [
 "checksum base64 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "96434f987501f0ed4eb336a411e0631ecd1afa11574fe148587adc4ff96143c9"
 "checksum bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "aad18937a628ec6abcd26d1489012cc0e18c21798210f491af69ded9b881106d"
 "checksum bitflags 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4efd02e230a02e18f92fc2735f44597385ed02ad8f831e7c1c1156ee5e1ab3a5"
-"checksum block-utils 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "32c6de427244534428b9be1d1b91c5a42d9290434a28339528995c9e2310ca54"
+"checksum block-utils 0.4.0 (git+https://github.com/cholcombe973/block-utils)" = "<none>"
 "checksum byteorder 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ff81738b726f5d099632ceaffe7fb65b90212e8dce59d518729e7e8634032d3d"
 "checksum bytes 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "d828f97b58cc5de3e40c421d0cf2132d6b2da4ee0e11b8632fa838f0f9333ad6"
 "checksum cc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7db2f146208d7e0fbee761b09cd65a7f51ccc38705d4e7262dad4d73b12a76b1"
