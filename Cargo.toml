@@ -5,7 +5,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 # blkid = "*"
-block-utils = "~0.4" # {git = "https://github.com/cholcombe973/block-utils"}
+block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
 ceph-safe-disk = "~0.1"
 clap = "*"
