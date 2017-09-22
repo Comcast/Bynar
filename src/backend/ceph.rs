@@ -423,7 +423,7 @@ fn save_keyring(osd_id: u64, key: &str, simulate: bool) -> IOResult<()> {
     if !simulate {
         let mut f = File::create(format!("{}/keyring", base_dir))?;
         f.write_all(
-            format!("[osd.{}]\n\tkey = {}", osd_id, key).as_bytes(),
+            format!("[osd.{}]\n\tkey = {}\n", osd_id, key).as_bytes(),
         )?;
     }
     Ok(())
