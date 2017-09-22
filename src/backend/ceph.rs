@@ -23,6 +23,7 @@ use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
 use self::init_daemon::{detect_daemon, Daemon};
 use self::mktemp::Temp;
+use self::uuid::Uuid;
 use super::super::host_information::Host;
 
 /// Ceph cluster
@@ -121,10 +122,10 @@ impl CephBackend {
 
         // Create a new osd id
         let new_osd_id = osd_create(self.cluster_handle, info.id.unwrap(), simulate)?;
-        debug!("New osd id created: {}", new_osd_id);
+        debug!("New osd id created: {:?}", new_osd_id);
 
         // Mount the drive
-        let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id);
+        let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id.0);
         if !simulate {
             if !Path::new(&mount_point).exists() {
                 debug!("Mount point {} doesn't exist.  Creating.", mount_point);
@@ -134,33 +135,35 @@ impl CephBackend {
         }
 
         // Format the osd with the osd filesystem
-        ceph_mkfs(new_osd_id, None, simulate)?;
+        ceph_mkfs(new_osd_id.0, new_osd_id.1, None, simulate)?;
         debug!("Creating ceph authorization entry");
-        auth_add(self.cluster_handle, new_osd_id, simulate)?;
-        let auth_key = auth_get_key(self.cluster_handle, new_osd_id, simulate)?;
+        auth_add(self.cluster_handle, new_osd_id.0, simulate)?;
+        let auth_key = auth_get_key(self.cluster_handle, new_osd_id.0, simulate)?;
         debug!("Saving ceph keyring");
-        save_keyring(new_osd_id, &auth_key, simulate).map_err(|e| {
-            e.to_string()
-        })?;
+        save_keyring(new_osd_id.0, &auth_key, simulate).map_err(
+            |e| {
+                e.to_string()
+            },
+        )?;
         let host_info = Host::new().map_err(|e| e.to_string())?;
         let gb_capacity = info.capacity / 1073741824;
         let osd_weight = gb_capacity as f64 * 0.001_f64;
         debug!(
             "Adding OSD {} to crushmap under host {} with weight: {}",
-            new_osd_id,
+            new_osd_id.0,
             host_info.hostname,
             osd_weight
         );
         osd_crush_add(
             self.cluster_handle,
-            new_osd_id,
+            new_osd_id.0,
             osd_weight,
             &host_info.hostname,
             simulate,
         )?;
-        add_osd_to_fstab(&info, new_osd_id, simulate)?;
+        add_osd_to_fstab(&info, new_osd_id.0, simulate)?;
         // This step depends on whether it's systemctl, upstart, etc
-        setup_osd_init(new_osd_id, simulate)?;
+        setup_osd_init(new_osd_id.0, simulate)?;
         // sudo start ceph-osd id={osd-num}
         Ok(())
     }
@@ -293,14 +296,15 @@ fn osd_rm(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), St
 
 }
 
-fn osd_create(cluster_handle: rados_t, uuid: uuid::Uuid, simulate: bool) -> Result<u64, String> {
+fn osd_create(cluster_handle: rados_t, uuid: Uuid, simulate: bool) -> Result<(u64, Uuid), String> {
+    let fsid = Uuid::new_v4();
     let cmd = json!({
             "prefix": "osd create",
-            "uuid": uuid.hyphenated().to_string()
+            "uuid": fsid.hyphenated().to_string()
         });
     debug!("osd create: {:?}", cmd.to_string());
     if simulate {
-        return Ok(0);
+        return Ok((0, Uuid::nil()));
     }
 
     let result = ceph_mon_command_without_data(cluster_handle, &cmd.to_string())
@@ -309,7 +313,7 @@ fn osd_create(cluster_handle: rados_t, uuid: uuid::Uuid, simulate: bool) -> Resu
         let return_data = result.0.unwrap();
         let mut l = return_data.lines();
         match l.next() {
-            Some(num) => return Ok(u64::from_str(num).map_err(|e| e.to_string())?),
+            Some(num) => return Ok((u64::from_str(num).map_err(|e| e.to_string())?, fsid)),
             None => {
                 return Err(format!(
                 "Unable to parse osd create output: {:?}",
@@ -510,9 +514,16 @@ fn settle_udev() -> IOResult<()> {
     Ok(())
 }
 
-fn ceph_mkfs(osd_id: u64, journal: Option<&Path>, simulate: bool) -> Result<(), String> {
-    //
+// Run ceph-osd --mkfs and return the osd UUID
+fn ceph_mkfs(
+    osd_id: u64,
+    fsid: Uuid,
+    journal: Option<&Path>,
+    simulate: bool,
+) -> Result<(), String> {
     debug!("Running ceph-osd --mkfs");
+    let fsid_str = format!("/var/lib/ceph/osd/ceph-{}/fsid", osd_id);
+    let fsid_path = Path::new(&fsid_str);
     let journal_str: String;
     let osd_id_str = osd_id.to_string();
 
@@ -527,6 +538,10 @@ fn ceph_mkfs(osd_id: u64, journal: Option<&Path>, simulate: bool) -> Result<(), 
         Command::new("ceph-osd").args(&args).output().map_err(|e| {
             e.to_string()
         })?;
+        debug!("Writing out ceph fsid {}: {}",fsid_path.display(), fsid.hyphenated().to_string());
+        let mut f = File::create(fsid_path).map_err(|e| e.to_string())?;
+        let _ = f.write(format!("{}\n", fsid.hyphenated().to_string()).as_bytes())
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }

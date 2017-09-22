@@ -27,4 +27,4 @@ serde_json = "*"
 simplelog = "*"
 time = "*"
 uname = "*"
-uuid = "*"
+uuid = { version="*", features = ["v4"]}
