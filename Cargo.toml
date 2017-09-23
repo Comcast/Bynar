@@ -11,6 +11,7 @@ ceph-safe-disk = "~0.1"
 clap = "*"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
+gluster = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
 init-daemon = "*"
 json = "*"
