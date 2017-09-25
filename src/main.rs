@@ -4,8 +4,10 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
+extern crate api;
 #[macro_use]
 extern crate clap;
+extern crate protobuf;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;

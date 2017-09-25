@@ -1,0 +1,9 @@
+[package]
+name = "disk-manager"
+version = "0.1.0"
+authors = ["Chris Holcombe <xfactor973@gmail.com>"]
+
+[dependencies]
+api = { path = "../api", version = "*"}
+protobuf = "*"
+zmq = "*"

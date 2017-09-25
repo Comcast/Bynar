@@ -3,12 +3,19 @@ name = "ceph_dead_disk"
 version = "0.1.0"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
+[workspace]
+
+# [features]
+# zmq = ["zmq"]
+
 [dependencies]
-# blkid = "*"
+api = { path = "api" }
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
 ceph-safe-disk = "~0.1"
 clap = "*"
+client = { path = "client" }
+disk-manager = { path = "disk-manager" }
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
 gluster = "*"
@@ -19,7 +26,7 @@ libatasmart = "*"
 libc = "*"
 log = "*"
 mktemp = "*"
-# protobuf = "*"
+protobuf = "*"
 reqwest = "*"
 rusqlite = "*"
 serde = "*"
@@ -29,3 +36,4 @@ simplelog = "*"
 time = "*"
 uname = "*"
 uuid = { version="*", features = ["v4"]}
+zmq = {version="~0.8"}

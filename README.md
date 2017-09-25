@@ -14,6 +14,13 @@ Stage 3: Protobuf RPC API to allow remote control of ceph servers.  This might
 also need to be broken out to another utility.  An RPC api for this utility
 though could prove useful.
 
+## Dependencies:
+1. libzmq3-dev
+2. protobuf
+3. librados
+4. libatasmart
+5. openssl-dev
+
 ## Configuration:
 1. Create your configuration file.  The utility takes json config
 information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it. 
@@ -44,6 +51,12 @@ and also create your `/etc/ceph_dead_disk/ceph.json` file:
 This tells the Ceph backend how to talk to Ceph.
 
 ## Usage:
+
+## Directory layout:
+1. Top level is the dead disk detector
+2. api is the protobuf api create
+3. disk-manager is the service that handles adding and removing disks
+4. client is the cli client to make RPC calls to disk manager or dead disk detector
 
 ## TODO:
 - [ ] LSI Raid integration
