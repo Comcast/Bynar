@@ -1,4 +1,3 @@
-# dead_disk
 Dead disk management for Ceph and more.
 
 Stage 1: Disk replacement automation pipeline. There's several steps that used to require a human that I would like to cut out:
