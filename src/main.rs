@@ -7,14 +7,14 @@
 extern crate api;
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate log;
 extern crate protobuf;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
 #[macro_use]
 extern crate serde_json;
-#[macro_use]
-extern crate log;
 extern crate simplelog;
 
 mod backend;

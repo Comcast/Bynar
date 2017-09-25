@@ -5,5 +5,10 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 api = { path = "../api", version = "*"}
+block-utils = {git = "https://github.com/cholcombe973/block-utils"}
+bytes = "*"
+clap = "*"
+log = "*"
 protobuf = "*"
+simplelog = "*"
 zmq = "*"

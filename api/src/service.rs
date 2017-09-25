@@ -1417,9 +1417,9 @@ impl ::protobuf::reflect::ProtobufValue for Disks {
 }
 
 #[derive(PartialEq,Clone,Default)]
-pub struct Result {
+pub struct OpResult {
     // message fields
-    result: ::std::option::Option<Result_ResultType>,
+    result: ::std::option::Option<OpResult_ResultType>,
     error_msg: ::protobuf::SingularField<::std::string::String>,
     // special fields
     unknown_fields: ::protobuf::UnknownFields,
@@ -1427,24 +1427,24 @@ pub struct Result {
 }
 
 // see codegen.rs for the explanation why impl Sync explicitly
-unsafe impl ::std::marker::Sync for Result {}
+unsafe impl ::std::marker::Sync for OpResult {}
 
-impl Result {
-    pub fn new() -> Result {
+impl OpResult {
+    pub fn new() -> OpResult {
         ::std::default::Default::default()
     }
 
-    pub fn default_instance() -> &'static Result {
-        static mut instance: ::protobuf::lazy::Lazy<Result> = ::protobuf::lazy::Lazy {
+    pub fn default_instance() -> &'static OpResult {
+        static mut instance: ::protobuf::lazy::Lazy<OpResult> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const Result,
+            ptr: 0 as *const OpResult,
         };
         unsafe {
-            instance.get(Result::new)
+            instance.get(OpResult::new)
         }
     }
 
-    // required .ceph_disk.Result.ResultType result = 1;
+    // required .ceph_disk.OpResult.ResultType result = 1;
 
     pub fn clear_result(&mut self) {
         self.result = ::std::option::Option::None;
@@ -1455,19 +1455,19 @@ impl Result {
     }
 
     // Param is passed by value, moved
-    pub fn set_result(&mut self, v: Result_ResultType) {
+    pub fn set_result(&mut self, v: OpResult_ResultType) {
         self.result = ::std::option::Option::Some(v);
     }
 
-    pub fn get_result(&self) -> Result_ResultType {
-        self.result.unwrap_or(Result_ResultType::OK)
+    pub fn get_result(&self) -> OpResult_ResultType {
+        self.result.unwrap_or(OpResult_ResultType::OK)
     }
 
-    fn get_result_for_reflect(&self) -> &::std::option::Option<Result_ResultType> {
+    fn get_result_for_reflect(&self) -> &::std::option::Option<OpResult_ResultType> {
         &self.result
     }
 
-    fn mut_result_for_reflect(&mut self) -> &mut ::std::option::Option<Result_ResultType> {
+    fn mut_result_for_reflect(&mut self) -> &mut ::std::option::Option<OpResult_ResultType> {
         &mut self.result
     }
 
@@ -1516,7 +1516,7 @@ impl Result {
     }
 }
 
-impl ::protobuf::Message for Result {
+impl ::protobuf::Message for OpResult {
     fn is_initialized(&self) -> bool {
         if self.result.is_none() {
             return false;
@@ -1599,12 +1599,12 @@ impl ::protobuf::Message for Result {
     }
 }
 
-impl ::protobuf::MessageStatic for Result {
-    fn new() -> Result {
-        Result::new()
+impl ::protobuf::MessageStatic for OpResult {
+    fn new() -> OpResult {
+        OpResult::new()
     }
 
-    fn descriptor_static(_: ::std::option::Option<Result>) -> &'static ::protobuf::reflect::MessageDescriptor {
+    fn descriptor_static(_: ::std::option::Option<OpResult>) -> &'static ::protobuf::reflect::MessageDescriptor {
         static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
             ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
@@ -1612,18 +1612,18 @@ impl ::protobuf::MessageStatic for Result {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeEnum<Result_ResultType>>(
+                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeEnum<OpResult_ResultType>>(
                     "result",
-                    Result::get_result_for_reflect,
-                    Result::mut_result_for_reflect,
+                    OpResult::get_result_for_reflect,
+                    OpResult::mut_result_for_reflect,
                 ));
                 fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "error_msg",
-                    Result::get_error_msg_for_reflect,
-                    Result::mut_error_msg_for_reflect,
+                    OpResult::get_error_msg_for_reflect,
+                    OpResult::mut_error_msg_for_reflect,
                 ));
-                ::protobuf::reflect::MessageDescriptor::new::<Result>(
-                    "Result",
+                ::protobuf::reflect::MessageDescriptor::new::<OpResult>(
+                    "OpResult",
                     fields,
                     file_descriptor_proto()
                 )
@@ -1632,7 +1632,7 @@ impl ::protobuf::MessageStatic for Result {
     }
 }
 
-impl ::protobuf::Clear for Result {
+impl ::protobuf::Clear for OpResult {
     fn clear(&mut self) {
         self.clear_result();
         self.clear_error_msg();
@@ -1640,95 +1640,174 @@ impl ::protobuf::Clear for Result {
     }
 }
 
-impl ::std::fmt::Debug for Result {
+impl ::std::fmt::Debug for OpResult {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-impl ::protobuf::reflect::ProtobufValue for Result {
+impl ::protobuf::reflect::ProtobufValue for OpResult {
     fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
         ::protobuf::reflect::ProtobufValueRef::Message(self)
     }
 }
 
 #[derive(Clone,PartialEq,Eq,Debug,Hash)]
-pub enum Result_ResultType {
+pub enum OpResult_ResultType {
     OK = 0,
     ERR = 1,
 }
 
-impl ::protobuf::ProtobufEnum for Result_ResultType {
+impl ::protobuf::ProtobufEnum for OpResult_ResultType {
     fn value(&self) -> i32 {
         *self as i32
     }
 
-    fn from_i32(value: i32) -> ::std::option::Option<Result_ResultType> {
+    fn from_i32(value: i32) -> ::std::option::Option<OpResult_ResultType> {
         match value {
-            0 => ::std::option::Option::Some(Result_ResultType::OK),
-            1 => ::std::option::Option::Some(Result_ResultType::ERR),
+            0 => ::std::option::Option::Some(OpResult_ResultType::OK),
+            1 => ::std::option::Option::Some(OpResult_ResultType::ERR),
             _ => ::std::option::Option::None
         }
     }
 
     fn values() -> &'static [Self] {
-        static values: &'static [Result_ResultType] = &[
-            Result_ResultType::OK,
-            Result_ResultType::ERR,
+        static values: &'static [OpResult_ResultType] = &[
+            OpResult_ResultType::OK,
+            OpResult_ResultType::ERR,
         ];
         values
     }
 
-    fn enum_descriptor_static(_: ::std::option::Option<Result_ResultType>) -> &'static ::protobuf::reflect::EnumDescriptor {
+    fn enum_descriptor_static(_: ::std::option::Option<OpResult_ResultType>) -> &'static ::protobuf::reflect::EnumDescriptor {
         static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::EnumDescriptor> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
             ptr: 0 as *const ::protobuf::reflect::EnumDescriptor,
         };
         unsafe {
             descriptor.get(|| {
-                ::protobuf::reflect::EnumDescriptor::new("Result_ResultType", file_descriptor_proto())
+                ::protobuf::reflect::EnumDescriptor::new("OpResult_ResultType", file_descriptor_proto())
             })
         }
     }
 }
 
-impl ::std::marker::Copy for Result_ResultType {
+impl ::std::marker::Copy for OpResult_ResultType {
 }
 
-impl ::protobuf::reflect::ProtobufValue for Result_ResultType {
+impl ::protobuf::reflect::ProtobufValue for OpResult_ResultType {
     fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
         ::protobuf::reflect::ProtobufValueRef::Enum(self.descriptor())
     }
 }
 
 #[derive(PartialEq,Clone,Default)]
-pub struct Empty {
+pub struct Operation {
+    // message fields
+    Op_type: ::std::option::Option<Op>,
+    disk: ::protobuf::SingularPtrField<Disk>,
     // special fields
     unknown_fields: ::protobuf::UnknownFields,
     cached_size: ::protobuf::CachedSize,
 }
 
 // see codegen.rs for the explanation why impl Sync explicitly
-unsafe impl ::std::marker::Sync for Empty {}
+unsafe impl ::std::marker::Sync for Operation {}
 
-impl Empty {
-    pub fn new() -> Empty {
+impl Operation {
+    pub fn new() -> Operation {
         ::std::default::Default::default()
     }
 
-    pub fn default_instance() -> &'static Empty {
-        static mut instance: ::protobuf::lazy::Lazy<Empty> = ::protobuf::lazy::Lazy {
+    pub fn default_instance() -> &'static Operation {
+        static mut instance: ::protobuf::lazy::Lazy<Operation> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const Empty,
+            ptr: 0 as *const Operation,
         };
         unsafe {
-            instance.get(Empty::new)
+            instance.get(Operation::new)
         }
+    }
+
+    // required .ceph_disk.Op Op_type = 1;
+
+    pub fn clear_Op_type(&mut self) {
+        self.Op_type = ::std::option::Option::None;
+    }
+
+    pub fn has_Op_type(&self) -> bool {
+        self.Op_type.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_Op_type(&mut self, v: Op) {
+        self.Op_type = ::std::option::Option::Some(v);
+    }
+
+    pub fn get_Op_type(&self) -> Op {
+        self.Op_type.unwrap_or(Op::Add)
+    }
+
+    fn get_Op_type_for_reflect(&self) -> &::std::option::Option<Op> {
+        &self.Op_type
+    }
+
+    fn mut_Op_type_for_reflect(&mut self) -> &mut ::std::option::Option<Op> {
+        &mut self.Op_type
+    }
+
+    // optional .ceph_disk.Disk disk = 2;
+
+    pub fn clear_disk(&mut self) {
+        self.disk.clear();
+    }
+
+    pub fn has_disk(&self) -> bool {
+        self.disk.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_disk(&mut self, v: Disk) {
+        self.disk = ::protobuf::SingularPtrField::some(v);
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_disk(&mut self) -> &mut Disk {
+        if self.disk.is_none() {
+            self.disk.set_default();
+        }
+        self.disk.as_mut().unwrap()
+    }
+
+    // Take field
+    pub fn take_disk(&mut self) -> Disk {
+        self.disk.take().unwrap_or_else(|| Disk::new())
+    }
+
+    pub fn get_disk(&self) -> &Disk {
+        self.disk.as_ref().unwrap_or_else(|| Disk::default_instance())
+    }
+
+    fn get_disk_for_reflect(&self) -> &::protobuf::SingularPtrField<Disk> {
+        &self.disk
+    }
+
+    fn mut_disk_for_reflect(&mut self) -> &mut ::protobuf::SingularPtrField<Disk> {
+        &mut self.disk
     }
 }
 
-impl ::protobuf::Message for Empty {
+impl ::protobuf::Message for Operation {
     fn is_initialized(&self) -> bool {
+        if self.Op_type.is_none() {
+            return false;
+        }
+        for v in &self.disk {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         true
     }
 
@@ -1736,6 +1815,16 @@ impl ::protobuf::Message for Empty {
         while !is.eof()? {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
+                1 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_enum()?;
+                    self.Op_type = ::std::option::Option::Some(tmp);
+                },
+                2 => {
+                    ::protobuf::rt::read_singular_message_into(wire_type, is, &mut self.disk)?;
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -1748,12 +1837,27 @@ impl ::protobuf::Message for Empty {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
+        if let Some(v) = self.Op_type {
+            my_size += ::protobuf::rt::enum_size(1, v);
+        }
+        if let Some(ref v) = self.disk.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        if let Some(v) = self.Op_type {
+            os.write_enum(1, v.value())?;
+        }
+        if let Some(ref v) = self.disk.as_ref() {
+            os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
     }
@@ -1785,21 +1889,31 @@ impl ::protobuf::Message for Empty {
     }
 }
 
-impl ::protobuf::MessageStatic for Empty {
-    fn new() -> Empty {
-        Empty::new()
+impl ::protobuf::MessageStatic for Operation {
+    fn new() -> Operation {
+        Operation::new()
     }
 
-    fn descriptor_static(_: ::std::option::Option<Empty>) -> &'static ::protobuf::reflect::MessageDescriptor {
+    fn descriptor_static(_: ::std::option::Option<Operation>) -> &'static ::protobuf::reflect::MessageDescriptor {
         static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
             ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
         };
         unsafe {
             descriptor.get(|| {
-                let fields = ::std::vec::Vec::new();
-                ::protobuf::reflect::MessageDescriptor::new::<Empty>(
-                    "Empty",
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeEnum<Op>>(
+                    "Op_type",
+                    Operation::get_Op_type_for_reflect,
+                    Operation::mut_Op_type_for_reflect,
+                ));
+                fields.push(::protobuf::reflect::accessor::make_singular_ptr_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<Disk>>(
+                    "disk",
+                    Operation::get_disk_for_reflect,
+                    Operation::mut_disk_for_reflect,
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<Operation>(
+                    "Operation",
                     fields,
                     file_descriptor_proto()
                 )
@@ -1808,19 +1922,21 @@ impl ::protobuf::MessageStatic for Empty {
     }
 }
 
-impl ::protobuf::Clear for Empty {
+impl ::protobuf::Clear for Operation {
     fn clear(&mut self) {
+        self.clear_Op_type();
+        self.clear_disk();
         self.unknown_fields.clear();
     }
 }
 
-impl ::std::fmt::Debug for Empty {
+impl ::std::fmt::Debug for Operation {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-impl ::protobuf::reflect::ProtobufValue for Empty {
+impl ::protobuf::reflect::ProtobufValue for Operation {
     fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
         ::protobuf::reflect::ProtobufValueRef::Message(self)
     }
@@ -1830,7 +1946,11 @@ impl ::protobuf::reflect::ProtobufValue for Empty {
 pub enum DiskType {
     SOLID_STATE = 0,
     ROTATIONAL = 1,
-    UNKNOWN = 2,
+    LOOPBACK = 2,
+    LVM = 3,
+    RAM = 4,
+    VIRTUAL = 5,
+    UNKNOWN = 6,
 }
 
 impl ::protobuf::ProtobufEnum for DiskType {
@@ -1842,7 +1962,11 @@ impl ::protobuf::ProtobufEnum for DiskType {
         match value {
             0 => ::std::option::Option::Some(DiskType::SOLID_STATE),
             1 => ::std::option::Option::Some(DiskType::ROTATIONAL),
-            2 => ::std::option::Option::Some(DiskType::UNKNOWN),
+            2 => ::std::option::Option::Some(DiskType::LOOPBACK),
+            3 => ::std::option::Option::Some(DiskType::LVM),
+            4 => ::std::option::Option::Some(DiskType::RAM),
+            5 => ::std::option::Option::Some(DiskType::VIRTUAL),
+            6 => ::std::option::Option::Some(DiskType::UNKNOWN),
             _ => ::std::option::Option::None
         }
     }
@@ -1851,6 +1975,10 @@ impl ::protobuf::ProtobufEnum for DiskType {
         static values: &'static [DiskType] = &[
             DiskType::SOLID_STATE,
             DiskType::ROTATIONAL,
+            DiskType::LOOPBACK,
+            DiskType::LVM,
+            DiskType::RAM,
+            DiskType::VIRTUAL,
             DiskType::UNKNOWN,
         ];
         values
@@ -1878,6 +2006,61 @@ impl ::protobuf::reflect::ProtobufValue for DiskType {
     }
 }
 
+#[derive(Clone,PartialEq,Eq,Debug,Hash)]
+pub enum Op {
+    Add = 1,
+    Check = 2,
+    List = 3,
+    Remove = 4,
+}
+
+impl ::protobuf::ProtobufEnum for Op {
+    fn value(&self) -> i32 {
+        *self as i32
+    }
+
+    fn from_i32(value: i32) -> ::std::option::Option<Op> {
+        match value {
+            1 => ::std::option::Option::Some(Op::Add),
+            2 => ::std::option::Option::Some(Op::Check),
+            3 => ::std::option::Option::Some(Op::List),
+            4 => ::std::option::Option::Some(Op::Remove),
+            _ => ::std::option::Option::None
+        }
+    }
+
+    fn values() -> &'static [Self] {
+        static values: &'static [Op] = &[
+            Op::Add,
+            Op::Check,
+            Op::List,
+            Op::Remove,
+        ];
+        values
+    }
+
+    fn enum_descriptor_static(_: ::std::option::Option<Op>) -> &'static ::protobuf::reflect::EnumDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::EnumDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::EnumDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                ::protobuf::reflect::EnumDescriptor::new("Op", file_descriptor_proto())
+            })
+        }
+    }
+}
+
+impl ::std::marker::Copy for Op {
+}
+
+impl ::protobuf::reflect::ProtobufValue for Op {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Enum(self.descriptor())
+    }
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
     \n\x14protos/service.proto\x12\tceph_disk\"n\n\x03Osd\x12\x0c\n\x04fsid\
     \x18\x01\x20\x01(\t\x12\n\n\x02id\x18\x02\x20\x02(\x04\x12\x14\n\x0cbloc\
@@ -1890,12 +2073,17 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x12\x12\n\nmount_path\x18\x06\x20\x01(\t\"R\n\x04Disk\x12!\n\x04type\
     \x18\x01\x20\x02(\x0e2\x13.ceph_disk.DiskType\x12\x10\n\x08dev_path\x18\
     \x02\x20\x02(\t\x12\x15\n\rserial_number\x18\x03\x20\x01(\t\"&\n\x05Disk\
-    s\x12\x1d\n\x04disk\x18\x01\x20\x03(\x0b2\x0f.ceph_disk.Disk\"h\n\x06Res\
-    ult\x12,\n\x06result\x18\x01\x20\x02(\x0e2\x1c.ceph_disk.Result.ResultTy\
-    pe\x12\x11\n\terror_msg\x18\x02\x20\x01(\t\"\x1d\n\nResultType\x12\x06\n\
-    \x02OK\x10\0\x12\x07\n\x03ERR\x10\x01\"\x07\n\x05Empty*8\n\x08DiskType\
-    \x12\x0f\n\x0bSOLID_STATE\x10\0\x12\x0e\n\nROTATIONAL\x10\x01\x12\x0b\n\
-    \x07UNKNOWN\x10\x02B\x02H\x01\
+    s\x12\x1d\n\x04disk\x18\x01\x20\x03(\x0b2\x0f.ceph_disk.Disk\"l\n\x08OpR\
+    esult\x12.\n\x06result\x18\x01\x20\x02(\x0e2\x1e.ceph_disk.OpResult.Resu\
+    ltType\x12\x11\n\terror_msg\x18\x02\x20\x01(\t\"\x1d\n\nResultType\x12\
+    \x06\n\x02OK\x10\0\x12\x07\n\x03ERR\x10\x01\"J\n\tOperation\x12\x1e\n\
+    \x07Op_type\x18\x01\x20\x02(\x0e2\r.ceph_disk.Op\x12\x1d\n\x04disk\x18\
+    \x02\x20\x01(\x0b2\x0f.ceph_disk.Disk*e\n\x08DiskType\x12\x0f\n\x0bSOLID\
+    _STATE\x10\0\x12\x0e\n\nROTATIONAL\x10\x01\x12\x0c\n\x08LOOPBACK\x10\x02\
+    \x12\x07\n\x03LVM\x10\x03\x12\x07\n\x03RAM\x10\x04\x12\x0b\n\x07VIRTUAL\
+    \x10\x05\x12\x0b\n\x07UNKNOWN\x10\x06*.\n\x02Op\x12\x07\n\x03Add\x10\x01\
+    \x12\t\n\x05Check\x10\x02\x12\x08\n\x04List\x10\x03\x12\n\n\x06Remove\
+    \x10\x04B\x02H\x01\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

@@ -5,5 +5,8 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 api = { path = "../api", version = "*"}
+clap = "*"
+log = "*"
 protobuf = "*"
+simplelog = "*"
 zmq = "*"

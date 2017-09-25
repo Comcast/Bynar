@@ -26,21 +26,30 @@ message RepairResponse {
 
 message Disk {
   required DiskType type = 1;
-  required string dev_path = 2; 
+  required string dev_path = 2;
   optional string serial_number = 3;
 }
 
 enum DiskType {
+  /// AKA SSD
   SOLID_STATE = 0;
+  /// Regular rotational device
   ROTATIONAL = 1;
-  UNKNOWN = 2;
+  /// Special loopback device
+  LOOPBACK = 2;
+  // Logical volume device
+  LVM = 3;
+  // Ramdisk
+  RAM = 4;
+  VIRTUAL = 5;
+  UNKNOWN = 6;
 }
 
 message Disks {
   repeated Disk disk = 1;
 }
 
-message Result {
+message OpResult {
   required ResultType result = 1;
   optional string error_msg = 2;
   enum ResultType{
@@ -49,21 +58,19 @@ message Result {
   }
 }
 
-message Empty{}
-
-/*
-// Rust protobuf doesn't implement service :(
-service CephDiskService {
-  // Check a disk and repair if needed
-  rpc CheckDisk(Disk) returns (RepairResponse);
-
-  // Add a disk back into the cluster
-  rpc AddDisk(Disk) returns (Result);
-
-  // Remove a disk from the cluster
-  rpc RemoveDisk(Disk) returns (Result);
-
-  // List all the block devices on the machine
-  rpc ListDisks(Empty) returns (Disks);
+enum Op{
+   //return OpResult
+   Add = 1;
+   //returns RepairResponse
+   Check = 2;
+   // Returns Disks
+   List = 3;
+   //Returns RepairResponse
+   Remove = 4;
 }
-*/
+
+// Service operations that can be performed
+message Operation {
+  required Op Op_type = 1;
+  optional Disk disk = 2;
+}
