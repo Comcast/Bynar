@@ -2,6 +2,7 @@ extern crate block_utils;
 extern crate ceph_rust;
 extern crate ceph_safe_disk;
 extern crate fstab;
+extern crate helpers;
 extern crate init_daemon;
 extern crate libc;
 extern crate mktemp;
@@ -23,8 +24,7 @@ use self::ceph_rust::rados::rados_t;
 use self::fstab::FsTab;
 use self::init_daemon::{detect_daemon, Daemon};
 use self::mktemp::Temp;
-use self::uuid::Uuid;
-use super::super::host_information::Host;
+use self::helpers::host_information::Host;
 
 /// Ceph cluster
 pub struct CephBackend {
@@ -106,7 +106,7 @@ impl CephBackend {
         );
         if !simulate {
             block_utils::format_block_device(dev_path, &xfs_options)?;
-            settle_udev();
+            let _ = settle_udev();
         }
 
         // Probe the drive
@@ -402,6 +402,9 @@ fn get_osd_id_from_path(path: &Path) -> Result<u64, String> {
 
 // Get an osd ID from the whoami file in the osd mount directory
 fn get_osd_id(path: &Path, simulate: bool) -> Result<u64, String> {
+    if simulate {
+        return Ok(0);
+    }
     let mut whoami_path = PathBuf::from(path);
     whoami_path.push("whoami");
     debug!("Discovering osd id number from: {:?}", whoami_path);
@@ -495,8 +498,6 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> Result<(), String> {
             return Err("Unknown init system.  Cannot start osd service".to_string());
         }
     };
-
-    Ok(())
 }
 
 fn settle_udev() -> IOResult<()> {
@@ -513,8 +514,6 @@ fn settle_udev() -> IOResult<()> {
 // Run ceph-osd --mkfs and return the osd UUID
 fn ceph_mkfs(osd_id: u64, journal: Option<&Path>, simulate: bool) -> Result<(), String> {
     debug!("Running ceph-osd --mkfs");
-    let fsid_str = format!("/var/lib/ceph/osd/ceph-{}/fsid", osd_id);
-    let fsid_path = Path::new(&fsid_str);
     let journal_str: String;
     let osd_id_str = osd_id.to_string();
 

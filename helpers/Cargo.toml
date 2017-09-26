@@ -1,13 +1,13 @@
 [package]
-name = "client"
+name = "helpers"
 version = "0.1.0"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 api = { path = "../api", version = "*"}
-clap = "*"
-helpers = { path="../helpers", version="*"}
+block-utils = {git = "https://github.com/cholcombe973/block-utils"}
+dmi = {git = "https://github.com/cholcombe973/dmi"}
 log = "*"
 protobuf = "*"
-simplelog = "*"
+uname = "*"
 zmq = "*"

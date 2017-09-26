@@ -1,4 +1,3 @@
-
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
 /// 2. Report dead disk to JIRA for repairs
@@ -7,19 +6,18 @@
 extern crate api;
 #[macro_use]
 extern crate clap;
+extern crate helpers;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
-#[macro_use]
 extern crate serde_json;
 extern crate simplelog;
+extern crate zmq;
 
-mod backend;
 mod create_support_ticket;
-mod host_information;
 mod in_progress;
 mod test_disk;
 
@@ -29,13 +27,14 @@ use std::path::{Path, PathBuf};
 
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use clap::{Arg, App};
-use host_information::Host;
+use helpers::host_information::Host;
 use simplelog::{Config, SimpleLogger};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
-    backend: backend::BackendType,
     db_location: String,
+    manager_host: String,
+    manager_port: u16,
     pub jira_user: String,
     pub jira_password: String,
     pub jira_host: String,
@@ -68,7 +67,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
     let host_info = Host::new().map_err(|e| e.to_string())?;
     debug!("Gathered host info: {:?}", host_info);
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
-    let mut environment =
+    let environment =
         format!(
         "Hostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
         host_info.hostname,
@@ -78,8 +77,6 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
         host_info.kernel,
     );
 
-    debug!("Loading ceph backend");
-    let backend = backend::load_backend(&backend::BackendType::Ceph, Some(Path::new(&config_dir)))?;
     info!("Checking all drives");
     for result in test_disk::check_all_disks().map_err(|e| e.to_string())? {
         match result {
@@ -103,10 +100,20 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                     )?;
                     if !simulate {
                         if !in_progress {
-                            debug!("Asking backend to remove disk");
-                            let _ = backend.remove_disk(&dev_path, simulate).map_err(
-                                |e| e.to_string(),
-                            )?;
+                            debug!("Asking disk-manager to remove disk");
+                            // CALL RPC
+                            let mut socket = helpers::connect(
+                                &config.manager_host,
+                                &config.manager_port.to_string(),
+                            ).map_err(|e| e.to_string())?;
+                            match helpers::remove_disk_request(&mut socket, &dev_path) {
+                                Ok(_) => {
+                                    debug!("Disk removal successful");
+                                }
+                                Err(e) => {
+                                    error!("Disk removal failed: {}", e);
+                                }
+                            };
                             debug!("Creating support ticket");
                             let ticket_id = create_support_ticket(
                                 &config,
@@ -140,9 +147,6 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
     info!("Connecting to database to find repaired drives");
     let conn = in_progress::connect_to_repair_database(&config_location)
         .map_err(|e| e.to_string())?;
-    debug!("Loading Ceph backend");
-    let backend =
-        backend::load_backend(&backend::BackendType::Ceph, Some(&Path::new(&config_dir)))?;
     info!("Getting outstanding repair tickets");
     let tickets = in_progress::get_outstanding_repair_tickets(&conn).map_err(
         |e| {
@@ -154,7 +158,12 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
         match ticket_resolved(&config, &ticket.ticket_id.to_string()) {
             Ok(resolved) => {
                 if resolved {
-                    match backend.add_disk(&Path::new(&ticket.disk_path), simulate) {
+                    //CALL RPC
+                    debug!("Connecting to disk-manager");
+                    let mut socket =
+                        helpers::connect(&config.manager_host, &config.manager_port.to_string())
+                            .map_err(|e| e.to_string())?;
+                    match helpers::add_disk_request(&mut socket, &Path::new(&ticket.disk_path)) {
                         Ok(_) => {
                             debug!("Disk added successfully");
                             match in_progress::resolve_ticket(&conn, &ticket.ticket_id) {
@@ -195,7 +204,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
 // 5. Record the replacement in the in_progress sqlite database
 
 fn main() {
-    let matches = App::new("Ceph Disk Manager")
+    let matches = App::new("Dead Disk Detector")
         .version(crate_version!())
         .author(crate_authors!())
         .about(

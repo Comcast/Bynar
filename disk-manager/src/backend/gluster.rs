@@ -9,7 +9,7 @@ pub struct GlusterBackend;
 /*
     Add a disk
     0. Make sure the brick pid isn't running
-    1. Need to know which brick we're replacing.  
+    1. Need to know which brick we're replacing.
       a. Pull from sqlite3
     2. Create a dir on the gluster mount that doesn't exist
     Using Temp
@@ -28,7 +28,7 @@ pub struct GlusterBackend;
 impl Backend for GlusterBackend {
     fn add_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
         //self.add_osd(device, simulate).map_err(|e| {
-         //   Error::new(ErrorKind::Other, e)
+        //   Error::new(ErrorKind::Other, e)
         //})?;
         Ok(())
     }
@@ -39,5 +39,3 @@ impl Backend for GlusterBackend {
         Ok(())
     }
 }
-
-

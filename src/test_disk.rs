@@ -211,7 +211,7 @@ fn check_xfs(device: &Path) -> Result<()> {
 
 fn repair_xfs(device: &Path) -> Result<()> {
     debug!("Running xfs_repair");
-    let status = Command::new("xfs_repair").status()?;
+    let status = Command::new("xfs_repair").arg(device).status()?;
     match status.code() {
         Some(code) => {
             match code {
@@ -231,7 +231,9 @@ fn repair_xfs(device: &Path) -> Result<()> {
 
 fn check_ext(device: &Path) -> Result<()> {
     debug!("running e2fsck -n to check for errors");
-    let status = Command::new("e2fsck").arg("-n").status()?;
+    let status = Command::new("e2fsck")
+        .args(&["-n", &device.to_string_lossy()])
+        .status()?;
     match status.code() {
         Some(code) => {
             match code {
@@ -266,7 +268,9 @@ fn repair_ext(device: &Path) -> Result<()> {
     //Run a noninteractive fix.  This will exit with return code 4
     //if it needs human intervention.
     debug!("running e2fsck -p for noninteractive repair");
-    let status = Command::new("e2fsck").arg("-p").status()?;
+    let status = Command::new("e2fsck")
+        .args(&["-p", &device.to_string_lossy()])
+        .status()?;
     match status.code() {
         Some(code) => {
             match code {

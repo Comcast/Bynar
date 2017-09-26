@@ -62,15 +62,15 @@ enum Op{
    //return OpResult
    Add = 1;
    //returns RepairResponse
-   Check = 2;
+   //Check = 2;
    // Returns Disks
    List = 3;
-   //Returns RepairResponse
+   //Returns OpResult
    Remove = 4;
 }
 
 // Service operations that can be performed
 message Operation {
   required Op Op_type = 1;
-  optional Disk disk = 2;
+  optional string disk = 2;
 }

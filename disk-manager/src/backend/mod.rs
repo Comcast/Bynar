@@ -5,6 +5,7 @@ pub mod ceph;
 use std::io::Result;
 use std::path::Path;
 use std::result::Result as StdResult;
+use std::str::FromStr;
 
 use self::ceph::CephBackend;
 
@@ -27,6 +28,18 @@ pub trait Backend {
 pub enum BackendType {
     Ceph,
     //Gluster
+}
+
+impl FromStr for BackendType {
+    type Err = String;
+
+    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
+        let match_str = s.to_lowercase();
+        match match_str.as_ref() {
+            "ceph" => Ok(BackendType::Ceph),
+            _ => Err(format!("Unknown backend type: {}", s)),
+        }
+    }
 }
 
 /// Given a backend path, return a 'd Backend.

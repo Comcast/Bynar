@@ -6,21 +6,29 @@ extern crate clap;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+#[macro_use]
+extern crate serde_json;
 extern crate simplelog;
 extern crate zmq;
 
+mod backend;
+
 use std::io::{Error, ErrorKind, Result};
-use std::ops::Deref;
+use std::path::Path;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
-use api::service::{Disk, Disks, DiskType, Operation, Op, Osd, RepairResponse, OpResult};
+use api::service::{Disk, Disks, DiskType, Op, OpResult_ResultType, OpResult};
+use backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{Arg, App};
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use protobuf::core::parse_from_bytes;
-use protobuf::hex::{decode_hex, encode_hex};
 use simplelog::{Config, SimpleLogger};
 use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;
@@ -69,7 +77,7 @@ fn get_disks() -> Result<Vec<Disk>> {
 /*
  Server that manages disks
  */
-fn listen() -> ZmqResult<()> {
+fn listen(backend_type: backend::BackendType) -> ZmqResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let mut responder = context.socket(zmq::REP)?;
@@ -79,9 +87,7 @@ fn listen() -> ZmqResult<()> {
     loop {
         let msg = responder.recv_bytes(0)?;
         debug!("Got msg len: {}", msg.len());
-        debug!("Decoding msg {:?} as hex", msg);
-        //let op_bytes = decode_hex(&String::from_utf8(msg).unwrap());
-        debug!("Parsing msg");
+        debug!("Parsing msg {:?} as hex", msg);
         let operation = match parse_from_bytes::<api::service::Operation>(&msg) {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -91,34 +97,48 @@ fn listen() -> ZmqResult<()> {
         };
         debug!("Operation requested: {:?}", operation.get_Op_type());
         match operation.get_Op_type() {
-            Op::Add => add_disk(&mut responder),
-            Op::Check => check_disk(&mut responder),
+            Op::Add => add_disk(&mut responder, operation.get_disk(), &backend_type),
             Op::List => list_disks(&mut responder),
-            Op::Remove => remove_disk(&mut responder),
+            Op::Remove => remove_disk(&mut responder, operation.get_disk(), &backend_type),
         };
-
-        //println!("Received {}", msg.as_str().unwrap_or(""));
         thread::sleep(Duration::from_millis(10));
-        //responder.send("hello".as_bytes(), 0)?;
     }
 }
 
-fn add_disk(s: &mut Socket) -> ZmqResult<()> {
+fn add_disk(s: &mut Socket, d: &str, backend: &BackendType) -> Result<()> {
+    let backend = backend::load_backend(backend, Some(Path::new(&"")))
+        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let mut result = OpResult::new();
+
+    //Send back OpResult
+    match backend.add_disk(&Path::new(d), false) {
+        Ok(_) => {
+            result.set_result(OpResult_ResultType::OK);
+        }
+        Err(e) => {
+            result.set_result(OpResult_ResultType::OK);
+            result.set_error_msg(e.to_string());
+        }
+    }
+    let encoded = result.write_to_bytes().map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Responding to client with msg len: {}", msg.len());
+    s.send_msg(msg, 0)?;
+
     Ok(())
 }
 
-fn check_disk(s: &mut Socket) -> ZmqResult<()> {
-    //
-    Ok(())
-}
-
-fn list_disks(s: &mut Socket) -> ZmqResult<()> {
-    let mut disk_list: Vec<Disk> = get_disks().map_err(|e| zmq::Error::EPROTO)?;
+fn list_disks(s: &mut Socket) -> Result<()> {
+    let disk_list: Vec<Disk> = get_disks().map_err(|e| Error::new(ErrorKind::Other, e))?;
 
     let mut disks = Disks::new();
     disks.set_disk(RepeatedField::from_vec(disk_list));
     debug!("Encoding disk list");
-    let encoded = disks.write_to_bytes().unwrap();
+    let encoded = disks.write_to_bytes().map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
 
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
@@ -126,18 +146,46 @@ fn list_disks(s: &mut Socket) -> ZmqResult<()> {
     Ok(())
 }
 
-fn remove_disk(s: &mut Socket) -> ZmqResult<()> {
-    //
+fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType) -> Result<()> {
+    //Returns OpResult
+    let backend = backend::load_backend(backend, Some(Path::new(&"")))
+        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let mut result = OpResult::new();
+    match backend.remove_disk(&Path::new(d), false) {
+        Ok(_) => {
+            result.set_result(OpResult_ResultType::OK);
+        }
+        Err(e) => {
+            result.set_result(OpResult_ResultType::OK);
+            result.set_error_msg(e.to_string());
+        }
+    };
+    let encoded = result.write_to_bytes().map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Responding to client with msg len: {}", msg.len());
+    s.send_msg(msg, 0)?;
     Ok(())
 }
 
 
 fn main() {
-    let matches = App::new("Ceph Disk Manager")
+    let matches = App::new("Disk Manager")
         .version(crate_version!())
         .author(crate_authors!())
         .about(
             "Detect dead hard drives, create a support ticket and watch for resolution",
+        )
+        .arg(
+            Arg::with_name("backend")
+                .default_value("ceph")
+                .help("Backend cluster type to manage disks for")
+                .long("backend")
+                // TODO: Insert other backend values here as they become available
+                .possible_values(&["ceph"])
+                .takes_value(true)
+                .required(false),
         )
         .arg(Arg::with_name("v").short("v").multiple(true).help(
             "Sets the level of verbosity",
@@ -148,6 +196,15 @@ fn main() {
         1 => log::LogLevelFilter::Debug,
         _ => log::LogLevelFilter::Trace,
     };
+    //let config_dir = matches.value_of("configdir").unwrap();
+    let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let _ = SimpleLogger::init(level, Config::default());
-    listen();
+    match listen(backend) {
+        Ok(_) => {
+            println!("Finished");
+        }
+        Err(e) => {
+            println!("Error: {:?}", e);
+        }
+    };
 }

@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::path::Path;
 
-use self::block_utils::{RaidType, ScsiInfo};
+//use self::block_utils::RaidType;
 use self::uname::uname;
 
 /// All the host information we could gather
@@ -122,6 +122,7 @@ fn server_serial() -> Result<String> {
 
 //TODO: smp-utils has a lot of use information about how to interface with sas enclosures
 // http://sg.danny.cz/sg/smp_utils.html#mozTocId356346
+/*
 fn raid_info(dev: &Path) -> Result<()> {
     let info = block_utils::get_raid_info().map_err(|e| {
         Error::new(ErrorKind::Other, e)
@@ -135,3 +136,4 @@ fn disk_position(dev: &Path, raid_type: RaidType) -> Result<String> {
     //
     Ok("".into())
 }
+*/
