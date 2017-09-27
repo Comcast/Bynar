@@ -50,11 +50,6 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
         Error::new(ErrorKind::Other, e)
     })?;
 
-    //Check all devices we've discovered
-    for device in devices {
-        results.push(run_checks(&device));
-    }
-
     // Gather info on all devices and skip Loopback devices
     let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
         .map_err(|e| Error::new(ErrorKind::Other, e))?
@@ -99,11 +94,13 @@ fn run_checks(device_info: &Device) -> Result<Status> {
     let dev_path = format!("/dev/{}", device_info.name);
 
     // Run a smart check on the base device without partition
-    match run_smart_checks(dev_path.file_name()){
-        Ok(result) => {disk_status.smart_passed = Ok(result);}
+    match run_smart_checks(&Path::new(&dev_path)) {
+        Ok(result) => {
+            disk_status.smart_passed = Some(result);
+        }
         Err(e) => {
             error!("Smart test failed: {:?}", e);
-        };
+        }
     };
 
     let device = Path::new(&dev_path);
