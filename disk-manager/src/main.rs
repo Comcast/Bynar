@@ -77,7 +77,7 @@ fn get_disks() -> Result<Vec<Disk>> {
 /*
  Server that manages disks
  */
-fn listen(backend_type: backend::BackendType) -> ZmqResult<()> {
+fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let mut responder = context.socket(zmq::REP)?;
@@ -97,17 +97,34 @@ fn listen(backend_type: backend::BackendType) -> ZmqResult<()> {
         };
         debug!("Operation requested: {:?}", operation.get_Op_type());
         match operation.get_Op_type() {
-            Op::Add => add_disk(&mut responder, operation.get_disk(), &backend_type),
+            Op::Add => {
+                add_disk(
+                    &mut responder,
+                    operation.get_disk(),
+                    &backend_type,
+                    config_dir,
+                )
+            }
             Op::List => list_disks(&mut responder),
-            Op::Remove => remove_disk(&mut responder, operation.get_disk(), &backend_type),
+            Op::Remove => {
+                remove_disk(
+                    &mut responder,
+                    operation.get_disk(),
+                    &backend_type,
+                    config_dir,
+                )
+            }
         };
         thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn add_disk(s: &mut Socket, d: &str, backend: &BackendType) -> Result<()> {
-    let backend = backend::load_backend(backend, Some(Path::new(&"")))
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+fn add_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -> Result<()> {
+    let backend = backend::load_backend(backend, Some(config_dir)).map_err(
+        |e| {
+            Error::new(ErrorKind::Other, e)
+        },
+    )?;
     let mut result = OpResult::new();
 
     //Send back OpResult
@@ -146,10 +163,13 @@ fn list_disks(s: &mut Socket) -> Result<()> {
     Ok(())
 }
 
-fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType) -> Result<()> {
+fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -> Result<()> {
     //Returns OpResult
-    let backend = backend::load_backend(backend, Some(Path::new(&"")))
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let backend = backend::load_backend(backend, Some(config_dir)).map_err(
+        |e| {
+            Error::new(ErrorKind::Other, e)
+        },
+    )?;
     let mut result = OpResult::new();
     match backend.remove_disk(&Path::new(d), false) {
         Ok(_) => {
@@ -187,6 +207,14 @@ fn main() {
                 .takes_value(true)
                 .required(false),
         )
+        .arg(
+            Arg::with_name("configdir")
+                .default_value("/etc/ceph_dead_disk")
+                .help("The directory where all config files can be found")
+                .long("configdir")
+                .takes_value(true)
+                .required(false),
+        )
         .arg(Arg::with_name("v").short("v").multiple(true).help(
             "Sets the level of verbosity",
         ))
@@ -196,10 +224,10 @@ fn main() {
         1 => log::LogLevelFilter::Debug,
         _ => log::LogLevelFilter::Trace,
     };
-    //let config_dir = matches.value_of("configdir").unwrap();
+    let config_dir = Path::new(matches.value_of("configdir").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let _ = SimpleLogger::init(level, Config::default());
-    match listen(backend) {
+    match listen(backend, config_dir) {
         Ok(_) => {
             println!("Finished");
         }
