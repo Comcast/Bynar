@@ -37,6 +37,8 @@ pub struct Status {
     pub device: Device,
     /// Osd that was operated on
     pub mount_path: PathBuf,
+    /// If smart is supported this filed will be filled in
+    pub smart_passed: Option<bool>,
 }
 
 pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
@@ -47,6 +49,11 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
     let devices = block_utils::get_block_devices().map_err(|e| {
         Error::new(ErrorKind::Other, e)
     })?;
+
+    //Check all devices we've discovered
+    for device in devices {
+        results.push(run_checks(&device));
+    }
 
     // Gather info on all devices and skip Loopback devices
     let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
@@ -76,6 +83,8 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
         results.push(run_checks(&mtab_device));
     }
 
+    //TODO: Add nvme devices to block-utils
+
     Ok(results)
 }
 
@@ -85,8 +94,18 @@ fn run_checks(device_info: &Device) -> Result<Status> {
         repaired: false,
         device: device_info.clone(),
         mount_path: PathBuf::from(""),
+        smart_passed: None,
     };
     let dev_path = format!("/dev/{}", device_info.name);
+
+    // Run a smart check on the base device without partition
+    match run_smart_checks(dev_path.file_name()){
+        Ok(result) => {disk_status.smart_passed = Ok(result);}
+        Err(e) => {
+            error!("Smart test failed: {:?}", e);
+        };
+    };
+
     let device = Path::new(&dev_path);
     match get_mountpoint(&device) {
         Ok(mount_info) => {
@@ -109,7 +128,6 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                                 }
                             };
                             if corrupted {
-                                // If udev doesn't know about the disk we can't repair it right?
                                 if let Ok(udev_info) = info {
                                     let check_result =
                                         check_filesystem(&udev_info.fs_type, &device);
