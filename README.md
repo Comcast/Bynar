@@ -14,9 +14,9 @@ also need to be broken out to another utility.  An RPC api for this utility
 though could prove useful.
 
 ## Dependencies:
-1. libzmq3-dev
-2. protobuf
-3. librados
+1. libzmq3-dev  4.1 or higher
+2. protobuf  2.5 or higher
+3. librados  # ceph jewel or higher
 4. libatasmart
 5. openssl-dev
 
@@ -41,14 +41,6 @@ Fields for this file are:
  "jira_ticket_assignee": "assignee_username"
 }
 ```
-and also create your `/etc/ceph_dead_disk/ceph.json` file:
-```
-{
-  "config_file": "/etc/ceph/ceph.conf",
-  "user_id": "admin"
-}
-```
-This tells the Ceph backend how to talk to Ceph.
 
 ## Usage:
 
