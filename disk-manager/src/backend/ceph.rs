@@ -85,7 +85,7 @@ impl CephBackend {
         info!("Connecting to Ceph");
         let cluster_handle = connect_to_ceph(&deserialized.user_id, &deserialized.config_file)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
-        info!("Connected to ceph");
+        info!("Connected to Ceph");
         Ok(CephBackend { cluster_handle: cluster_handle })
     }
 

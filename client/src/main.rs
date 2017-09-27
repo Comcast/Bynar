@@ -65,6 +65,7 @@ fn main() {
             Arg::with_name("host")
                 .default_value("localhost")
                 .help("The host to call for service")
+                .long("host")
                 .required(false)
                 .takes_value(true),
         )
