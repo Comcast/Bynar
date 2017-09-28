@@ -133,7 +133,7 @@ fn add_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -
             result.set_result(OpResult_ResultType::OK);
         }
         Err(e) => {
-            result.set_result(OpResult_ResultType::OK);
+            result.set_result(OpResult_ResultType::ERR);
             result.set_error_msg(e.to_string());
         }
     }
@@ -176,7 +176,7 @@ fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path
             result.set_result(OpResult_ResultType::OK);
         }
         Err(e) => {
-            result.set_result(OpResult_ResultType::OK);
+            result.set_result(OpResult_ResultType::ERR);
             result.set_error_msg(e.to_string());
         }
     };
