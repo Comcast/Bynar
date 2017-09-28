@@ -40,10 +40,11 @@ enum DiskType {
   LOOPBACK = 2;
   // Logical volume device
   LVM = 3;
+  NVME = 4;
   // Ramdisk
-  RAM = 4;
-  VIRTUAL = 5;
-  UNKNOWN = 6;
+  RAM = 5;
+  VIRTUAL = 6;
+  UNKNOWN = 7;
 }
 
 message Disks {

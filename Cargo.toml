@@ -27,6 +27,7 @@ libatasmart = "*"
 libc = "*"
 log = "*"
 mktemp = "*"
+parallel-deploy = { path = "parallel-deploy" }
 protobuf = "*"
 reqwest = "*"
 rusqlite = "*"

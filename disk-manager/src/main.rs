@@ -35,13 +35,14 @@ use zmq::Result as ZmqResult;
 
 fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     match m {
-        MediaType::SolidState => DiskType::SOLID_STATE,
-        MediaType::Rotational => DiskType::ROTATIONAL,
         MediaType::Loopback => DiskType::LOOPBACK,
         MediaType::LVM => DiskType::LVM,
+        MediaType::NVME => DiskType::NVME,
         MediaType::Ram => DiskType::RAM,
-        MediaType::Virtual => DiskType::VIRTUAL,
+        MediaType::Rotational => DiskType::ROTATIONAL,
+        MediaType::SolidState => DiskType::SOLID_STATE,
         MediaType::Unknown => DiskType::UNKNOWN,
+        MediaType::Virtual => DiskType::VIRTUAL,
     }
 }
 

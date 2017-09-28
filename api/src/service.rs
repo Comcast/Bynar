@@ -1476,9 +1476,10 @@ pub enum DiskType {
     ROTATIONAL = 1,
     LOOPBACK = 2,
     LVM = 3,
-    RAM = 4,
-    VIRTUAL = 5,
-    UNKNOWN = 6,
+    NVME = 4,
+    RAM = 5,
+    VIRTUAL = 6,
+    UNKNOWN = 7,
 }
 
 impl ::protobuf::ProtobufEnum for DiskType {
@@ -1492,9 +1493,10 @@ impl ::protobuf::ProtobufEnum for DiskType {
             1 => ::std::option::Option::Some(DiskType::ROTATIONAL),
             2 => ::std::option::Option::Some(DiskType::LOOPBACK),
             3 => ::std::option::Option::Some(DiskType::LVM),
-            4 => ::std::option::Option::Some(DiskType::RAM),
-            5 => ::std::option::Option::Some(DiskType::VIRTUAL),
-            6 => ::std::option::Option::Some(DiskType::UNKNOWN),
+            4 => ::std::option::Option::Some(DiskType::NVME),
+            5 => ::std::option::Option::Some(DiskType::RAM),
+            6 => ::std::option::Option::Some(DiskType::VIRTUAL),
+            7 => ::std::option::Option::Some(DiskType::UNKNOWN),
             _ => ::std::option::Option::None
         }
     }
@@ -1505,6 +1507,7 @@ impl ::protobuf::ProtobufEnum for DiskType {
             DiskType::ROTATIONAL,
             DiskType::LOOPBACK,
             DiskType::LVM,
+            DiskType::NVME,
             DiskType::RAM,
             DiskType::VIRTUAL,
             DiskType::UNKNOWN,
@@ -1598,12 +1601,12 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x20\x02(\x0e2\x1e.ceph_disk.OpResult.ResultType\x12\x11\n\terror_msg\
     \x18\x02\x20\x01(\t\"\x1d\n\nResultType\x12\x06\n\x02OK\x10\0\x12\x07\n\
     \x03ERR\x10\x01\"9\n\tOperation\x12\x1e\n\x07Op_type\x18\x01\x20\x02(\
-    \x0e2\r.ceph_disk.Op\x12\x0c\n\x04disk\x18\x02\x20\x01(\t*e\n\x08DiskTyp\
+    \x0e2\r.ceph_disk.Op\x12\x0c\n\x04disk\x18\x02\x20\x01(\t*o\n\x08DiskTyp\
     e\x12\x0f\n\x0bSOLID_STATE\x10\0\x12\x0e\n\nROTATIONAL\x10\x01\x12\x0c\n\
-    \x08LOOPBACK\x10\x02\x12\x07\n\x03LVM\x10\x03\x12\x07\n\x03RAM\x10\x04\
-    \x12\x0b\n\x07VIRTUAL\x10\x05\x12\x0b\n\x07UNKNOWN\x10\x06*#\n\x02Op\x12\
-    \x07\n\x03Add\x10\x01\x12\x08\n\x04List\x10\x03\x12\n\n\x06Remove\x10\
-    \x04B\x02H\x01\
+    \x08LOOPBACK\x10\x02\x12\x07\n\x03LVM\x10\x03\x12\x08\n\x04NVME\x10\x04\
+    \x12\x07\n\x03RAM\x10\x05\x12\x0b\n\x07VIRTUAL\x10\x06\x12\x0b\n\x07UNKN\
+    OWN\x10\x07*#\n\x02Op\x12\x07\n\x03Add\x10\x01\x12\x08\n\x04List\x10\x03\
+    \x12\n\n\x06Remove\x10\x04B\x02H\x01\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
