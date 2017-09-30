@@ -9,9 +9,10 @@ extern crate simplelog;
 extern crate zmq;
 
 use std::path::Path;
+use std::str::FromStr;
 
 use api::service::Disk;
-use clap::{Arg, App, SubCommand};
+use clap::{Arg, ArgMatches, App, SubCommand};
 use simplelog::{Config, SimpleLogger};
 use zmq::Socket;
 use zmq::Result as ZmqResult;
@@ -32,14 +33,10 @@ fn connect(host: &str, port: &str) -> ZmqResult<Socket> {
     Ok(requester)
 }
 
-fn add_disk(s: &mut Socket, path: &Path) -> Result<(), String> {
-    helpers::add_disk_request(s, path)?;
+fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
+    helpers::add_disk_request(s, path, id, simulate)?;
     Ok(())
 }
-
-//fn check_disks(s: &mut Socket) -> Result<RepairResponse, String> {
-//    Ok(helpers::check_disk_request(s)?)
-//}
 
 fn list_disks(s: &mut Socket) -> Result<Vec<Disk>, String> {
     let disks = helpers::list_disks_request(s)?;
@@ -48,14 +45,66 @@ fn list_disks(s: &mut Socket) -> Result<Vec<Disk>, String> {
     Ok(disks)
 }
 
-fn remove_disk(s: &mut Socket, path: &Path) -> Result<(), String> {
-    helpers::remove_disk_request(s, path)?;
+fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
+    helpers::remove_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
+fn handle_add_disk(s: &mut Socket, matches: &ArgMatches) {
+    let p = Path::new(matches.value_of("path").unwrap());
+    info!("Adding disk: {}", p.display());
+    let id = match matches.value_of("id") {
+        Some(i) => Some(u64::from_str(&i).unwrap()),
+        None => None,
+    };
+    let simulate = match matches.value_of("simulate") {
+        Some(s) => bool::from_str(&s).unwrap(),
+        None => false,
+    };
+    match add_disk(s, &p, id, simulate) {
+        Ok(_) => {
+            println!("Adding disk successful");
+        }
+        Err(e) => {
+            println!("Adding disk failed: {}", e);
+        }
+    };
+}
+fn handle_list_disks(s: &mut Socket) {
+    info!("Listing disks");
+    match list_disks(s) {
+        Ok(disks) => {
+            println!("Disk list: {:?}", disks);
+        }
+        Err(e) => {
+            println!("Listing disks failed: {}", e);
+        }
+    };
+}
 
-fn main() {
-    let matches = App::new("Ceph Disk Manager Client")
+fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
+    let p = Path::new(matches.value_of("path").unwrap());
+    info!("Adding disk: {}", p.display());
+    let id = match matches.value_of("id") {
+        Some(i) => Some(u64::from_str(&i).unwrap()),
+        None => None,
+    };
+    let simulate = match matches.value_of("simulate") {
+        Some(s) => bool::from_str(&s).unwrap(),
+        None => false,
+    };
+    match remove_disk(s, &p, id, simulate) {
+        Ok(_) => {
+            println!("Removing disk successful");
+        }
+        Err(e) => {
+            println!("Removing disk failed: {}", e);
+        }
+    }
+}
+
+fn get_cli_args<'a>() -> ArgMatches<'a> {
+    App::new("Ceph Disk Manager Client")
         .version(crate_version!())
         .author(crate_authors!())
         .about(
@@ -85,11 +134,28 @@ fn main() {
                         .help("The disk path to add: Ex: /dev/sda")
                         .required(true)
                         .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("id")
+                        .help("An optional id to set for the disk.  Used for ceph osds")
+                        .long("id")
+                        .required(false)
+                        .takes_value(true)
+                        .validator(|v| match u64::from_str(&v) {
+                            Ok(_) => Ok(()),
+                            Err(_) => Err("id must be a valid u64".to_string()),
+                        }),
+                )
+                .arg(
+                    Arg::with_name("simulate")
+                        .default_value("false")
+                        .help("Simulate the operation")
+                        .long("simulate")
+                        .possible_values(&["false", "true"])
+                        .required(false)
+                        .takes_value(true),
                 ),
         )
-        //.subcommand(SubCommand::with_name("check").about(
-        //    "Check all disks on a server",
-        //))
         .subcommand(SubCommand::with_name("list").about(
             "List all disks on a server",
         ))
@@ -101,12 +167,36 @@ fn main() {
                         .help("The disk path to add: Ex: /dev/sda")
                         .required(true)
                         .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("id")
+                        .help("An optional id to set for the disk.  Used for ceph osds")
+                        .long("id")
+                        .required(false)
+                        .takes_value(true)
+                        .validator(|v| match u64::from_str(&v) {
+                            Ok(_) => Ok(()),
+                            Err(_) => Err("id must be a valid u64".to_string()),
+                        }),
+                )
+                .arg(
+                    Arg::with_name("simulate")
+                        .default_value("false")
+                        .help("Simulate the operation")
+                        .long("simulate")
+                        .possible_values(&["false", "true"])
+                        .required(false)
+                        .takes_value(true),
                 ),
         )
         .arg(Arg::with_name("v").short("v").multiple(true).help(
             "Sets the level of verbosity",
         ))
-        .get_matches();
+        .get_matches()
+}
+
+fn main() {
+    let matches = get_cli_args();
     let level = match matches.occurrences_of("v") {
         0 => log::LogLevelFilter::Info, //default
         1 => log::LogLevelFilter::Debug,
@@ -125,52 +215,12 @@ fn main() {
         }
     };
     if let Some(ref matches) = matches.subcommand_matches("add") {
-        let p = Path::new(matches.value_of("path").unwrap());
-        info!("Adding disk: {}", p.display());
-        match add_disk(&mut s, &p) {
-            Ok(_) => {
-                println!("Adding disk successful");
-            }
-            Err(e) => {
-                println!("Adding disk failed: {}", e);
-            }
-        };
+        handle_add_disk(&mut s, matches);
     }
-    /*
-    if let Some(ref matches) = matches.subcommand_matches("check") {
-        info!("Checking disks");
-        match check_disks(&mut s) {
-            Ok(response) => {
-                println!("Checking disks completed");
-                println!("Repair response: {:?}", response);
-            }
-            Err(e) => {
-                println!("Checking disks failed: {}", e);
-            }
-        };
-    }
-    */
     if matches.subcommand_matches("list").is_some() {
-        info!("Listing disks");
-        match list_disks(&mut s) {
-            Ok(disks) => {
-                println!("Disk list: {:?}", disks);
-            }
-            Err(e) => {
-                println!("Listing disks failed: {}", e);
-            }
-        };
+        handle_list_disks(&mut s);
     }
     if let Some(ref matches) = matches.subcommand_matches("remove") {
-        let p = Path::new(matches.value_of("path").unwrap());
-        info!("Adding disk: {}", p.display());
-        match remove_disk(&mut s, &p) {
-            Ok(_) => {
-                println!("Removing disk successful");
-            }
-            Err(e) => {
-                println!("Removing disk failed: {}", e);
-            }
-        }
+        handle_remove_disk(&mut s, matches);
     }
 }

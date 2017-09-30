@@ -106,7 +106,12 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
                             ).map_err(|e| e.to_string())?;
-                            match helpers::remove_disk_request(&mut socket, &dev_path) {
+                            match helpers::remove_disk_request(
+                                &mut socket,
+                                &dev_path,
+                                None,
+                                false,
+                            ) {
                                 Ok(_) => {
                                     debug!("Disk removal successful");
                                 }
@@ -163,7 +168,12 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
                     let mut socket =
                         helpers::connect(&config.manager_host, &config.manager_port.to_string())
                             .map_err(|e| e.to_string())?;
-                    match helpers::add_disk_request(&mut socket, &Path::new(&ticket.disk_path)) {
+                    match helpers::add_disk_request(
+                        &mut socket,
+                        &Path::new(&ticket.disk_path),
+                        None,
+                        simulate,
+                    ) {
                         Ok(_) => {
                             debug!("Disk added successfully");
                             match in_progress::resolve_ticket(&conn, &ticket.ticket_id) {

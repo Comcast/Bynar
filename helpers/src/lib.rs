@@ -27,11 +27,20 @@ pub fn connect(host: &str, port: &str) -> ZmqResult<Socket> {
     Ok(requester)
 }
 
-pub fn add_disk_request(s: &mut Socket, path: &Path) -> Result<(), String> {
+pub fn add_disk_request(
+    s: &mut Socket,
+    path: &Path,
+    id: Option<u64>,
+    simulate: bool,
+) -> Result<(), String> {
     let mut o = Operation::new();
     debug!("Creating add disk operation request");
     o.set_Op_type(Op::Add);
     o.set_disk(format!("{}", path.display()));
+    o.set_simulate(simulate);
+    if id.is_some() {
+        o.set_id(id.unwrap());
+    }
 
     let encoded = o.write_to_bytes().unwrap();
     let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
@@ -49,9 +58,14 @@ pub fn add_disk_request(s: &mut Socket, path: &Path) -> Result<(), String> {
             Ok(())
         }
         OpResult_ResultType::ERR => {
-            let msg = op_result.get_error_msg();
-            error!("Add disk failed: {}", msg);
-            Err(op_result.get_error_msg().into())
+            if op_result.has_error_msg() {
+                let msg = op_result.get_error_msg();
+                error!("Add disk failed: {}", msg);
+                Err(op_result.get_error_msg().into())
+            } else {
+                error!("Add disk failed but error_msg not set");
+                Err("Add disk failed but error_msg not set".to_string())
+            }
         }
     }
 }
@@ -104,11 +118,20 @@ pub fn list_disks_request(s: &mut Socket) -> Result<Vec<Disk>, String> {
     Ok(d)
 }
 
-pub fn remove_disk_request(s: &mut Socket, path: &Path) -> Result<(), String> {
+pub fn remove_disk_request(
+    s: &mut Socket,
+    path: &Path,
+    id: Option<u64>,
+    simulate: bool,
+) -> Result<(), String> {
     let mut o = Operation::new();
     debug!("Creating remove operation request");
     o.set_Op_type(Op::Remove);
     o.set_disk(format!("{}", path.display()));
+    o.set_simulate(simulate);
+    if id.is_some() {
+        o.set_id(id.unwrap());
+    }
 
     let encoded = o.write_to_bytes().map_err(|e| e.to_string())?;
     let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
@@ -127,9 +150,14 @@ pub fn remove_disk_request(s: &mut Socket, path: &Path) -> Result<(), String> {
             Ok(())
         }
         OpResult_ResultType::ERR => {
-            let msg = op_result.get_error_msg();
-            error!("Remove disk failed: {}", msg);
-            Err(msg.into())
+            if op_result.has_error_msg() {
+                let msg = op_result.get_error_msg();
+                error!("Remove disk failed: {}", msg);
+                Err(op_result.get_error_msg().into())
+            } else {
+                error!("Remove disk failed but error_msg not set");
+                Err("Remove disk failed but error_msg not set".to_string())
+            }
         }
     }
 }

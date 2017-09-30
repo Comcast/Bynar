@@ -16,7 +16,8 @@ pub trait Backend {
     /// For ceph that involves osd id provisioning, formatting, auth keys, etc
     /// For gluster or other services it might be much easier
     /// If simulate is passed no action should be taken
-    fn add_disk(&self, device: &Path, simulate: bool) -> Result<()>;
+    /// An optional osd_id can be provided to ensure the osd is set to that
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> Result<()>;
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken

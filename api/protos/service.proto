@@ -7,12 +7,14 @@ message Osd {
   optional string fsid = 1;
   required uint64 id = 2;
   optional string block_device = 3;
+  // If journal isn't set then it's collocated
+  optional string journal = 4;
   // Active or spare
-  required bool active = 4;
+  required bool active = 5;
 
   // Usage details
-  required uint64 used_space = 5;
-  required uint64 total_space = 6;
+  required uint64 used_space = 6;
+  required uint64 total_space = 7;
 }
 
 // This will be added in a future version
@@ -25,26 +27,37 @@ message Osd {
   //optional string mount_path = 6;
 //}
 
+// GPT partition information
+message Partition{
+  
+}
+
+message Partition{
+  repeated Partition partition = 1;
+}
+
 message Disk {
   required DiskType type = 1;
   required string dev_path = 2;
-  optional string serial_number = 3;
+  required Partitions partitions = 3;
+  optional string serial_number = 4;
 }
 
 enum DiskType {
-  // AKA SSD
-  SOLID_STATE = 0;
-  // Regular rotational device
-  ROTATIONAL = 1;
   // Special loopback device
-  LOOPBACK = 2;
+  LOOPBACK = 0;
   // Logical volume device
-  LVM = 3;
-  NVME = 4;
+  LVM = 1;
+  MDRAID = 2;
+  NVME = 3;
   // Ramdisk
-  RAM = 5;
-  VIRTUAL = 6;
-  UNKNOWN = 7;
+  RAM = 4;
+  // Regular rotational device
+  ROTATIONAL = 5;
+  // AKA SSD
+  SOLID_STATE = 6;
+  VIRTUAL = 7;
+  UNKNOWN = 8;
 }
 
 message Disks {
@@ -74,5 +87,10 @@ enum Op{
 // Service operations that can be performed
 message Operation {
   required Op Op_type = 1;
+  // Used for Add and Remove
   optional string disk = 2;
+  // For adding ceph osd's you can give an optional ID
+  optional uint64 id = 3;
+  // Used for Add and Remove
+  optional bool simulate = 4;
 }

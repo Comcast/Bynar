@@ -90,7 +90,7 @@ impl CephBackend {
     }
 
     /// Add a new /dev/ path as an osd.
-    fn add_osd(&self, dev_path: &Path, simulate: bool) -> Result<(), String> {
+    fn add_osd(&self, dev_path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
         //Format the drive
         let xfs_options = block_utils::Filesystem::Xfs {
             stripe_size: None,
@@ -121,7 +121,7 @@ impl CephBackend {
         }
 
         // Create a new osd id
-        let new_osd_id = osd_create(self.cluster_handle, simulate)?;
+        let new_osd_id = osd_create(self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
 
         // Mount the drive
@@ -224,8 +224,8 @@ impl Drop for CephBackend {
 }
 
 impl Backend for CephBackend {
-    fn add_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
-        self.add_osd(device, simulate).map_err(|e| {
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> IOResult<()> {
+        self.add_osd(device, id, simulate).map_err(|e| {
             Error::new(ErrorKind::Other, e)
         })?;
         Ok(())
@@ -294,11 +294,22 @@ fn osd_rm(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), St
 
 }
 
-fn osd_create(cluster_handle: rados_t, simulate: bool) -> Result<u64, String> {
-    let cmd = json!({
-            "prefix": "osd create",
-        });
+fn osd_create(cluster_handle: rados_t, id: Option<u64>, simulate: bool) -> Result<u64, String> {
+    let cmd = match id {
+        Some(osd_id) => {
+            json!({
+                "prefix": "osd create",
+                "id": format!("osd.{}", osd_id),
+            })
+        }
+        None => {
+            json!({
+                "prefix": "osd create"
+            })
+        }
+    };
     debug!("osd create: {:?}", cmd.to_string());
+
     if simulate {
         return Ok(0);
     }

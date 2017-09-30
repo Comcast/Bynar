@@ -512,7 +512,7 @@ impl Disk {
     }
 
     pub fn get_field_type(&self) -> DiskType {
-        self.field_type.unwrap_or(DiskType::SOLID_STATE)
+        self.field_type.unwrap_or(DiskType::LOOPBACK)
     }
 
     fn get_field_type_for_reflect(&self) -> &::std::option::Option<DiskType> {
@@ -1239,6 +1239,8 @@ pub struct Operation {
     // message fields
     Op_type: ::std::option::Option<Op>,
     disk: ::protobuf::SingularField<::std::string::String>,
+    id: ::std::option::Option<u64>,
+    simulate: ::std::option::Option<bool>,
     // special fields
     unknown_fields: ::protobuf::UnknownFields,
     cached_size: ::protobuf::CachedSize,
@@ -1332,6 +1334,60 @@ impl Operation {
     fn mut_disk_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::string::String> {
         &mut self.disk
     }
+
+    // optional uint64 id = 3;
+
+    pub fn clear_id(&mut self) {
+        self.id = ::std::option::Option::None;
+    }
+
+    pub fn has_id(&self) -> bool {
+        self.id.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_id(&mut self, v: u64) {
+        self.id = ::std::option::Option::Some(v);
+    }
+
+    pub fn get_id(&self) -> u64 {
+        self.id.unwrap_or(0)
+    }
+
+    fn get_id_for_reflect(&self) -> &::std::option::Option<u64> {
+        &self.id
+    }
+
+    fn mut_id_for_reflect(&mut self) -> &mut ::std::option::Option<u64> {
+        &mut self.id
+    }
+
+    // optional bool simulate = 4;
+
+    pub fn clear_simulate(&mut self) {
+        self.simulate = ::std::option::Option::None;
+    }
+
+    pub fn has_simulate(&self) -> bool {
+        self.simulate.is_some()
+    }
+
+    // Param is passed by value, moved
+    pub fn set_simulate(&mut self, v: bool) {
+        self.simulate = ::std::option::Option::Some(v);
+    }
+
+    pub fn get_simulate(&self) -> bool {
+        self.simulate.unwrap_or(false)
+    }
+
+    fn get_simulate_for_reflect(&self) -> &::std::option::Option<bool> {
+        &self.simulate
+    }
+
+    fn mut_simulate_for_reflect(&mut self) -> &mut ::std::option::Option<bool> {
+        &mut self.simulate
+    }
 }
 
 impl ::protobuf::Message for Operation {
@@ -1356,6 +1412,20 @@ impl ::protobuf::Message for Operation {
                 2 => {
                     ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.disk)?;
                 },
+                3 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.id = ::std::option::Option::Some(tmp);
+                },
+                4 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_bool()?;
+                    self.simulate = ::std::option::Option::Some(tmp);
+                },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
@@ -1374,6 +1444,12 @@ impl ::protobuf::Message for Operation {
         if let Some(ref v) = self.disk.as_ref() {
             my_size += ::protobuf::rt::string_size(2, &v);
         }
+        if let Some(v) = self.id {
+            my_size += ::protobuf::rt::value_size(3, v, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if let Some(v) = self.simulate {
+            my_size += 2;
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
@@ -1385,6 +1461,12 @@ impl ::protobuf::Message for Operation {
         }
         if let Some(ref v) = self.disk.as_ref() {
             os.write_string(2, &v)?;
+        }
+        if let Some(v) = self.id {
+            os.write_uint64(3, v)?;
+        }
+        if let Some(v) = self.simulate {
+            os.write_bool(4, v)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -1440,6 +1522,16 @@ impl ::protobuf::MessageStatic for Operation {
                     Operation::get_disk_for_reflect,
                     Operation::mut_disk_for_reflect,
                 ));
+                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                    "id",
+                    Operation::get_id_for_reflect,
+                    Operation::mut_id_for_reflect,
+                ));
+                fields.push(::protobuf::reflect::accessor::make_option_accessor::<_, ::protobuf::types::ProtobufTypeBool>(
+                    "simulate",
+                    Operation::get_simulate_for_reflect,
+                    Operation::mut_simulate_for_reflect,
+                ));
                 ::protobuf::reflect::MessageDescriptor::new::<Operation>(
                     "Operation",
                     fields,
@@ -1454,6 +1546,8 @@ impl ::protobuf::Clear for Operation {
     fn clear(&mut self) {
         self.clear_Op_type();
         self.clear_disk();
+        self.clear_id();
+        self.clear_simulate();
         self.unknown_fields.clear();
     }
 }
@@ -1472,14 +1566,15 @@ impl ::protobuf::reflect::ProtobufValue for Operation {
 
 #[derive(Clone,PartialEq,Eq,Debug,Hash)]
 pub enum DiskType {
-    SOLID_STATE = 0,
-    ROTATIONAL = 1,
-    LOOPBACK = 2,
-    LVM = 3,
-    NVME = 4,
-    RAM = 5,
-    VIRTUAL = 6,
-    UNKNOWN = 7,
+    LOOPBACK = 0,
+    LVM = 1,
+    MDRAID = 2,
+    NVME = 3,
+    RAM = 4,
+    ROTATIONAL = 5,
+    SOLID_STATE = 6,
+    VIRTUAL = 7,
+    UNKNOWN = 8,
 }
 
 impl ::protobuf::ProtobufEnum for DiskType {
@@ -1489,26 +1584,28 @@ impl ::protobuf::ProtobufEnum for DiskType {
 
     fn from_i32(value: i32) -> ::std::option::Option<DiskType> {
         match value {
-            0 => ::std::option::Option::Some(DiskType::SOLID_STATE),
-            1 => ::std::option::Option::Some(DiskType::ROTATIONAL),
-            2 => ::std::option::Option::Some(DiskType::LOOPBACK),
-            3 => ::std::option::Option::Some(DiskType::LVM),
-            4 => ::std::option::Option::Some(DiskType::NVME),
-            5 => ::std::option::Option::Some(DiskType::RAM),
-            6 => ::std::option::Option::Some(DiskType::VIRTUAL),
-            7 => ::std::option::Option::Some(DiskType::UNKNOWN),
+            0 => ::std::option::Option::Some(DiskType::LOOPBACK),
+            1 => ::std::option::Option::Some(DiskType::LVM),
+            2 => ::std::option::Option::Some(DiskType::MDRAID),
+            3 => ::std::option::Option::Some(DiskType::NVME),
+            4 => ::std::option::Option::Some(DiskType::RAM),
+            5 => ::std::option::Option::Some(DiskType::ROTATIONAL),
+            6 => ::std::option::Option::Some(DiskType::SOLID_STATE),
+            7 => ::std::option::Option::Some(DiskType::VIRTUAL),
+            8 => ::std::option::Option::Some(DiskType::UNKNOWN),
             _ => ::std::option::Option::None
         }
     }
 
     fn values() -> &'static [Self] {
         static values: &'static [DiskType] = &[
-            DiskType::SOLID_STATE,
-            DiskType::ROTATIONAL,
             DiskType::LOOPBACK,
             DiskType::LVM,
+            DiskType::MDRAID,
             DiskType::NVME,
             DiskType::RAM,
+            DiskType::ROTATIONAL,
+            DiskType::SOLID_STATE,
             DiskType::VIRTUAL,
             DiskType::UNKNOWN,
         ];
@@ -1600,13 +1697,15 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x03(\x0b2\x0f.ceph_disk.Disk\"l\n\x08OpResult\x12.\n\x06result\x18\x01\
     \x20\x02(\x0e2\x1e.ceph_disk.OpResult.ResultType\x12\x11\n\terror_msg\
     \x18\x02\x20\x01(\t\"\x1d\n\nResultType\x12\x06\n\x02OK\x10\0\x12\x07\n\
-    \x03ERR\x10\x01\"9\n\tOperation\x12\x1e\n\x07Op_type\x18\x01\x20\x02(\
-    \x0e2\r.ceph_disk.Op\x12\x0c\n\x04disk\x18\x02\x20\x01(\t*o\n\x08DiskTyp\
-    e\x12\x0f\n\x0bSOLID_STATE\x10\0\x12\x0e\n\nROTATIONAL\x10\x01\x12\x0c\n\
-    \x08LOOPBACK\x10\x02\x12\x07\n\x03LVM\x10\x03\x12\x08\n\x04NVME\x10\x04\
-    \x12\x07\n\x03RAM\x10\x05\x12\x0b\n\x07VIRTUAL\x10\x06\x12\x0b\n\x07UNKN\
-    OWN\x10\x07*#\n\x02Op\x12\x07\n\x03Add\x10\x01\x12\x08\n\x04List\x10\x03\
-    \x12\n\n\x06Remove\x10\x04B\x02H\x01\
+    \x03ERR\x10\x01\"W\n\tOperation\x12\x1e\n\x07Op_type\x18\x01\x20\x02(\
+    \x0e2\r.ceph_disk.Op\x12\x0c\n\x04disk\x18\x02\x20\x01(\t\x12\n\n\x02id\
+    \x18\x03\x20\x01(\x04\x12\x10\n\x08simulate\x18\x04\x20\x01(\x08*{\n\x08\
+    DiskType\x12\x0c\n\x08LOOPBACK\x10\0\x12\x07\n\x03LVM\x10\x01\x12\n\n\
+    \x06MDRAID\x10\x02\x12\x08\n\x04NVME\x10\x03\x12\x07\n\x03RAM\x10\x04\
+    \x12\x0e\n\nROTATIONAL\x10\x05\x12\x0f\n\x0bSOLID_STATE\x10\x06\x12\x0b\
+    \n\x07VIRTUAL\x10\x07\x12\x0b\n\x07UNKNOWN\x10\x08*#\n\x02Op\x12\x07\n\
+    \x03Add\x10\x01\x12\x08\n\x04List\x10\x03\x12\n\n\x06Remove\x10\x04B\x02\
+    H\x01\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

@@ -88,39 +88,82 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
     loop {
         let msg = responder.recv_bytes(0)?;
         debug!("Got msg len: {}", msg.len());
-        debug!("Parsing msg {:?} as hex", msg);
+        trace!("Parsing msg {:?} as hex", msg);
         let operation = match parse_from_bytes::<api::service::Operation>(&msg) {
             Ok(bytes) => bytes,
             Err(e) => {
-                println!("Failed to parse_from_bytes {:?}", e);
-                return Err(zmq::Error::EPROTO);
+                error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
+                continue;
             }
         };
         debug!("Operation requested: {:?}", operation.get_Op_type());
         match operation.get_Op_type() {
             Op::Add => {
-                add_disk(
+                let id = if operation.has_id() {
+                    Some(operation.get_id())
+                } else {
+                    None
+                };
+                if !operation.has_disk() {
+                    error!("Add operation must include disk field.  Ignoring request");
+                    continue;
+                }
+                match add_disk(
                     &mut responder,
                     operation.get_disk(),
                     &backend_type,
+                    id,
                     config_dir,
-                )
+                ) {
+                    Ok(_) => {
+                        info!("Add disk successful");
+                    }
+                    Err(e) => {
+                        error!("Add disk error: {:?}", e);
+                    }
+                };
             }
-            Op::List => list_disks(&mut responder),
+            Op::List => {
+                match list_disks(&mut responder) {
+                    Ok(_) => {
+                        info!("List disks successful");
+                    }
+                    Err(e) => {
+                        error!("List disks error: {:?}", e);
+                    }
+                };
+            }
             Op::Remove => {
-                remove_disk(
+                if !operation.has_disk() {
+                    error!("Remove operation must include disk field.  Ignoring request");
+                    continue;
+                }
+                match remove_disk(
                     &mut responder,
                     operation.get_disk(),
                     &backend_type,
                     config_dir,
-                )
+                ) {
+                    Ok(_) => {
+                        info!("Remove disk successful");
+                    }
+                    Err(e) => {
+                        error!("Remove disk error: {:?}", e);
+                    }
+                };
             }
         };
         thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn add_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -> Result<()> {
+fn add_disk(
+    s: &mut Socket,
+    d: &str,
+    backend: &BackendType,
+    id: Option<u64>,
+    config_dir: &Path,
+) -> Result<()> {
     let backend = backend::load_backend(backend, Some(config_dir)).map_err(
         |e| {
             Error::new(ErrorKind::Other, e)
@@ -129,7 +172,7 @@ fn add_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -
     let mut result = OpResult::new();
 
     //Send back OpResult
-    match backend.add_disk(&Path::new(d), false) {
+    match backend.add_disk(&Path::new(d), id, false) {
         Ok(_) => {
             result.set_result(OpResult_ResultType::OK);
         }
