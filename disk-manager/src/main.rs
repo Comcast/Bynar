@@ -3,6 +3,7 @@ extern crate block_utils;
 extern crate bytes;
 #[macro_use]
 extern crate clap;
+extern crate gpt;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -22,10 +23,13 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
-use api::service::{Disk, Disks, DiskType, Op, OpResult_ResultType, OpResult};
+use api::service::{Disk, Disks, DiskType, Op, OpResult_ResultType, OpResult, Partition,
+                   PartitionInfo};
 use backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{Arg, App};
+use gpt::header::read_header;
+use gpt::partition::read_partitions;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use protobuf::core::parse_from_bytes;
@@ -37,6 +41,7 @@ fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     match m {
         MediaType::Loopback => DiskType::LOOPBACK,
         MediaType::LVM => DiskType::LVM,
+        MediaType::MdRaid => DiskType::MDRAID,
         MediaType::NVME => DiskType::NVME,
         MediaType::Ram => DiskType::RAM,
         MediaType::Rotational => DiskType::ROTATIONAL,
@@ -44,6 +49,27 @@ fn convert_media_to_disk_type(m: MediaType) -> DiskType {
         MediaType::Unknown => DiskType::UNKNOWN,
         MediaType::Virtual => DiskType::VIRTUAL,
     }
+}
+
+fn get_partition_info(dev_path: &str) -> Result<PartitionInfo> {
+    let mut partition_info = PartitionInfo::new();
+    let h = read_header(dev_path)?;
+    let partitions = read_partitions(dev_path, &h)?;
+
+    // Transform partitions to protobuf
+    let proto_parts: Vec<Partition> = partitions.iter()
+        .map(|part| {
+            let mut p = Partition::new();
+            p.set_uuid(part.part_guid.hyphenated().to_string());
+            p.set_first_lba(part.first_LBA);
+            p.set_last_lba(part.last_LBA);
+            p.set_flags(part.flags);
+            p.set_name(part.name.clone());
+            p
+        })
+        .collect();
+    partition_info.set_partition(RepeatedField::from_vec(proto_parts));
+    Ok(partition_info)
 }
 
 fn get_disks() -> Result<Vec<Disk>> {
@@ -61,11 +87,16 @@ fn get_disks() -> Result<Vec<Disk>> {
         .collect();
     debug!("Device info found: {:?}", device_info);
 
+    debug!("Gathering partition info");
+
     for device in device_info {
         let mut d = Disk::new();
+        let dev_path = format!("/dev/{}", device.name);
+        let p = get_partition_info(&dev_path)?;
         //Translate block_utils MediaType -> Protobuf DiskType
         d.set_field_type(convert_media_to_disk_type(device.media_type));
-        d.set_dev_path(format!("/dev/{}", device.name));
+        d.set_dev_path(dev_path);
+        d.set_partitions(p);
         if let Some(serial) = device.serial_number {
             d.set_serial_number(serial);
         }

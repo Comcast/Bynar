@@ -11,6 +11,7 @@ ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
 ceph-safe-disk = "~0.1"
 clap = "*"
 fstab = "*"
+gpt = { git = "https://github.com/Quyzi/gpt", branch="integration"}
 helpers = { path="../helpers", version="*"}
 init-daemon = "*"
 libc = "*"
