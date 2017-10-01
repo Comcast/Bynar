@@ -1,5 +1,7 @@
 # Bynar
-<img src="">
+<!--<img src="">-->
+Warehouse scale server repair, more benign than borg.
+
 ----
 
 Bynar is an open source system for automating server maintenance 
