@@ -36,14 +36,14 @@ message Partition{
   optional string name = 5;
 }
 
-message Partition{
+message PartitionInfo{
   repeated Partition partition = 1;
 }
 
 message Disk {
   required DiskType type = 1;
   required string dev_path = 2;
-  required Partitions partitions = 3;
+  required PartitionInfo partitions = 3;
   optional string serial_number = 4;
 }
 
