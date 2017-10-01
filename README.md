@@ -97,7 +97,7 @@ That said, if you have questions, reach out to us
 [Ceph]: http://docs.ceph.com/docs/master/
 [Hadoop]: http://hadoop.apache.org/
 [Gluster]: https://www.gluster.org/
-[communication]: https://github.com/cholcombe973/community/blob/master/communication.md
+[communication]: https://github.com/cholcombe973/bynar/blob/master/communication.md
 [community repository]: https://github.com/cholcombe973/bynar
 [developer's documentation]: https://github.com/cholcombe973/blob/master/devel.md
 [file an issue]: https://github.com/cholcombe973/bynar/issues/new
