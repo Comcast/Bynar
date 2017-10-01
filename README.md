@@ -1,5 +1,5 @@
 # Bynar
-<img src="https://upload.wikimedia.org/wikipedia/en/thumb/c/c1/ST-TNG_11001001.jpg/220px-ST-TNG_11001001.jpg">
+<img src="">
 ----
 
 Bynar is an open source system for automating server maintenance 
