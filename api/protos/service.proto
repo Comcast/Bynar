@@ -29,7 +29,11 @@ message Osd {
 
 // GPT partition information
 message Partition{
-  
+  required string uuid = 1;
+  required uint64 start_lba = 2;
+  required uint64 last_lba = 3;
+  required uint64 flags = 4;
+  optional string name = 5;
 }
 
 message Partition{
