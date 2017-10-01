@@ -1,33 +1,39 @@
-Dead disk management for Ceph and more.
+# Bynar
+<img src="https://upload.wikimedia.org/wikipedia/en/thumb/c/c1/ST-TNG_11001001.jpg/220px-ST-TNG_11001001.jpg">
+----
 
-Stage 1: Disk replacement automation pipeline. There's several steps that used to require a human that I would like to cut out:
-1. Identify bad disks
-2. File a ticket request with JIRA
-3. Keep track of the file request in a local Sqlite3 database
-4. Watch for JIRA ticket resolution
-5. Insert the disk back into the Ceph cluster
+Bynar is an open source system for automating server maintenance 
+across the datacenter.  Bynar builds upon many years of experience 
+automating the drudgery of server repair. The goal is to have the
+datacenter maintain itself.  Large clusters these days require
+lots of maintenance.  [Cassandra], [Ceph], [Gluster], [Hadoop] and others
+all require quick replacement of server parts as they break down or the cluster
+becomes degraded.  The problem is that as your cluster grows you generally need to have more
+people to maintain them.  Bynar hopes to break this cycle and 
+free your time up so your clusters can scale to ever greater sizes 
+without requiring more people to maintain them.  
 
-Stage 2: OSD monitoring to restart osds that are kicked out of the tree for some reason.  This might be better broken out into another utility.
+The project is divided into different binaries that all communicate over protobuf:
+1. disk-manager: This program handles adding and removing of disks from a server
+2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket 
+for a datacenter technician to replace the drive, waits for resolution of the ticket and 
+then makes an API call to `disk-manager` to add the new disk back into the server.
+3. client: Enables you to manually make API calls against `disk-manager`
+4. parallel-deploy: This is a tool to quickly deploy a cluster of ceph osds.  
 
-Stage 3: Protobuf RPC API to allow remote control of ceph servers.  This might
-also need to be broken out to another utility.  An RPC api for this utility
-though could prove useful.
 
-## Dependencies:
-1. libzmq3-dev  4.1 or higher
-2. protobuf  2.5 or higher
-3. librados  # ceph jewel or higher
-4. libatasmart
-5. openssl-dev
+----
 
-## Configuration:
+## To start using Bynar
+
+### Configuration:
 1. Create your configuration file.  The utility takes json config
-information.  Edit the `/etc/ceph_dead_disk/config.json` file to configure it.
+information.  Edit the `/etc/bynar/config.json` file to configure it.
 An optional proxy field can be configured to send JIRA REST API requests through.
 Fields for this file are:
 ```
 {
- "db_location": "/etc/ceph_dead_disk/disks.sqlite3",
+ "db_location": "/etc/bynar/disks.sqlite3",
  "proxy": "https://my.proxy",
  "manager_host": "localhost",
  "manager_port": 5555,
@@ -41,18 +47,56 @@ Fields for this file are:
  "jira_ticket_assignee": "assignee_username"
 }
 ```
-
-## Usage:
-
-## Directory layout:
+### Directory layout:
 1. Top level is the dead disk detector
 2. api is the protobuf api create
 3. disk-manager is the service that handles adding and removing disks
 4. client is the cli client to make RPC calls to disk manager or dead disk detector
+5. parallel-deploy is a utility to quickly deploy a ceph osd cluster in parallel.  
+Deploy 1000 osds in the time it takes to deploy 1 manually.
 
-## TODO:
-- [ ] LSI Raid integration
-- [ ] HP Raid integration
-- [ ] NVME integration
-- [x] libatasmart integration
-- [ ] raid slot detection
+### Launch the program
+1. After building bynar from source or downloading prebuilt packages
+launch `disk-manager`, `dead-disk-detector` on every server you want 
+maintained.
+
+## To start developing Bynar
+
+This [community repository] hosts all information about
+building Bynar from source, how to contribute code
+and documentation, who to contact about what, etc.
+
+If you want to build Bynar:
+
+##### You have a working [Rust environment].
+
+```
+$ curl https://sh.rustup.rs -sSf | sh
+$ cargo build --release
+```
+#### Dependencies:
+1. libzmq3-dev  4.1 or higher
+2. protobuf  2.5 or higher
+3. librados  # ceph jewel or higher
+4. libatasmart
+5. openssl-dev
+
+
+## Support
+
+If you need support, start by checking the [issues] page.
+If that doesn't answer your questions, or if you think you found a bug,
+please [file an issue].
+
+That said, if you have questions, reach out to us
+[communication].
+
+[Cassandra]: http://cassandra.apache.org/
+[Ceph]: http://docs.ceph.com/docs/master/
+[Hadoop]: http://hadoop.apache.org/
+[Gluster]: https://www.gluster.org/
+[communication]: https://github.com/cholcombe973/community/blob/master/communication.md
+[community repository]: https://github.com/cholcombe973/bynar
+[developer's documentation]: https://github.com/cholcombe973/blob/master/devel.md
+[file an issue]: https://github.com/cholcombe973/bynar/issues/new
+[issues]: https://github.com/cholcombe973/bynar/issues
