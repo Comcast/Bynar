@@ -38,4 +38,8 @@ impl Backend for GlusterBackend {
         //})?;
         Ok(())
     }
+
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> IOResult<bool> {
+        Ok(true)
+    }
 }

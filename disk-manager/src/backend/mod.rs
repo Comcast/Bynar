@@ -22,6 +22,12 @@ pub trait Backend {
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
     fn remove_disk(&self, device: &Path, simulate: bool) -> Result<()>;
+
+    /// Check if it's safe to remove a disk from a cluster
+    /// If simulate is passed then this always returns true
+    /// Take any actions needed with this call to figure out if a disk is safe
+    /// to remove from the cluster.
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> Result<bool>;
 }
 
 /// The supported backend types
@@ -43,7 +49,7 @@ impl FromStr for BackendType {
     }
 }
 
-/// Given a backend path, return a 'd Backend.
+/// Given a backendType, return a Backend.
 pub fn load_backend(
     backend_type: &BackendType,
     config_dir: Option<&Path>,

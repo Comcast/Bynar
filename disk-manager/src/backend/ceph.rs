@@ -236,6 +236,10 @@ impl Backend for CephBackend {
         })?;
         Ok(())
     }
+
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> IOResult<bool> {
+        Ok(true)
+    }
 }
 
 fn osd_out(cluster_handle: rados_t, osd_id: u64, simulate: bool) -> Result<(), String> {

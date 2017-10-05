@@ -57,7 +57,8 @@ fn get_partition_info(dev_path: &str) -> Result<PartitionInfo> {
     let partitions = read_partitions(dev_path, &h)?;
 
     // Transform partitions to protobuf
-    let proto_parts: Vec<Partition> = partitions.iter()
+    let proto_parts: Vec<Partition> = partitions
+        .iter()
         .map(|part| {
             let mut p = Partition::new();
             p.set_uuid(part.part_guid.hyphenated().to_string());
@@ -182,6 +183,9 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
                         error!("Remove disk error: {:?}", e);
                     }
                 };
+            }
+            Op::SafeToRemove => {
+                //
             }
         };
         thread::sleep(Duration::from_millis(10));

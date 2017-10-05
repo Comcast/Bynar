@@ -1,6 +1,6 @@
 [package]
 name = "ceph_dead_disk"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [workspace]
@@ -29,7 +29,7 @@ log = "*"
 mktemp = "*"
 parallel-deploy = { path = "parallel-deploy" }
 protobuf = "*"
-reqwest = "*"
+reqwest = "~0.7"
 rusqlite = "*"
 serde = "*"
 serde_derive = "*"

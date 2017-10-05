@@ -90,13 +90,13 @@ fn ssd_deployment(disks: Vec<(String, Vec<Disk>)>) -> Vec<(String, Vec<Osd>)> {
     let mut deployment_list: Vec<(String, Vec<Osd>)> = Vec::new();
     let mut starting_id: u64 = 0;
     for host in disks {
-        let ssd_disks = host.1
+        let ssd_disks: Vec<&Disk> = host.1
             .iter()
-            .filter(|disk| disk.1.get_field_type() == DiskType::SOLID_STATE)
+            .filter(|disk| disk.get_field_type() == DiskType::SOLID_STATE)
             .collect();
-        let rotational_disks = host.1
+        let rotational_disks: Vec<&Disk> = host.1
             .iter()
-            .filter(|disk| disk.1.get_field_type() == DiskType::ROTATIONAL)
+            .filter(|disk| disk.get_field_type() == DiskType::ROTATIONAL)
             .collect();
     }
 
