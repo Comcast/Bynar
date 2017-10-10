@@ -265,7 +265,7 @@ dependencies = [
  "ceph-safe-disk 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.26.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "gpt 0.1.8 (git+https://github.com/Quyzi/gpt?branch=integration)",
+ "gpt 0.1.8 (git+https://github.com/Quyzi/gpt)",
  "helpers 0.1.0",
  "init-daemon 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -417,7 +417,7 @@ dependencies = [
 [[package]]
 name = "gpt"
 version = "0.1.8"
-source = "git+https://github.com/Quyzi/gpt?branch=integration#1c6c6658badbebe7a1d9f6cdc413cfe82b59392c"
+source = "git+https://github.com/Quyzi/gpt#5d507858641ba92bc242eb80fc96225a0a83c05f"
 dependencies = [
  "byteorder 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "crc 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1523,7 +1523,7 @@ dependencies = [
 "checksum getopts 0.2.15 (registry+https://github.com/rust-lang/crates.io-index)" = "65922871abd2f101a2eb0eaebadc66668e54a87ad9c3dd82520b5f86ede5eff9"
 "checksum gluster 0.6.10 (registry+https://github.com/rust-lang/crates.io-index)" = "b12feb10b1b1d1bac443a736305186dc510cd45ad9d9c2457fa24c231e684fe7"
 "checksum goji 0.1.1 (git+https://github.com/cholcombe973/goji)" = "<none>"
-"checksum gpt 0.1.8 (git+https://github.com/Quyzi/gpt?branch=integration)" = "<none>"
+"checksum gpt 0.1.8 (git+https://github.com/Quyzi/gpt)" = "<none>"
 "checksum httparse 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "af2f2dd97457e8fb1ae7c5a420db346af389926e36f43768b96f101546b04a07"
 "checksum hyper 0.11.6 (registry+https://github.com/rust-lang/crates.io-index)" = "1b45eac8b696d59491b079bd04fcb0f3488c0f6ed62dcb36bcfea8a543e9cdc3"
 "checksum hyper-tls 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9c81fa95203e2a6087242c38691a0210f23e9f3f8f944350bd676522132e2985"

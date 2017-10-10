@@ -92,7 +92,8 @@ fn get_disks() -> Result<Vec<Disk>> {
     for device in device_info {
         let mut d = Disk::new();
         let dev_path = format!("/dev/{}", device.name);
-        let p = get_partition_info(&dev_path)?;
+        // This will skip partition_info if it fails to gather.  Blank disks will fail
+        let p = get_partition_info(&dev_path).unwrap_or(PartitionInfo::new());
         //Translate block_utils MediaType -> Protobuf DiskType
         d.set_field_type(convert_media_to_disk_type(device.media_type));
         d.set_dev_path(dev_path);

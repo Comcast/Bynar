@@ -90,7 +90,7 @@ fn ssd_deployment(disks: Vec<(String, Vec<Disk>)>) -> Vec<(String, Vec<Osd>)> {
     let mut deployment_list: Vec<(String, Vec<Osd>)> = Vec::new();
     let mut starting_id: u64 = 0;
     for host in disks {
-        let ssd_disks: Vec<&Disk> = host.1
+        let mut ssd_disks: Vec<&Disk> = host.1
             .iter()
             .filter(|disk| disk.get_field_type() == DiskType::SOLID_STATE)
             .collect();
@@ -98,6 +98,31 @@ fn ssd_deployment(disks: Vec<(String, Vec<Disk>)>) -> Vec<(String, Vec<Osd>)> {
             .iter()
             .filter(|disk| disk.get_field_type() == DiskType::ROTATIONAL)
             .collect();
+        // How do I match these up?
+        if ssd_disks.len() < rotational_disks.len() {
+            debug!("Less SSD's than rotational disks.  Creating partitions");
+        // We have less ssd's than rotational disks
+        // The min journal size is 5GB.  Do we have enough GB's to go around?
+
+        // If we need to create partitions we need to figure out if we have
+        // enough space to cut the drives up large enough journals
+        } else {
+            debug!("More SSD's than rotational disks");
+            // We have either the same amount of more SSD's than rotational disks
+            let osds: Vec<Osd> = (starting_id..)
+                .zip(rotational_disks.iter())
+                .map(|disk| {
+                    starting_id = disk.0;
+                    Osd {
+                        id: disk.0,
+                        // Journal + disk are collocated
+                        disk: PathBuf::from(disk.1.get_dev_path()),
+                        journal: PathBuf::from(ssd_disks.pop().unwrap().get_dev_path()),
+                    }
+                })
+                .collect();
+            deployment_list.push((host.0, osds));
+        }
     }
 
     deployment_list
@@ -107,7 +132,33 @@ fn nvme_deployment(disks: Vec<(String, Vec<Disk>)>) -> Vec<(String, Vec<Osd>)> {
     let mut deployment_list: Vec<(String, Vec<Osd>)> = Vec::new();
     let mut starting_id: u64 = 0;
     for host in disks {
-        //
+        let mut nvme_disks: Vec<&Disk> = host.1
+            .iter()
+            .filter(|disk| disk.get_field_type() == DiskType::NVME)
+            .collect();
+        let rotational_disks: Vec<&Disk> = host.1
+            .iter()
+            .filter(|disk| disk.get_field_type() == DiskType::ROTATIONAL)
+            .collect();
+        // How do I match these up?
+        if nvme_disks.len() < rotational_disks.len() {
+            // We have a mismatch of nvme's to rotational
+        } else {
+            // We have either the same amount of more NVME's than rotational disks
+            let osds: Vec<Osd> = (starting_id..)
+                .zip(rotational_disks.iter())
+                .map(|disk| {
+                    starting_id = disk.0;
+                    Osd {
+                        id: disk.0,
+                        // Journal + disk are collocated
+                        disk: PathBuf::from(disk.1.get_dev_path()),
+                        journal: PathBuf::from(nvme_disks.pop().unwrap().get_dev_path()),
+                    }
+                })
+                .collect();
+            deployment_list.push((host.0, osds));
+        }
     }
 
     deployment_list
