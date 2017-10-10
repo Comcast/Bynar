@@ -1,0 +1,16 @@
+[Unit]
+Description=Disk management daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/disk-manager
+ExecReload=/bin/kill -SIGTERM $MAINPID
+KillMode=process
+Restart=on-failure
+LimitNOFILE=infinity
+LimitNPROC=infinity
+TasksMax=infinity
+
+[Install]
+Alias=disk-manager.service

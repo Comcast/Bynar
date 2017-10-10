@@ -1,18 +1,29 @@
 [package]
-name = "ceph_dead_disk"
+name = "disk-scanner"
 version = "0.1.2"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
+description = "Server remediation as a service"
+license = "Apache-2.0"
+readme = "README.md"
+
+[package.metadata.deb]
+maintainer = "Chris Holcombe <xfactor973@gmail.com>"
+depends = "$auto"
+section = "utility"
+assets = [
+	["target/release/disk-scanner", "usr/sbin/", "755"],
+	["target/release/client", "usr/bin/", "755"],
+	["target/release/disk-manager", "usr/sbin/", "755"],
+	["target/release/parallel-deploy", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/bynar/README", "644"],
+]
 
 [workspace]
-
-# [features]
-# zmq = ["zmq"]
 
 [dependencies]
 api = { path = "api" }
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
-ceph-safe-disk = "~0.1"
 clap = "*"
 client = { path = "client" }
 disk-manager = { path = "disk-manager" }
