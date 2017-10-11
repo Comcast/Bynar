@@ -19,9 +19,9 @@ All API communication happens over TCP+Protobuf
                           +-------------+---+            | Creates support tickets in jira                 |
                           |   Client        |            | Puts drives back into cluster after resolution  |
                           |                 |            |                                                 |
-                          |List disks       |            +-------------------------------------------------+
-                          |Add disk         |
-                          |Remove disk      |
+                          | List disks      |            +-------------------------------------------------+
+                          | Add disk        |
+                          | Remove disk     |
                           |                 |
                           +-----------------+
 
