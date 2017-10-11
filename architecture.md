@@ -1,3 +1,4 @@
+All API communication happens over TCP+Protobuf 
 ```
                                               +-------------------------------------+
 +--------------------------+  Add Disk        |      Disk-Manager                   |
