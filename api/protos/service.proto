@@ -71,22 +71,31 @@ message Disks {
 message OpResult {
   required ResultType result = 1;
   optional string error_msg = 2;
-  enum ResultType{
-    OK = 0;
-    ERR = 1;
-  }
 }
 
-enum Op{
-   //return OpResult
+enum ResultType{
+  OK = 0;
+  ERR = 1;
+}
+
+message OpBoolResult {
+  required ResultType result = 1;
+  // Value is set if OK
+  optional bool value = 2;
+  // error_msg is set if ERR
+  optional string error_msg = 3;
+}
+
+enum Op {
+   // Generic Add Disk.  Returns OpResult
    Add = 1;
-   //returns RepairResponse
-   //Check = 2;
+   //returns OpResult
+   AddPartition = 6;
    // Returns Disks
    List = 3;
    //Returns OpResult
    Remove = 4;
-   //Safety check
+   //Returns bool
    SafeToRemove = 5;
 }
 
@@ -95,8 +104,22 @@ message Operation {
   required Op Op_type = 1;
   // Used for Add and Remove
   optional string disk = 2;
-  // For adding ceph osd's you can give an optional ID
-  optional uint64 id = 3;
-  // Used for Add and Remove
-  optional bool simulate = 4;
+  // Used for Add, Remove and SafeToRemove
+  optional bool simulate = 3;
+
+  //Optional AddPartition fields
+  optional uint64 partition_start = 4;
+  optional uint64 partition_end = 5;
+  optional string partition_name = 6;
+
+  //Optional Ceph related fields
+  optional uint64 osd_id = 7;
+  // Ceph journal device
+  optional string osd_journal = 8;
+  // For ceph osd's you can give an optional journal partition id
+  optional uint32 osd_journal_partition = 9;
+
+  //Optional gluster related fields
+  //Host:/dev/disk strings for gluster replica sets
+  repeated string replica_set = 10;
 }

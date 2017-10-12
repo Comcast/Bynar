@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
-use api::service::{Disk, Disks, DiskType, Op, OpResult_ResultType, OpResult, Partition,
+use api::service::{Disk, Disks, DiskType, Op, OpBoolResult, ResultType, OpResult, Partition,
                    PartitionInfo};
 use backend::BackendType;
 use block_utils::{Device, MediaType};
@@ -131,8 +131,18 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
         debug!("Operation requested: {:?}", operation.get_Op_type());
         match operation.get_Op_type() {
             Op::Add => {
-                let id = if operation.has_id() {
-                    Some(operation.get_id())
+                let id = if operation.has_osd_id() {
+                    Some(operation.get_osd_id())
+                } else {
+                    None
+                };
+                let journal = if operation.has_osd_journal() {
+                    Some(operation.get_osd_journal())
+                } else {
+                    None
+                };
+                let journal_partition = if operation.has_osd_journal_partition() {
+                    Some(operation.get_osd_journal_partition())
                 } else {
                     None
                 };
@@ -145,6 +155,8 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
                     operation.get_disk(),
                     &backend_type,
                     id,
+                    journal,
+                    journal_partition,
                     config_dir,
                 ) {
                     Ok(_) => {
@@ -154,6 +166,9 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
                         error!("Add disk error: {:?}", e);
                     }
                 };
+            }
+            Op::AddPartition => {
+                //
             }
             Op::List => {
                 match list_disks(&mut responder) {
@@ -185,7 +200,24 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
                 };
             }
             Op::SafeToRemove => {
-                //
+                if !operation.has_disk() {
+                    error!("SafeToRemove operation must include disk field.  Ignoring request");
+                    continue;
+                }
+                match safe_to_remove_disk(
+                    &mut responder,
+                    operation.get_disk(),
+                    &backend_type,
+                    config_dir,
+                ) {
+                    Ok(_) => {
+                        info!("Remove disk successful");
+                    }
+                    Err(e) => {
+                        error!("Remove disk error: {:?}", e);
+                    }
+
+                };
             }
         };
         thread::sleep(Duration::from_millis(10));
@@ -197,6 +229,8 @@ fn add_disk(
     d: &str,
     backend: &BackendType,
     id: Option<u64>,
+    journal: Option<&str>,
+    journal_partition: Option<u32>,
     config_dir: &Path,
 ) -> Result<()> {
     let backend = backend::load_backend(backend, Some(config_dir)).map_err(
@@ -207,12 +241,12 @@ fn add_disk(
     let mut result = OpResult::new();
 
     //Send back OpResult
-    match backend.add_disk(&Path::new(d), id, false) {
+    match backend.add_disk(&Path::new(d), id, journal, journal_partition, false) {
         Ok(_) => {
-            result.set_result(OpResult_ResultType::OK);
+            result.set_result(ResultType::OK);
         }
         Err(e) => {
-            result.set_result(OpResult_ResultType::ERR);
+            result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
         }
     }
@@ -252,10 +286,10 @@ fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path
     let mut result = OpResult::new();
     match backend.remove_disk(&Path::new(d), false) {
         Ok(_) => {
-            result.set_result(OpResult_ResultType::OK);
+            result.set_result(ResultType::OK);
         }
         Err(e) => {
-            result.set_result(OpResult_ResultType::ERR);
+            result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
         }
     };
@@ -268,6 +302,36 @@ fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path
     Ok(())
 }
 
+fn safe_to_remove_disk(
+    s: &mut Socket,
+    d: &str,
+    backend: &BackendType,
+    config_dir: &Path,
+) -> Result<()> {
+    let backend = backend::load_backend(backend, Some(config_dir)).map_err(
+        |e| {
+            Error::new(ErrorKind::Other, e)
+        },
+    )?;
+    let mut result = OpBoolResult::new();
+    match backend.safe_to_remove(&Path::new(d), false) {
+        Ok(val) => {
+            result.set_result(ResultType::OK);
+            result.set_value(val);
+        }
+        Err(e) => {
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+        }
+    };
+    let encoded = result.write_to_bytes().map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Responding to client with msg len: {}", msg.len());
+    s.send_msg(msg, 0)?;
+    Ok(())
+}
 
 fn main() {
     let matches = App::new("Disk Manager")

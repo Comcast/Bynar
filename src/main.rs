@@ -100,12 +100,16 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                     )?;
                     if !simulate {
                         if !in_progress {
-                            debug!("Asking disk-manager to remove disk");
+                            debug!("Asking disk-manager if it's safe to remove disk");
                             // CALL RPC
                             let mut socket = helpers::connect(
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
                             ).map_err(|e| e.to_string())?;
+                            match helpers::safe_to_remove_request(&mut socket, &dev_path) {
+                                Ok(result) => {}
+                                Err(err) => {}
+                            };
                             match helpers::remove_disk_request(
                                 &mut socket,
                                 &dev_path,

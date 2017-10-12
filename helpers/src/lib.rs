@@ -6,7 +6,7 @@ extern crate zmq;
 
 use std::path::Path;
 
-use api::service::{Disk, Operation, Op, OpResult_ResultType};
+use api::service::{Disk, Operation, Op, OpBoolResult, ResultType};
 use protobuf::Message as ProtobufMsg;
 use protobuf::core::parse_from_bytes;
 use zmq::{Message, Socket};
@@ -39,7 +39,7 @@ pub fn add_disk_request(
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
     if id.is_some() {
-        o.set_id(id.unwrap());
+        o.set_osd_id(id.unwrap());
     }
 
     let encoded = o.write_to_bytes().unwrap();
@@ -53,11 +53,11 @@ pub fn add_disk_request(
     let op_result = parse_from_bytes::<api::service::OpResult>(&add_response)
         .map_err(|e| e.to_string())?;
     match op_result.get_result() {
-        OpResult_ResultType::OK => {
+        ResultType::OK => {
             debug!("Add disk successful");
             Ok(())
         }
-        OpResult_ResultType::ERR => {
+        ResultType::ERR => {
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
                 error!("Add disk failed: {}", msg);
@@ -118,6 +118,30 @@ pub fn list_disks_request(s: &mut Socket) -> Result<Vec<Disk>, String> {
     Ok(d)
 }
 
+pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> Result<bool, String> {
+    let mut o = Operation::new();
+    debug!("Creating safe to remove operation request");
+    o.set_Op_type(Op::SafeToRemove);
+    o.set_disk(format!("{}", path.display()));
+    let encoded = o.write_to_bytes().map_err(|e| e.to_string())?;
+    let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
+    debug!("Sending message");
+    s.send_msg(msg, 0).map_err(|e| e.to_string())?;
+
+    debug!("Waiting for response");
+    let safe_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
+    debug!("Decoding msg len: {}", safe_response.len());
+    let op_result = parse_from_bytes::<OpBoolResult>(&safe_response).map_err(
+        |e| {
+            e.to_string()
+        },
+    )?;
+    match op_result.get_result() {
+        ResultType::OK => Ok(op_result.get_value()),
+        ResultType::ERR => Err(op_result.get_error_msg().into()),
+    }
+}
+
 pub fn remove_disk_request(
     s: &mut Socket,
     path: &Path,
@@ -130,7 +154,7 @@ pub fn remove_disk_request(
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
     if id.is_some() {
-        o.set_id(id.unwrap());
+        o.set_osd_id(id.unwrap());
     }
 
     let encoded = o.write_to_bytes().map_err(|e| e.to_string())?;
@@ -139,17 +163,16 @@ pub fn remove_disk_request(
     s.send_msg(msg, 0).map_err(|e| e.to_string())?;
 
     debug!("Waiting for response");
-    debug!("Waiting for response");
     let remove_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
     debug!("Decoding msg len: {}", remove_response.len());
     let op_result = parse_from_bytes::<api::service::OpResult>(&remove_response)
         .map_err(|e| e.to_string())?;
     match op_result.get_result() {
-        OpResult_ResultType::OK => {
+        ResultType::OK => {
             debug!("Add disk successful");
             Ok(())
         }
-        OpResult_ResultType::ERR => {
+        ResultType::ERR => {
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
                 error!("Remove disk failed: {}", msg);

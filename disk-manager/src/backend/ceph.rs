@@ -242,7 +242,14 @@ impl Drop for CephBackend {
 }
 
 impl Backend for CephBackend {
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> IOResult<()> {
+    fn add_disk(
+        &self,
+        device: &Path,
+        id: Option<u64>,
+        journal: Option<&str>,
+        journal_partition: Option<u32>,
+        simulate: bool,
+    ) -> IOResult<()> {
         self.add_osd(device, id, simulate).map_err(|e| {
             Error::new(ErrorKind::Other, e)
         })?;
@@ -263,7 +270,6 @@ impl Backend for CephBackend {
             Status::NonSafe => return Ok(false),
             Status::Unknown => return Ok(false),
         };
-        //Ok(true)
     }
 }
 

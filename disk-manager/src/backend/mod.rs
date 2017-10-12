@@ -17,7 +17,15 @@ pub trait Backend {
     /// For gluster or other services it might be much easier
     /// If simulate is passed no action should be taken
     /// An optional osd_id can be provided to ensure the osd is set to that
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> Result<()>;
+    /// An optional journal and partition id can be set
+    fn add_disk(
+        &self,
+        device: &Path,
+        id: Option<u64>,
+        journal: Option<&str>,
+        journal_partition: Option<u32>,
+        simulate: bool,
+    ) -> Result<()>;
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken

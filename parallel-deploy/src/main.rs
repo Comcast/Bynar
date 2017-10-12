@@ -175,6 +175,8 @@ fn parallel_deploy(host_list: Vec<String>, port: &str, strategy: Strategy) -> Re
         Strategy::SsdJournal => deployment_list = ssd_deployment(sorted_disks),
         Strategy::NvmeJournal => deployment_list = nvme_deployment(sorted_disks),
     };
+
+    // Make a bunch of calls to the disk-managers and start setting up the disks
     Ok(())
 }
 
