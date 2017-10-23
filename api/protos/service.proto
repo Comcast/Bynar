@@ -86,6 +86,14 @@ message OpBoolResult {
   optional string error_msg = 3;
 }
 
+message OpStringResult {
+  required ResultType result = 1;
+  // Value is set if OK
+  optional string value = 2;
+  // error_msg is set if ERR
+  optional string error_msg = 3;
+}
+
 enum Op {
    // Generic Add Disk.  Returns OpResult
    Add = 1;
@@ -98,6 +106,25 @@ enum Op {
    //Returns bool
    SafeToRemove = 5;
 }
+
+// Datacenter related API's
+enum DatacenterOp {
+  // All require server_id as a param
+  // Returns OpStringResult
+  GetDc = 1;
+  // Returns OpStringResult
+  GetRack = 2;
+  // Returns OpStringResult
+  GetRow = 3;
+  // Returns OpStringResult
+  GetElevation = 4;
+}
+
+message DatacenterOperation {
+  required DatacenterOp Op_type = 1;
+  required string server_id = 2;
+}
+// Datacenter related API's
 
 // Service operations that can be performed
 message Operation {
