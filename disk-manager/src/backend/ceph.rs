@@ -98,6 +98,7 @@ impl CephBackend {
             stripe_size: None,
             stripe_width: None,
             block_size: None,
+            agcount: Some(32),
             inode_size: Some(2048),
             force: true,
         };

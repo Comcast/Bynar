@@ -1,10 +1,10 @@
 [Unit]
-Description=Dead Disk management daemon
+Description=Bynar Disk Management Daemon
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/dead-disk-detector
+ExecStart=/usr/sbin/bynar
 ExecReload=/bin/kill -SIGTERM $MAINPID
 KillMode=process
 Restart=on-failure

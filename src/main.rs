@@ -15,6 +15,7 @@ extern crate serde_derive;
 extern crate serde;
 extern crate serde_json;
 extern crate simplelog;
+extern crate slack_hook;
 extern crate zmq;
 
 mod create_support_ticket;
@@ -29,12 +30,16 @@ use create_support_ticket::{create_support_ticket, ticket_resolved};
 use clap::{Arg, App};
 use helpers::host_information::Host;
 use simplelog::{Config, SimpleLogger};
+use slack_hook::{Slack, PayloadBuilder};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
     db_location: String,
     manager_host: String,
     manager_port: u16,
+    slack_webhook: Option<String>,
+    slack_channel: Option<String>,
+    slack_botname: Option<String>,
     pub jira_user: String,
     pub jira_password: String,
     pub jira_host: String,
@@ -58,6 +63,25 @@ fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
         deserialized
     };
     Ok(c)
+}
+
+fn notify_slack(config: &ConfigSettings, msg: &str) -> Result<(), slack_hook::Error> {
+    let c = config.clone();
+    let slack = Slack::new(c.slack_webhook.unwrap().as_ref())?;
+    let slack_channel = c.slack_channel.unwrap_or("".to_string());
+    let bot_name = c.slack_botname.unwrap_or("".to_string());
+    let p = PayloadBuilder::new()
+        .text(msg)
+        .channel(slack_channel)
+        .username(bot_name)
+        .build()?;
+
+    let res = slack.send(&p);
+    match res {
+        Ok(_) => debug!("Slack notified"),
+        Err(e) => error!("Slack error: {:?}", e),
+    };
+    Ok(())
 }
 
 fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
@@ -107,20 +131,63 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                                 &config.manager_port.to_string(),
                             ).map_err(|e| e.to_string())?;
                             match helpers::safe_to_remove_request(&mut socket, &dev_path) {
-                                Ok(result) => {}
-                                Err(err) => {}
-                            };
-                            match helpers::remove_disk_request(
-                                &mut socket,
-                                &dev_path,
-                                None,
-                                false,
-                            ) {
-                                Ok(_) => {
-                                    debug!("Disk removal successful");
+                                Ok(result) => {
+                                    //Ok to remove the disk
+                                    match result {
+                                        true => {
+                                            if config.slack_webhook.is_some() {
+                                                let _ = notify_slack(
+                                                    &config,
+                                                    &format!(
+                                                        "Removing disk: {} on host: {}",
+                                                        dev_path.display(),
+                                                        host_info.hostname
+                                                    ),
+                                                );
+                                            }
+                                            match helpers::remove_disk_request(
+                                                &mut socket,
+                                                &dev_path,
+                                                None,
+                                                false,
+                                            ) {
+                                                Ok(_) => {
+                                                    debug!("Disk removal successful");
+                                                }
+                                                Err(e) => {
+                                                    error!("Disk removal failed: {}", e);
+                                                }
+                                            };
+                                        }
+                                        false => {
+                                            if config.slack_webhook.is_some() {
+                                                let _ = notify_slack(
+                                                    &config,
+                                                    &format!(
+                                                "Need to remove disk {} but it's not safe \
+                                                on host: {}. I need a human",
+                                                dev_path.display(),
+                                                host_info.hostname,
+                                            ),
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
-                                Err(e) => {
-                                    error!("Disk removal failed: {}", e);
+                                Err(err) => {
+                                    //Not ok to remove the disk but we need to
+                                    if config.slack_webhook.is_some() {
+                                        let _ = notify_slack(
+                                            &config,
+                                            &format!(
+                                                "Need to remove disk {} but can't tell if it's \
+                                                safe on host: {}. Error: {:?}",
+                                                dev_path.display(),
+                                                host_info.hostname,
+                                                err
+                                            ),
+                                        );
+                                    }
                                 }
                             };
                             debug!("Creating support ticket");
@@ -226,7 +293,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("configdir")
-                .default_value("/etc/ceph_dead_disk")
+                .default_value("/etc/bynar")
                 .help("The directory where all config files can be found")
                 .long("configdir")
                 .takes_value(true)
@@ -251,12 +318,11 @@ fn main() {
     info!("Starting up");
 
     //Sanity check
-    if !Path::new("/etc/ceph_dead_disk").exists() {
+    if !Path::new("/etc/bynar").exists() {
         error!("Config directory doesn't exist. Please create it or use the --configdir option");
         return;
     }
     let simulate = matches.is_present("simulate");
-
     let config_dir = matches.value_of("configdir").unwrap();
 
     match check_for_failed_disks(config_dir, simulate) {

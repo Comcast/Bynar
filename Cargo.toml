@@ -1,5 +1,5 @@
 [package]
-name = "disk-scanner"
+name = "bynar"
 version = "0.1.2"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 description = "Server remediation as a service"
@@ -11,11 +11,10 @@ maintainer = "Chris Holcombe <xfactor973@gmail.com>"
 depends = "$auto"
 section = "utility"
 assets = [
-	["target/release/disk-scanner", "usr/sbin/", "755"],
+	["target/release/bynar", "usr/sbin/", "755"],
 	["target/release/client", "usr/bin/", "755"],
 	["target/release/disk-manager", "usr/sbin/", "755"],
-	["target/release/parallel-deploy", "usr/bin/", "755"],
-    ["README.md", "usr/share/doc/bynar/README", "644"],
+  ["README.md", "usr/share/doc/bynar/README", "644"],
 ]
 
 [workspace]
@@ -45,6 +44,7 @@ serde = "*"
 serde_derive = "*"
 serde_json = "*"
 simplelog = "*"
+slack-hook = "*"
 time = "*"
 uname = "*"
 uuid = { version="*", features = ["v4"]}

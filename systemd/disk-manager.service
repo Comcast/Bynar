@@ -1,5 +1,5 @@
 [Unit]
-Description=Disk management daemon
+Description=Disk Management Daemon
 After=network.target
 
 [Service]

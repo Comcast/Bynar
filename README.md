@@ -4,21 +4,21 @@ Warehouse scale server repair, more benign than borg.
 
 ----
 
-Bynar is an open source system for automating server maintenance 
-across the datacenter.  Bynar builds upon many years of experience 
+Bynar is an open source system for automating server maintenance
+across the datacenter.  Bynar builds upon many years of experience
 automating the drudgery of server repair. The goal is to have the
 datacenter maintain itself.  Large clusters these days require
 lots of maintenance.  [Cassandra], [Ceph], [Gluster], [Hadoop] and others
 all require quick replacement of server parts as they break down or the cluster
 becomes degraded.  The problem is that as your cluster grows you generally need to have more
-people to maintain them.  Bynar hopes to break this cycle and 
-free your time up so your clusters can scale to ever greater sizes 
+people to maintain them.  Bynar hopes to break this cycle and
+free your time up so your clusters can scale to ever greater sizes
 without requiring more people to maintain them.  
 
 The project is divided into different binaries that all communicate over protobuf:
 1. disk-manager: This program handles adding and removing of disks from a server
-2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket 
-for a datacenter technician to replace the drive, waits for resolution of the ticket and 
+2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket
+for a datacenter technician to replace the drive, waits for resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
 3. client: Enables you to manually make API calls against `disk-manager`
 4. parallel-deploy: This is a tool to quickly deploy a cluster of ceph osds.  
@@ -32,6 +32,8 @@ then makes an API call to `disk-manager` to add the new disk back into the serve
 1. Create your configuration file.  The utility takes json config
 information.  Edit the `/etc/bynar/config.json` file to configure it.
 An optional proxy field can be configured to send JIRA REST API requests through.
+The slack_* fields are optional.  They will allow Bynar to send alerts to a
+channel while it's performing maintenance.
 Fields for this file are:
 ```
 {
@@ -39,6 +41,9 @@ Fields for this file are:
  "proxy": "https://my.proxy",
  "manager_host": "localhost",
  "manager_port": 5555,
+ "slack_webhook": "https://hooks.slack.com/services/ID",
+ "slack_channel": "#my-channel",
+ "slack_botname": "my-bot",
  "jira_user": "test_user",
  "jira_password": "user_password",
  "jira_host": "https://tickets.jira.com",
@@ -59,7 +64,7 @@ Deploy 1000 osds in the time it takes to deploy 1 manually.
 
 ### Launch the program
 1. After building bynar from source or downloading prebuilt packages
-launch `disk-manager`, `dead-disk-detector` on every server you want 
+launch `disk-manager`, `dead-disk-detector` on every server you want
 maintained.
 
 ## To start developing Bynar
