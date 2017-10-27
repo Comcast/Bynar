@@ -165,7 +165,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                                                     &config,
                                                     &format!(
                                                 "Need to remove disk {} but it's not safe \
-                                                on host: {}. I need a human",
+                                                on host: {}. I need a human.  Filing a ticket",
                                                 dev_path.display(),
                                                 host_info.hostname,
                                             ),
@@ -181,7 +181,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                                             &config,
                                             &format!(
                                                 "Need to remove disk {} but can't tell if it's \
-                                                safe on host: {}. Error: {:?}",
+                                                safe on host: {}. Error: {:?}.  Filing a ticket",
                                                 dev_path.display(),
                                                 host_info.hostname,
                                                 err
@@ -325,6 +325,7 @@ fn main() {
     let simulate = matches.is_present("simulate");
     let config_dir = matches.value_of("configdir").unwrap();
 
+    //TODO: Get a vault token so I can talk to disk-manager
     match check_for_failed_disks(config_dir, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
@@ -333,6 +334,7 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
+    // TODO: Use token here
     match add_repaired_disks(config_dir, simulate) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);

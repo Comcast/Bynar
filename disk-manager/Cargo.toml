@@ -12,6 +12,7 @@ ceph-safe-disk = "~0.1"
 clap = "*"
 fstab = "*"
 gpt = { git = "https://github.com/Quyzi/gpt"}
+hashicorp_vault = "~0.6"
 helpers = { path="../helpers", version="*"}
 init-daemon = "*"
 libc = "*"

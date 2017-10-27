@@ -30,6 +30,7 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
 gluster = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
+hashicorp_vault = "~0.6"
 helpers = { path = "helpers" }
 init-daemon = "*"
 json = "*"

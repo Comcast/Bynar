@@ -129,24 +129,27 @@ message DatacenterOperation {
 // Service operations that can be performed
 message Operation {
   required Op Op_type = 1;
+  // The vault token to communicate with the disk-manager.  The disk-manager
+  // will ignore any requests that have an invalid token
+  required string token = 2;
   // Used for Add and Remove
-  optional string disk = 2;
+  optional string disk = 3;
   // Used for Add, Remove and SafeToRemove
-  optional bool simulate = 3;
+  optional bool simulate = 4;
 
   //Optional AddPartition fields
-  optional uint64 partition_start = 4;
-  optional uint64 partition_end = 5;
-  optional string partition_name = 6;
+  optional uint64 partition_start = 5;
+  optional uint64 partition_end = 6;
+  optional string partition_name = 7;
 
   //Optional Ceph related fields
-  optional uint64 osd_id = 7;
+  optional uint64 osd_id = 8;
   // Ceph journal device
-  optional string osd_journal = 8;
+  optional string osd_journal = 9;
   // For ceph osd's you can give an optional journal partition id
-  optional uint32 osd_journal_partition = 9;
+  optional uint32 osd_journal_partition = 10;
 
   //Optional gluster related fields
   //Host:/dev/disk strings for gluster replica sets
-  repeated string replica_set = 10;
+  repeated string replica_set = 11;
 }

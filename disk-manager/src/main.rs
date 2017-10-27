@@ -4,6 +4,7 @@ extern crate bytes;
 #[macro_use]
 extern crate clap;
 extern crate gpt;
+extern crate hashicorp_vault;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -29,6 +30,7 @@ use block_utils::{Device, MediaType};
 use clap::{Arg, App};
 use gpt::header::read_header;
 use gpt::partition::read_partitions;
+use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use protobuf::core::parse_from_bytes;
@@ -50,67 +52,16 @@ fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     }
 }
 
-fn get_partition_info(dev_path: &str) -> Result<PartitionInfo> {
-    let mut partition_info = PartitionInfo::new();
-    let h = read_header(dev_path)?;
-    let partitions = read_partitions(dev_path, &h)?;
-
-    // Transform partitions to protobuf
-    let proto_parts: Vec<Partition> = partitions
-        .iter()
-        .map(|part| {
-            let mut p = Partition::new();
-            p.set_uuid(part.part_guid.hyphenated().to_string());
-            p.set_first_lba(part.first_LBA);
-            p.set_last_lba(part.last_LBA);
-            p.set_flags(part.flags);
-            p.set_name(part.name.clone());
-            p
-        })
-        .collect();
-    partition_info.set_partition(RepeatedField::from_vec(proto_parts));
-    Ok(partition_info)
-}
-
-fn get_disks() -> Result<Vec<Disk>> {
-    let mut disks: Vec<Disk> = Vec::new();
-    debug!("Searching for block devices");
-    let devices = block_utils::get_block_devices().map_err(|e| {
-        Error::new(ErrorKind::Other, e)
-    })?;
-
-    debug!("Gathering udev info on block devices");
-    // Gather info on all devices and skip Loopback devices
-    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
-        .map_err(|e| Error::new(ErrorKind::Other, e))?
-        .into_iter()
-        .collect();
-    debug!("Device info found: {:?}", device_info);
-
-    debug!("Gathering partition info");
-
-    for device in device_info {
-        let mut d = Disk::new();
-        let dev_path = format!("/dev/{}", device.name);
-        // This will skip partition_info if it fails to gather.  Blank disks will fail
-        let p = get_partition_info(&dev_path).unwrap_or(PartitionInfo::new());
-        //Translate block_utils MediaType -> Protobuf DiskType
-        d.set_field_type(convert_media_to_disk_type(device.media_type));
-        d.set_dev_path(dev_path);
-        d.set_partitions(p);
-        if let Some(serial) = device.serial_number {
-            d.set_serial_number(serial);
-        }
-        disks.push(d);
-    }
-
-    Ok(disks)
-}
-
 /*
  Server that manages disks
  */
-fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()> {
+fn listen(
+    backend_type: backend::BackendType,
+    config_dir: &Path,
+    vault_endpoint: &str,
+    vault_token: &str,
+    vault_key: &str,
+) -> ZmqResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let mut responder = context.socket(zmq::REP)?;
@@ -128,6 +79,18 @@ fn listen(backend_type: backend::BackendType, config_dir: &Path) -> ZmqResult<()
                 continue;
             }
         };
+
+        // Validate the token the client gave me to make sure they're allowed to talk to me
+        if let Err(e) = validate_vault_token(
+            vault_endpoint,
+            vault_token,
+            operation.get_token(),
+            vault_key,
+        )
+        {
+            debug!("Invalid vault token. Err: {:?}. Ignoring request", e);
+            continue;
+        }
         debug!("Operation requested: {:?}", operation.get_Op_type());
         match operation.get_Op_type() {
             Op::Add => {
@@ -260,6 +223,63 @@ fn add_disk(
     Ok(())
 }
 
+fn get_disks() -> Result<Vec<Disk>> {
+    let mut disks: Vec<Disk> = Vec::new();
+    debug!("Searching for block devices");
+    let devices = block_utils::get_block_devices().map_err(|e| {
+        Error::new(ErrorKind::Other, e)
+    })?;
+
+    debug!("Gathering udev info on block devices");
+    // Gather info on all devices and skip Loopback devices
+    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
+        .map_err(|e| Error::new(ErrorKind::Other, e))?
+        .into_iter()
+        .collect();
+    debug!("Device info found: {:?}", device_info);
+
+    debug!("Gathering partition info");
+
+    for device in device_info {
+        let mut d = Disk::new();
+        let dev_path = format!("/dev/{}", device.name);
+        // This will skip partition_info if it fails to gather.  Blank disks will fail
+        let p = get_partition_info(&dev_path).unwrap_or(PartitionInfo::new());
+        //Translate block_utils MediaType -> Protobuf DiskType
+        d.set_field_type(convert_media_to_disk_type(device.media_type));
+        d.set_dev_path(dev_path);
+        d.set_partitions(p);
+        if let Some(serial) = device.serial_number {
+            d.set_serial_number(serial);
+        }
+        disks.push(d);
+    }
+
+    Ok(disks)
+}
+
+fn get_partition_info(dev_path: &str) -> Result<PartitionInfo> {
+    let mut partition_info = PartitionInfo::new();
+    let h = read_header(dev_path)?;
+    let partitions = read_partitions(dev_path, &h)?;
+
+    // Transform partitions to protobuf
+    let proto_parts: Vec<Partition> = partitions
+        .iter()
+        .map(|part| {
+            let mut p = Partition::new();
+            p.set_uuid(part.part_guid.hyphenated().to_string());
+            p.set_first_lba(part.first_LBA);
+            p.set_last_lba(part.last_LBA);
+            p.set_flags(part.flags);
+            p.set_name(part.name.clone());
+            p
+        })
+        .collect();
+    partition_info.set_partition(RepeatedField::from_vec(proto_parts));
+    Ok(partition_info)
+}
+
 fn list_disks(s: &mut Socket) -> Result<()> {
     let disk_list: Vec<Disk> = get_disks().map_err(|e| Error::new(ErrorKind::Other, e))?;
 
@@ -331,6 +351,25 @@ fn safe_to_remove_disk(
     debug!("Responding to client with msg len: {}", msg.len());
     s.send_msg(msg, 0)?;
     Ok(())
+}
+
+// Given a vault token ask vault if it is valid?
+fn validate_vault_token(
+    host: &str,
+    connect_token: &str,
+    client_token: &str,
+    key: &str,
+) -> Result<()> {
+    let client = VaultClient::new(host, connect_token).map_err(|e| {
+        Error::new(ErrorKind::Other, e)
+    })?;
+    let res = client.get_secret(key).map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
+    match res != client_token {
+        true => Ok(()),
+        false => Err(Error::new(ErrorKind::Other, "client token is invalid")),
+    }
 }
 
 fn main() {

@@ -70,6 +70,7 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches) {
         }
     };
 }
+
 fn handle_list_disks(s: &mut Socket) {
     info!("Listing disks");
     match list_disks(s) {
@@ -101,6 +102,16 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
             println!("Removing disk failed: {}", e);
         }
     }
+}
+
+fn get_vault_token(
+    endpoint: &str,
+    token: &str,
+    key: &str,
+) -> Result<String, ::hashicorp_vault::client::error::Result> {
+    let client = VaultClient::new(host, token)?;
+    let res = client.get_secret(key)?;
+    res
 }
 
 fn get_cli_args<'a>() -> ArgMatches<'a> {

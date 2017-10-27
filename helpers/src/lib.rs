@@ -1,4 +1,5 @@
 extern crate api;
+extern crate hashicorp_vault;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -7,6 +8,7 @@ extern crate zmq;
 use std::path::Path;
 
 use api::service::{Disk, Operation, Op, OpBoolResult, ResultType};
+use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::core::parse_from_bytes;
 use zmq::{Message, Socket};
@@ -25,6 +27,16 @@ pub fn connect(host: &str, port: &str) -> ZmqResult<Socket> {
     );
 
     Ok(requester)
+}
+
+fn get_vault_token(
+    endpoint: &str,
+    token: &str,
+    key: &str,
+) -> Result<String, ::hashicorp_vault::client::error::Error> {
+    let client = VaultClient::new(endpoint, token)?;
+    let res = client.get_secret(key)?;
+    Ok(res)
 }
 
 pub fn add_disk_request(
