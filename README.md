@@ -21,7 +21,6 @@ The project is divided into different binaries that all communicate over protobu
 for a datacenter technician to replace the drive, waits for resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
 3. client: Enables you to manually make API calls against `disk-manager`
-4. parallel-deploy: This is a tool to quickly deploy a cluster of ceph osds.  
 
 
 ----
