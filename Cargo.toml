@@ -30,14 +30,13 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "*"
 gluster = "*"
 goji = {git = "https://github.com/cholcombe973/goji"}
-hashicorp_vault = "~0.6"
+hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path = "helpers" }
 init-daemon = "*"
 json = "*"
 libatasmart = "*"
 libc = "*"
 log = "*"
-mktemp = "*"
 protobuf = "*"
 reqwest = "~0.7"
 rusqlite = "*"
@@ -46,6 +45,7 @@ serde_derive = "*"
 serde_json = "*"
 simplelog = "*"
 slack-hook = "*"
+tempdir = "*"
 time = "*"
 uname = "*"
 uuid = { version="*", features = ["v4"]}

@@ -5,8 +5,8 @@ extern crate fstab;
 extern crate helpers;
 extern crate init_daemon;
 extern crate libc;
-extern crate mktemp;
 extern crate serde_json;
+extern crate tempdir;
 extern crate uuid;
 
 use std::env::home_dir;
@@ -25,7 +25,7 @@ use self::ceph_rust::rados::rados_t;
 use self::ceph_safe_disk::diag::{DiagMap, Format, Status};
 use self::fstab::FsTab;
 use self::init_daemon::{detect_daemon, Daemon};
-use self::mktemp::Temp;
+use self::tempdir::TempDir;
 use self::helpers::host_information::Host;
 
 /// Ceph cluster
@@ -182,8 +182,8 @@ impl CephBackend {
         )? {
             Some(osd_path) => osd_path,
             None => {
-                let temp_dir = Temp::new_dir().map_err(|e| e.to_string())?;
-                temp_dir.to_path_buf()
+                let temp_dir = TempDir::new("osd").map_err(|e| e.to_string())?;
+                temp_dir.into_path()
             }
         };
         debug!("OSD mounted at: {:?}", mount_point);

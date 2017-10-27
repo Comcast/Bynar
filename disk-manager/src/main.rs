@@ -409,7 +409,7 @@ fn main() {
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let _ = SimpleLogger::init(level, Config::default());
-    match listen(backend, config_dir) {
+    match listen(backend, config_dir, "vault_endpoint", "vault_token", "key") {
         Ok(_) => {
             println!("Finished");
         }

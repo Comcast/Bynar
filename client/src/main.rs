@@ -104,16 +104,6 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
     }
 }
 
-fn get_vault_token(
-    endpoint: &str,
-    token: &str,
-    key: &str,
-) -> Result<String, ::hashicorp_vault::client::error::Result> {
-    let client = VaultClient::new(host, token)?;
-    let res = client.get_secret(key)?;
-    res
-}
-
 fn get_cli_args<'a>() -> ArgMatches<'a> {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())

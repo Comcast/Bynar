@@ -12,16 +12,16 @@ ceph-safe-disk = "~0.1"
 clap = "*"
 fstab = "*"
 gpt = { git = "https://github.com/Quyzi/gpt"}
-hashicorp_vault = "~0.6"
+hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path="../helpers", version="*"}
 init-daemon = "*"
 libc = "*"
 log = "*"
-mktemp = "*"
 protobuf = "*"
 serde = "*"
 serde_derive = "*"
 serde_json = "*"
 simplelog = "*"
+tempdir = "*"
 uuid = { version="*", features = ["v4"]}
 zmq = "*"

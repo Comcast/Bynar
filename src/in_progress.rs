@@ -9,11 +9,7 @@ use self::rusqlite::{Connection, Result};
 
 #[cfg(test)]
 mod tests {
-    extern crate mktemp;
-
     use std::path::Path;
-
-    use self::mktemp::Temp;
 
     #[test]
     fn test_in_progress() {
