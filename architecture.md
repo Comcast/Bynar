@@ -1,12 +1,12 @@
 All API communication happens over TCP+Protobuf 
 ```
                                               +-------------------------------------+
-+--------------------------+  Add Disk        |      Disk-Manager                   |
-| Parallel-Deploy          +----------------> |                                     |
-|                          |                  |Runs on servers.  Waits for requests |
-| Very quickly setup       |            +----^+                                     |
-| thousands of ceph osds   |            |     +---------------------------+---------+
-+--------------------------+            |                                 ^
+                                              |      Disk-Manager                   |
+                                              |                                     |
+                                              |Runs on servers.  Waits for requests |
+                                        +----^+                                     |
+                                        |     +---------------------------+---------+
+                                        |                                 ^
                                         |                                 | Remove Disk
                                         |                                 | Add Disk
                                         |                                 |
