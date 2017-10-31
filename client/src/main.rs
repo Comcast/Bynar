@@ -8,12 +8,13 @@ extern crate protobuf;
 extern crate simplelog;
 extern crate zmq;
 
+use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
 use api::service::Disk;
 use clap::{Arg, ArgMatches, App, SubCommand};
-use simplelog::{Config, SimpleLogger};
+use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
 use zmq::Socket;
 use zmq::Result as ZmqResult;
 /*
@@ -205,7 +206,14 @@ fn main() {
     };
     let host = matches.value_of("host").unwrap();
     let port = matches.value_of("port").unwrap();
-    let _ = SimpleLogger::init(level, Config::default());
+    let _ = CombinedLogger::init(vec![
+        TermLogger::new(level, Config::default()).unwrap(),
+        WriteLogger::new(
+            level,
+            Config::default(),
+            File::create("/var/log/bynar-client.log").unwrap()
+        ),
+    ]);
     info!("Starting up");
 
     let mut s = match connect(host, port) {

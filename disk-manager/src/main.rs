@@ -17,6 +17,7 @@ extern crate zmq;
 
 mod backend;
 
+use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
 use std::path::Path;
 use std::str::FromStr;
@@ -34,7 +35,7 @@ use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use protobuf::core::parse_from_bytes;
-use simplelog::{Config, SimpleLogger};
+use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
 use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;
 
@@ -391,7 +392,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("configdir")
-                .default_value("/etc/ceph_dead_disk")
+                .default_value("/etc/bynar")
                 .help("The directory where all config files can be found")
                 .long("configdir")
                 .takes_value(true)
@@ -408,7 +409,14 @@ fn main() {
     };
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
-    let _ = SimpleLogger::init(level, Config::default());
+    let _ = CombinedLogger::init(vec![
+        TermLogger::new(level, Config::default()).unwrap(),
+        WriteLogger::new(
+            level,
+            Config::default(),
+            File::create("/var/log/bynar-disk-manager.log").unwrap()
+        ),
+    ]);
     match listen(backend, config_dir, "vault_endpoint", "vault_token", "key") {
         Ok(_) => {
             println!("Finished");

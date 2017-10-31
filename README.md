@@ -29,10 +29,15 @@ then makes an API call to `disk-manager` to add the new disk back into the serve
 
 ### Configuration:
 1. Create your configuration file.  The utility takes json config
-information.  Edit the `/etc/bynar/config.json` file to configure it.
-An optional proxy field can be configured to send JIRA REST API requests through.
+information.  Edit the `/etc/bynar/bynar.json` file to configure it.
 The slack_* fields are optional.  They will allow Bynar to send alerts to a
-channel while it's performing maintenance.
+channel while it's performing maintenance. JIRA is the only currently supported
+backend ticketing system.  A plugin system allows for more backend support.  
+An optional proxy field can be configured to send JIRA REST API requests through.
+For extra security we highly recommend that you enable the vault integration.
+The disk-manager sits on a port and if an attacker gains access to it they can
+quickly wipe out your disks.  If you don't wish to enable vault integration
+set the disk-manager up to only listen on a loopback port.
 Fields for this file are:
 ```
 {
@@ -50,20 +55,21 @@ Fields for this file are:
  "jira_issue_type": "3",
  "jira_priority": "4",
  "jira_project_id": "MyProject",
- "jira_ticket_assignee": "assignee_username"
+ "jira_ticket_assignee": "assignee_username",
+ "vault_endpoint": "https://my_vault.com",
+ "vault_token": "token_98706420"
 }
 ```
 ### Directory layout:
 1. Top level is the dead disk detector
 2. api is the protobuf api create
 3. disk-manager is the service that handles adding and removing disks
-4. client is the cli client to make RPC calls to disk manager or dead disk detector
-5. parallel-deploy is a utility to quickly deploy a ceph osd cluster in parallel.  
-Deploy 1000 osds in the time it takes to deploy 1 manually.
+4. client is the cli client to make RPC calls to disk manager or dead disk
+detector
 
 ### Launch the program
 1. After building bynar from source or downloading prebuilt packages
-launch `disk-manager`, `dead-disk-detector` on every server you want
+launch the `disk-manager`, `dead-disk-detector` service on every server you want
 maintained.
 
 ## To start developing Bynar
@@ -101,8 +107,7 @@ That said, if you have questions, reach out to us
 [Ceph]: http://docs.ceph.com/docs/master/
 [Hadoop]: http://hadoop.apache.org/
 [Gluster]: https://www.gluster.org/
-[communication]: https://github.com/cholcombe973/bynar/blob/master/communication.md
-[community repository]: https://github.com/cholcombe973/bynar
-[developer's documentation]: https://github.com/cholcombe973/blob/master/devel.md
-[file an issue]: https://github.com/cholcombe973/bynar/issues/new
-[issues]: https://github.com/cholcombe973/bynar/issues
+[communication]: https://github.com/Comcast/Bynar/blob/master/communication.md
+[community repository]: https://github.com/Comcast/Bynar
+[file an issue]: https://github.com/Comcast/Bynar/issues/new
+[issues]: https://github.com/Comcast/Bynar/issues

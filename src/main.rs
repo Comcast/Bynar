@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use clap::{Arg, App};
 use helpers::host_information::Host;
-use simplelog::{Config, SimpleLogger};
+use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
 use slack_hook::{Slack, PayloadBuilder};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -52,7 +52,7 @@ pub struct ConfigSettings {
 
 fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
     let c: ConfigSettings = {
-        let mut f = File::open(format!("{}/config.json", config_dir)).map_err(
+        let mut f = File::open(format!("{}/bynar.json", config_dir)).map_err(
             |e| {
                 e.to_string()
             },
@@ -314,7 +314,14 @@ fn main() {
         1 => log::LogLevelFilter::Debug,
         _ => log::LogLevelFilter::Trace,
     };
-    let _ = SimpleLogger::init(level, Config::default());
+    let _ = CombinedLogger::init(vec![
+        TermLogger::new(level, Config::default()).unwrap(),
+        WriteLogger::new(
+            level,
+            Config::default(),
+            File::create("/var/log/bynar.log").unwrap()
+        ),
+    ]);
     info!("Starting up");
 
     //Sanity check
