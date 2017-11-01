@@ -9,6 +9,7 @@ extern crate simplelog;
 extern crate zmq;
 
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -16,23 +17,9 @@ use api::service::Disk;
 use clap::{Arg, ArgMatches, App, SubCommand};
 use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
 use zmq::Socket;
-use zmq::Result as ZmqResult;
 /*
     CLI client to call functions over RPC
 */
-
-fn connect(host: &str, port: &str) -> ZmqResult<Socket> {
-    debug!("Starting zmq sender with version({:?})", zmq::version());
-    let context = zmq::Context::new();
-    let requester = context.socket(zmq::REQ)?;
-    assert!(
-        requester
-            .connect(&format!("tcp://{}:{}", host, port))
-            .is_ok()
-    );
-
-    Ok(requester)
-}
 
 fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
     helpers::add_disk_request(s, path, id, simulate)?;
@@ -110,7 +97,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
         .version(crate_version!())
         .author(crate_authors!())
         .about(
-            "Detect dead hard drives, create a support ticket and watch for resolution",
+            "Manually make RPC calls to the disk-manager to list, add or remove disks",
         )
         .arg(
             Arg::with_name("host")
@@ -126,6 +113,14 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                 .help("The port to call for service")
                 .required(false)
                 .short("p")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("server_key")
+                .default_value("/etc/bynar/ecpubkey.pem")
+                .help("The public key for the disk-manager service.")
+                .required(false)
+                .long("serverkey")
                 .takes_value(true),
         )
         .subcommand(
@@ -215,8 +210,14 @@ fn main() {
         ),
     ]);
     info!("Starting up");
+    let server_pubkey = {
+        let mut f = File::open(matches.value_of("server_key").unwrap()).unwrap();
+        let mut buff = String::new();
+        f.read_to_string(&mut buff).unwrap();
+        buff
+    };
 
-    let mut s = match connect(host, port) {
+    let mut s = match helpers::connect(host, port, &server_pubkey) {
         Ok(s) => s,
         Err(e) => {
             error!("Error connecting to socket: {:?}", e);

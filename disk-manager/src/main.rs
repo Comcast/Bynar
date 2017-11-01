@@ -18,7 +18,7 @@ extern crate zmq;
 mod backend;
 
 use std::fs::File;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind, Result, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::thread;
@@ -53,21 +53,65 @@ fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     }
 }
 
+fn setup_curve(
+    s: &mut Socket,
+    config_dir: &Path,
+    vault_endpoint: Option<&str>,
+    vault_token: Option<&str>,
+    vault_key: Option<&str>,
+) -> ZmqResult<()> {
+    // will raise EINVAL if not linked against libsodium
+    // The ubuntu package is linked so this shouldn't fail
+    s.set_curve_server(true)?;
+    if vault_endpoint.is_none() {
+        debug!("Creating new curve keypair");
+        let keypair = zmq::CurveKeyPair::new()?;
+        s.set_curve_secretkey(&keypair.secret_key)?;
+        let mut f = File::create(format!("{}/ecpubkey.pem", config_dir.display())).unwrap();
+        f.write(keypair.public_key.as_bytes()).unwrap();
+    } else {
+        //Connect to vault
+        let client = VaultClient::new(vault_endpoint.unwrap(), vault_token.unwrap()).unwrap();
+        let secret_key = client
+            .get_secret(format!("{}/secret", vault_key.unwrap()))
+            .unwrap();
+        s.set_curve_secretkey(&secret_key)?;
+    }
+    debug!("Server mechanism: {:?}", s.get_mechanism());
+    debug!("Curve server: {:?}", s.is_curve_server());
+
+    Ok(())
+}
+
 /*
  Server that manages disks
  */
 fn listen(
     backend_type: backend::BackendType,
     config_dir: &Path,
-    vault_endpoint: &str,
-    vault_token: &str,
-    vault_key: &str,
+    listen_address: &str,
+    vault_endpoint: Option<&str>,
+    vault_token: Option<&str>,
+    vault_key: Option<&str>,
 ) -> ZmqResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let mut responder = context.socket(zmq::REP)?;
 
-    assert!(responder.bind("tcp://*:5555").is_ok());
+    debug!("Listening on tcp://{}:5555", listen_address);
+    // Fail to start if this fails
+    setup_curve(
+        &mut responder,
+        config_dir,
+        vault_endpoint,
+        vault_token,
+        vault_key,
+    )?;
+    assert!(
+        responder
+            .bind(&format!("tcp://{}:5555", listen_address))
+            .is_ok()
+    );
 
     loop {
         let msg = responder.recv_bytes(0)?;
@@ -81,17 +125,6 @@ fn listen(
             }
         };
 
-        // Validate the token the client gave me to make sure they're allowed to talk to me
-        if let Err(e) = validate_vault_token(
-            vault_endpoint,
-            vault_token,
-            operation.get_token(),
-            vault_key,
-        )
-        {
-            debug!("Invalid vault token. Err: {:?}. Ignoring request", e);
-            continue;
-        }
         debug!("Operation requested: {:?}", operation.get_Op_type());
         match operation.get_Op_type() {
             Op::Add => {
@@ -354,25 +387,6 @@ fn safe_to_remove_disk(
     Ok(())
 }
 
-// Given a vault token ask vault if it is valid?
-fn validate_vault_token(
-    host: &str,
-    connect_token: &str,
-    client_token: &str,
-    key: &str,
-) -> Result<()> {
-    let client = VaultClient::new(host, connect_token).map_err(|e| {
-        Error::new(ErrorKind::Other, e)
-    })?;
-    let res = client.get_secret(key).map_err(
-        |e| Error::new(ErrorKind::Other, e),
-    )?;
-    match res != client_token {
-        true => Ok(()),
-        false => Err(Error::new(ErrorKind::Other, "client token is invalid")),
-    }
-}
-
 fn main() {
     let matches = App::new("Disk Manager")
         .version(crate_version!())
@@ -391,10 +405,26 @@ fn main() {
                 .required(false),
         )
         .arg(
+            Arg::with_name("listen")
+                .default_value("*")
+                .help("Address to listen on.  Default is all interfaces")
+                .long("listenaddress")
+                .takes_value(true)
+                .required(false),
+        )
+        .arg(
             Arg::with_name("configdir")
                 .default_value("/etc/bynar")
                 .help("The directory where all config files can be found")
                 .long("configdir")
+                .takes_value(true)
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("log")
+                .default_value("/var/log/bynar-disk-manager.log")
+                .help("Default log file location")
+                .long("logfile")
                 .takes_value(true)
                 .required(false),
         )
@@ -414,10 +444,17 @@ fn main() {
         WriteLogger::new(
             level,
             Config::default(),
-            File::create("/var/log/bynar-disk-manager.log").unwrap()
+            File::create(matches.value_of("log").unwrap()).unwrap()
         ),
     ]);
-    match listen(backend, config_dir, "vault_endpoint", "vault_token", "key") {
+    match listen(
+        backend,
+        config_dir,
+        matches.value_of("listen").unwrap(),
+        None,
+        None,
+        None,
+    ) {
         Ok(_) => {
             println!("Finished");
         }

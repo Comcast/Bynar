@@ -1,3 +1,5 @@
+//! Functions that are needed across most of the workspace.
+//!
 extern crate api;
 extern crate hashicorp_vault;
 #[macro_use]
@@ -16,15 +18,22 @@ use zmq::Result as ZmqResult;
 
 pub mod host_information;
 
-pub fn connect(host: &str, port: &str) -> ZmqResult<Socket> {
-    debug!("Starting zmq request with version({:?})", zmq::version());
+pub fn connect(host: &str, port: &str, server_publickey: &str) -> ZmqResult<Socket> {
+    debug!("Starting zmq sender with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let requester = context.socket(zmq::REQ)?;
+    let client_keypair = zmq::CurveKeyPair::new()?;
+
+    requester.set_curve_serverkey(server_publickey)?;
+    requester.set_curve_publickey(&client_keypair.public_key)?;
+    requester.set_curve_secretkey(&client_keypair.secret_key)?;
+    debug!("Connecting to tcp://{}:{}", host, port);
     assert!(
         requester
             .connect(&format!("tcp://{}:{}", host, port))
             .is_ok()
     );
+    debug!("Client mechanism: {:?}", requester.get_mechanism());
 
     Ok(requester)
 }
