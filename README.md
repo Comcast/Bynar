@@ -107,7 +107,7 @@ That said, if you have questions, reach out to us
 [Ceph]: http://docs.ceph.com/docs/master/
 [Hadoop]: http://hadoop.apache.org/
 [Gluster]: https://www.gluster.org/
-[communication]: https://github.com/Comcast/Bynar/blob/master/communication.md
+[communication]: https://github.com/Comcast/Bynar/issues/new
 [community repository]: https://github.com/Comcast/Bynar
 [file an issue]: https://github.com/Comcast/Bynar/issues/new
 [issues]: https://github.com/Comcast/Bynar/issues
