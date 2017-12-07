@@ -10,15 +10,15 @@ automating the drudgery of server repair. The goal is to have the
 datacenter maintain itself.  Large clusters these days require
 lots of maintenance.  [Cassandra], [Ceph], [Gluster], [Hadoop] and others
 all require quick replacement of server parts as they break down or the cluster
-becomes degraded.  The problem is that as your cluster grows you generally need to have more
+can become degraded.  As your cluster grows, you generally need to have more
 people to maintain them.  Bynar hopes to break this cycle and
-free your time up so your clusters can scale to ever greater sizes
+free up your time so that your clusters can scale to ever greater sizes
 without requiring more people to maintain them.  
 
 The project is divided into different binaries that all communicate over protobuf:
-1. disk-manager: This program handles adding and removing of disks from a server
+1. disk-manager: This program handles adding and the removal of disks from a server
 2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket
-for a datacenter technician to replace the drive, waits for resolution of the ticket and
+for a datacenter technician to replace the drive, waits for the resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
 3. client: Enables you to manually make API calls against `disk-manager`
 
@@ -32,7 +32,7 @@ then makes an API call to `disk-manager` to add the new disk back into the serve
 information.  Edit the `/etc/bynar/bynar.json` file to configure it.
 The slack_* fields are optional.  They will allow Bynar to send alerts to a
 channel while it's performing maintenance. JIRA is the only currently supported
-backend ticketing system.  A plugin system allows for more backend support.  
+back end ticketing system.  A plugin system allows for more back end support.  
 An optional proxy field can be configured to send JIRA REST API requests through.
 For extra security we highly recommend that you enable the vault integration.
 The disk-manager sits on a port and if an attacker gains access to it they can
@@ -63,12 +63,12 @@ Fields for this file are:
 ### Directory layout:
 1. Top level is the dead disk detector
 2. api is the protobuf api create
-3. disk-manager is the service that handles adding and removing disks
+3. disk-manager is the service that handles the adding and removal of disks
 4. client is the cli client to make RPC calls to disk manager or dead disk
 detector
 
 ### Launch the program
-1. After building bynar from source or downloading prebuilt packages
+1. After building Bynar from source or downloading prebuilt packages
 launch the `disk-manager`, `dead-disk-detector` service on every server you want
 maintained.
 
@@ -107,7 +107,7 @@ That said, if you have questions, reach out to us
 [Ceph]: http://docs.ceph.com/docs/master/
 [Hadoop]: http://hadoop.apache.org/
 [Gluster]: https://www.gluster.org/
-[communication]: https://github.com/Comcast/Bynar/blob/master/communication.md
+[communication]: https://github.com/Comcast/Bynar/issues/new
 [community repository]: https://github.com/Comcast/Bynar
 [file an issue]: https://github.com/Comcast/Bynar/issues/new
 [issues]: https://github.com/Comcast/Bynar/issues
