@@ -5,18 +5,39 @@ extern crate hashicorp_vault;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate serde_json;
 extern crate zmq;
 
+use std::io::{Error, ErrorKind, Read};
+use std::io::Result as IOResult;
+use std::fs::File;
 use std::path::Path;
 
 use api::service::{Disk, Operation, Op, OpBoolResult, ResultType};
 use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::core::parse_from_bytes;
+use serde::de::DeserializeOwned;
 use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;
 
 pub mod host_information;
+
+pub fn load_config<T>(config_dir: &str, name: &str) -> IOResult<T>
+where
+    T: DeserializeOwned,
+{
+    let mut f = File::open(format!("{}/{}", config_dir, name))?;
+    let mut s = String::new();
+    f.read_to_string(&mut s)?;
+    let deserialized: T = serde_json::from_str(&s).map_err(|e| {
+        Error::new(ErrorKind::Other, e.to_string())
+    })?;
+    Ok(deserialized)
+}
 
 pub fn connect(host: &str, port: &str, server_publickey: &str) -> ZmqResult<Socket> {
     debug!("Starting zmq sender with version({:?})", zmq::version());
@@ -38,13 +59,13 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> ZmqResult<Sock
     Ok(requester)
 }
 
-fn get_vault_token(
+pub fn get_vault_token(
     endpoint: &str,
     token: &str,
-    key: &str,
+    hostname: &str,
 ) -> Result<String, ::hashicorp_vault::client::error::Error> {
     let client = VaultClient::new(endpoint, token)?;
-    let res = client.get_secret(key)?;
+    let res = client.get_secret(&format!("/{}", hostname))?;
     Ok(res)
 }
 

@@ -22,7 +22,7 @@ assets = [
 [dependencies]
 api = { path = "api" }
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
-ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
+ceph = "*"
 clap = "*"
 client = { path = "client" }
 disk-manager = { path = "disk-manager" }

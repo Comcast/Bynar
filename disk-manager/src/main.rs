@@ -5,6 +5,7 @@ extern crate bytes;
 extern crate clap;
 extern crate gpt;
 extern crate hashicorp_vault;
+extern crate helpers;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -18,7 +19,7 @@ extern crate zmq;
 mod backend;
 
 use std::fs::File;
-use std::io::{Error, ErrorKind, Result, Write};
+use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::thread;
@@ -39,6 +40,14 @@ use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
 use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;
 
+#[derive(Clone, Debug, Deserialize)]
+struct DiskManagerConfig {
+    backend: BackendType,
+    vault_token: Option<String>,
+    vault_endpoint: Option<String>,
+}
+
+
 fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     match m {
         MediaType::Loopback => DiskType::LOOPBACK,
@@ -53,29 +62,53 @@ fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     }
 }
 
-fn setup_curve(
-    s: &mut Socket,
-    config_dir: &Path,
-    vault_endpoint: Option<&str>,
-    vault_token: Option<&str>,
-    vault_key: Option<&str>,
-) -> ZmqResult<()> {
+fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
     // will raise EINVAL if not linked against libsodium
     // The ubuntu package is linked so this shouldn't fail
     s.set_curve_server(true)?;
-    if vault_endpoint.is_none() {
-        debug!("Creating new curve keypair");
-        let keypair = zmq::CurveKeyPair::new()?;
-        s.set_curve_secretkey(&keypair.secret_key)?;
-        let mut f = File::create(format!("{}/ecpubkey.pem", config_dir.display())).unwrap();
-        f.write(keypair.public_key.as_bytes()).unwrap();
-    } else {
+    let keypair = zmq::CurveKeyPair::new().map_err(
+        |e| Error::new(ErrorKind::Other, e),
+    )?;
+    if vault {
         //Connect to vault
-        let client = VaultClient::new(vault_endpoint.unwrap(), vault_token.unwrap()).unwrap();
-        let secret_key = client
-            .get_secret(format!("{}/secret", vault_key.unwrap()))
-            .unwrap();
-        s.set_curve_secretkey(&secret_key)?;
+        let config: DiskManagerConfig =
+            helpers::load_config(&config_dir.to_string_lossy(), "disk-manager.json")?;
+        if config.vault_token.is_none() || config.vault_endpoint.is_none() {
+            error!("Vault support requested but vault_token or vault_endpoint aren't set");
+            return Err(Error::new(
+                ErrorKind::Other,
+                "vault_token or vault_endpoint must be set for vault support"
+                    .to_string(),
+            ));
+        }
+        let endpoint = config.vault_endpoint.unwrap();
+        let token = config.vault_token.unwrap();
+        let hostname = {
+            let mut f = File::open("/etc/hostname")?;
+            let mut s = String::new();
+            f.read_to_string(&mut s)?;
+            s
+        };
+        debug!(
+            "Connecting to vault to save the public key to /bynar/{}.pem",
+            hostname
+        );
+        let client = VaultClient::new(endpoint.as_str(), token).map_err(|e| {
+            Error::new(ErrorKind::Other, e)
+        })?;
+        client
+            .set_secret(format!("/bynar/{}.pem", hostname), keypair.public_key)
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        s.set_curve_secretkey(&keypair.secret_key).map_err(|e| {
+            Error::new(ErrorKind::Other, e)
+        })?;
+    } else {
+        debug!("Creating new curve keypair");
+        s.set_curve_secretkey(&keypair.secret_key).map_err(|e| {
+            Error::new(ErrorKind::Other, e)
+        })?;
+        let mut f = File::create(format!("{}/ecpubkey.pem", config_dir.display()))?;
+        f.write(keypair.public_key.as_bytes())?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
     debug!("Curve server: {:?}", s.is_curve_server());
@@ -90,9 +123,7 @@ fn listen(
     backend_type: backend::BackendType,
     config_dir: &Path,
     listen_address: &str,
-    vault_endpoint: Option<&str>,
-    vault_token: Option<&str>,
-    vault_key: Option<&str>,
+    vault: bool,
 ) -> ZmqResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
@@ -100,13 +131,7 @@ fn listen(
 
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
-    setup_curve(
-        &mut responder,
-        config_dir,
-        vault_endpoint,
-        vault_token,
-        vault_key,
-    )?;
+    setup_curve(&mut responder, config_dir, vault).unwrap();
     assert!(
         responder
             .bind(&format!("tcp://{}:5555", listen_address))
@@ -399,7 +424,6 @@ fn main() {
                 .default_value("ceph")
                 .help("Backend cluster type to manage disks for")
                 .long("backend")
-                // TODO: Insert other backend values here as they become available
                 .possible_values(&["ceph"])
                 .takes_value(true)
                 .required(false),
@@ -428,6 +452,17 @@ fn main() {
                 .takes_value(true)
                 .required(false),
         )
+        .arg(
+            Arg::with_name("vault")
+                .default_value("false")
+                .help(
+                    "Enable vault support. Remember to set the vault_token and vault_endpoint",
+                )
+                .long("vault")
+                .possible_values(&["true", "false"])
+                .takes_value(true)
+                .required(false),
+        )
         .arg(Arg::with_name("v").short("v").multiple(true).help(
             "Sets the level of verbosity",
         ))
@@ -439,6 +474,10 @@ fn main() {
     };
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
+    let vault_support = {
+        let b = bool::from_str(matches.value_of("vault").unwrap()).unwrap();
+        b
+    };
     let _ = CombinedLogger::init(vec![
         TermLogger::new(level, Config::default()).unwrap(),
         WriteLogger::new(
@@ -451,9 +490,7 @@ fn main() {
         backend,
         config_dir,
         matches.value_of("listen").unwrap(),
-        None,
-        None,
-        None,
+        vault_support,
     ) {
         Ok(_) => {
             println!("Finished");

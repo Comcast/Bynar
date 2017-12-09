@@ -1,9 +1,12 @@
 extern crate gluster;
-extern crate mktemp;
+extern crate tempdir;
 
 use backend::Backend;
 
-use self::mktemp::Temp;
+use std::io::Result;
+use std::path::Path;
+
+use self::tempdir::TempDir;
 
 pub struct GlusterBackend;
 /*
@@ -26,20 +29,28 @@ pub struct GlusterBackend;
 */
 
 impl Backend for GlusterBackend {
-    fn add_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
-        //self.add_osd(device, simulate).map_err(|e| {
-        //   Error::new(ErrorKind::Other, e)
-        //})?;
-        Ok(())
-    }
-    fn remove_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
-        //self.remove_osd(device, simulate).map_err(|e| {
-        //    Error::new(ErrorKind::Other, e)
-        //})?;
+    fn add_disk(
+        &self,
+        device: &Path,
+        id: Option<u64>,
+        journal: Option<&str>,
+        journal_partition: Option<u32>,
+        simulate: bool,
+    ) -> Result<()> {
         Ok(())
     }
 
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> IOResult<bool> {
+    /// Remove a disk from a cluster
+    /// If simulate is passed no action should be taken
+    fn remove_disk(&self, device: &Path, simulate: bool) -> Result<()> {
+        Ok(())
+    }
+
+    /// Check if it's safe to remove a disk from a cluster
+    /// If simulate is passed then this always returns true
+    /// Take any actions needed with this call to figure out if a disk is safe
+    /// to remove from the cluster.
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> Result<bool> {
         Ok(true)
     }
 }

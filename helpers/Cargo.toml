@@ -10,5 +10,8 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 log = "*"
 protobuf = "*"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
 uname = "*"
 zmq = "*"

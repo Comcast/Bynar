@@ -7,11 +7,12 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 api = { path = "../api", version = "*"}
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 bytes = "*"
-ceph-rust = {git = "https://github.com/cholcombe973/ceph-rust"}
+ceph = "*"
 ceph-safe-disk = "~0.1"
 clap = "*"
 fstab = "*"
 gpt = { git = "https://github.com/Quyzi/gpt"}
+gluster = "*"
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path="../helpers", version="*"}
 init-daemon = "*"

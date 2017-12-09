@@ -1,5 +1,5 @@
 extern crate block_utils;
-extern crate ceph_rust;
+extern crate ceph;
 extern crate ceph_safe_disk;
 extern crate fstab;
 extern crate helpers;
@@ -19,9 +19,9 @@ use std::str::FromStr;
 
 use backend::Backend;
 
-use self::ceph_rust::ceph::{connect_to_ceph, disconnect_from_ceph};
-use self::ceph_rust::cmd::*;
-use self::ceph_rust::rados::rados_t;
+use self::ceph::ceph::{connect_to_ceph, disconnect_from_ceph};
+use self::ceph::cmd::*;
+use self::ceph::rados::rados_t;
 use self::ceph_safe_disk::diag::{DiagMap, Format, Status};
 use self::fstab::FsTab;
 use self::init_daemon::{detect_daemon, Daemon};
@@ -142,11 +142,10 @@ impl CephBackend {
         // Format the osd with the osd filesystem
         ceph_mkfs(new_osd_id, None, simulate)?;
         debug!("Creating ceph authorization entry");
-        auth_add(self.cluster_handle, new_osd_id, simulate)
+        osd_auth_add(self.cluster_handle, new_osd_id, simulate)
             .map_err(|e| e.to_string())?;
-        let auth_key = auth_get_key(self.cluster_handle, new_osd_id).map_err(|e| {
-            e.to_string()
-        })?;
+        let auth_key = auth_get_key(self.cluster_handle, "osd", &new_osd_id.to_string())
+            .map_err(|e| e.to_string())?;
         debug!("Saving ceph keyring");
         save_keyring(new_osd_id, &auth_key, simulate).map_err(|e| {
             e.to_string()

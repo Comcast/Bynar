@@ -23,7 +23,8 @@ mod in_progress;
 mod test_disk;
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{Error, ErrorKind, Read};
+use std::io::Result as IOResult;
 use std::path::{Path, PathBuf};
 
 use create_support_ticket::{create_support_ticket, ticket_resolved};
@@ -40,6 +41,8 @@ pub struct ConfigSettings {
     slack_webhook: Option<String>,
     slack_channel: Option<String>,
     slack_botname: Option<String>,
+    vault_endpoint: Option<String>,
+    vault_token: Option<String>,
     pub jira_user: String,
     pub jira_password: String,
     pub jira_host: String,
@@ -48,21 +51,6 @@ pub struct ConfigSettings {
     pub jira_project_id: String,
     pub jira_ticket_assignee: String,
     pub proxy: Option<String>,
-}
-
-fn load_config(config_dir: &str) -> Result<ConfigSettings, String> {
-    let c: ConfigSettings = {
-        let mut f = File::open(format!("{}/bynar.json", config_dir)).map_err(
-            |e| {
-                e.to_string()
-            },
-        )?;
-        let mut s = String::new();
-        f.read_to_string(&mut s).map_err(|e| e.to_string())?;
-        let deserialized: ConfigSettings = serde_json::from_str(&s).map_err(|e| e.to_string())?;
-        deserialized
-    };
-    Ok(c)
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> Result<(), slack_hook::Error> {
@@ -84,12 +72,35 @@ fn notify_slack(config: &ConfigSettings, msg: &str) -> Result<(), slack_hook::Er
     Ok(())
 }
 
+fn get_public_key(config: &ConfigSettings, host_info: &Host) -> IOResult<String> {
+    // If vault_endpoint and token are set we should get the key from vault
+    // Otherwise we need to know where the public_key is located?
+    if config.vault_endpoint.is_some() && config.vault_token.is_some() {
+        let key = helpers::get_vault_token(
+            config.vault_endpoint.clone().unwrap().as_ref(),
+            config.vault_token.clone().unwrap().as_ref(),
+            &host_info.hostname,
+        ).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        Ok(key)
+    } else {
+        let mut f = File::open(&format!("/etc/bynar/{}.pem", host_info.hostname))?;
+        let mut key_buff = String::new();
+        f.read_to_string(&mut key_buff)?;
+        Ok(key_buff)
+    }
+}
+
 fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
-    let config = load_config(config_dir)?;
-    let config_location = Path::new(&config.db_location);
-    //Host information to use in ticket creation
+    let config: ConfigSettings = helpers::load_config(config_dir, "").map_err(
+        |e| e.to_string(),
+    )?;
     let host_info = Host::new().map_err(|e| e.to_string())?;
     debug!("Gathered host info: {:?}", host_info);
+    let public_key = get_public_key(&config, &host_info).map_err(
+        |e| e.to_string(),
+    )?;
+    let config_location = Path::new(&config.db_location);
+    //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
     let environment =
         format!(
@@ -129,6 +140,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                             let mut socket = helpers::connect(
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
+                                &public_key,
                             ).map_err(|e| e.to_string())?;
                             match helpers::safe_to_remove_request(&mut socket, &dev_path) {
                                 Ok(result) => {
@@ -217,8 +229,16 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
 }
 
 fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
-    let config = load_config(config_dir)?;
+    let config: ConfigSettings = helpers::load_config(config_dir, "bynar.json").map_err(
+        |e| {
+            e.to_string()
+        },
+    )?;
+    let host_info = Host::new().map_err(|e| e.to_string())?;
     let config_location = Path::new(&config.db_location);
+    let public_key = get_public_key(&config, &host_info).map_err(
+        |e| e.to_string(),
+    )?;
 
     info!("Connecting to database to find repaired drives");
     let conn = in_progress::connect_to_repair_database(&config_location)
@@ -236,9 +256,11 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
                 if resolved {
                     //CALL RPC
                     debug!("Connecting to disk-manager");
-                    let mut socket =
-                        helpers::connect(&config.manager_host, &config.manager_port.to_string())
-                            .map_err(|e| e.to_string())?;
+                    let mut socket = helpers::connect(
+                        &config.manager_host,
+                        &config.manager_port.to_string(),
+                        &public_key,
+                    ).map_err(|e| e.to_string())?;
                     match helpers::add_disk_request(
                         &mut socket,
                         &Path::new(&ticket.disk_path),

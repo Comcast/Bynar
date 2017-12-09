@@ -1,5 +1,6 @@
 # Bynar
-<!--<img src="">-->
+<img src="bynar.png" width=100>
+
 Warehouse scale server repair, more benign than borg.
 
 ----

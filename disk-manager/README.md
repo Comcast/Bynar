@@ -6,11 +6,15 @@ protobuf serialization to allow RPC usage. Please check the
 
 ## Configuration:
 1. Create your configuration file.  The utility takes json config
-`/etc/bynar/disk-manager.json` file:
+`/etc/bynar/disk-manager.json` file.  The vault_* options are optional
+but recommended.  When enabled the disk-manager upon starting will save
+the generated public key to vault under `/bynar/{hostname}.pem`.  Any clients
+wanting to connect to it will need to contact vault first.  If vault is
+not enabled it will save the public key to /etc/bynar/.
 ```
 {
   "backend": "ceph",
-  "vault_endpoint": "https://my_vault.com",
+  "vault_endpoint": "https://my_vault:8888",
   "vault_token": "token_98706420"
 }
 ```

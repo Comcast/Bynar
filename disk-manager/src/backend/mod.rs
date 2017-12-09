@@ -1,6 +1,6 @@
 pub mod ceph;
 //#[cfg(feature = "gluster")]
-//pub mod gluster;
+pub mod gluster;
 
 use std::io::Result;
 use std::path::Path;
@@ -8,6 +8,7 @@ use std::result::Result as StdResult;
 use std::str::FromStr;
 
 use self::ceph::CephBackend;
+use self::gluster::GlusterBackend;
 
 /// Different distributed storage clusters have different ways of adding and removing
 /// disks.  This will be consolidated here in trait impl's.
@@ -42,7 +43,7 @@ pub trait Backend {
 #[derive(Clone, Debug, Deserialize)]
 pub enum BackendType {
     Ceph,
-    //Gluster
+    Gluster,
 }
 
 impl FromStr for BackendType {
@@ -52,6 +53,7 @@ impl FromStr for BackendType {
         let match_str = s.to_lowercase();
         match match_str.as_ref() {
             "ceph" => Ok(BackendType::Ceph),
+            "gluster" => Ok(BackendType::Gluster),
             _ => Err(format!("Unknown backend type: {}", s)),
         }
     }
@@ -65,9 +67,7 @@ pub fn load_backend(
     let backend: Box<Backend> = match backend_type {
         &BackendType::Ceph => Box::new(CephBackend::new(config_dir).map_err(|e| e.to_string())?),
         //#[cfg(feature = "gluster")]
-        //&BackendType::Gluster => Box::new(GlusterBackend::new(config_dir)
-        //.map_err(|e| e.to_string())?),
-        //e => return Err(format!("Unknown backend: {:?}", e)),
+        &BackendType::Gluster => Box::new(GlusterBackend {}),
     };
 
     Ok(backend)
