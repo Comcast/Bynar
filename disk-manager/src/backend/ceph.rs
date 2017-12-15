@@ -439,7 +439,7 @@ fn add_filestore_osd(dev_path: &Path) -> Result<(), String> {
 // 71b11da1-70b8-4ab5-ba97-036062e6f061
 // cat /var/lib/ceph/tmp/mnt.sYq7No/ceph_fsid
 // c8bb8cb4-6dda-4a8e-9f14-3e5a8d451cf4
-// root@pistore-ho-b17:~# cat /var/lib/ceph/tmp/mnt.sYq7No/magic
+// root@server:~# cat /var/lib/ceph/tmp/mnt.sYq7No/magic
 // ceph osd volume v026
 // cat /var/lib/ceph/tmp/mnt.sYq7No/type
 // bluestore
