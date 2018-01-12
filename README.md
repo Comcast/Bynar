@@ -94,6 +94,26 @@ $ cargo build --release
 4. libatasmart
 5. openssl-dev
 
+## Hard Drive Workflow
+Hard drives die all the time as part of the regular cycle of things in servers.  Bynar
+can nearly completely automate that maintenance except for the actual replacing of
+the drive.  The typical workflow by a human would look something like this:
+1. Receive an alert about a drive failing
+2. SSH over to the server to investigate.  Try to rule out obvious things
+3. Conclude drive is dead and file a support ticket with the datacenter tech to remove it
+   * Or file a ticket with HP/Dell/Cisco/Etc to replace the drive
+4. Depending on the software running on top of this drive I may have to:
+   * Inform the cluster that the drive is dead
+   * Rebalance the data in the cluster
+5. Wait for a replacement
+6. After the drive is replaced inform the clusters that the drive is now back
+in service and rebalance the data back onto the drive.
+
+So how can Bynar help?  Well it can handle steps 1,2,3,4 and 6.  Nearly everything!
+While it is replacing your drives it can also inform you over slack or other channels
+to keep you in the loop.
+The time saved here multplies with each piece of hardware replaced and now you 
+can focus your time and energy on other things.  It's a positive snowball effect!
 
 ## Support
 
