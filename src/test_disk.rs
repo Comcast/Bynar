@@ -17,7 +17,7 @@ extern crate libatasmart;
 extern crate log;
 extern crate tempdir;
 
-use self::block_utils::{Device, get_mountpoint, FilesystemType, MediaType};
+use self::block_utils::{get_mountpoint, Device, FilesystemType, MediaType};
 use self::tempdir::TempDir;
 
 use std::fs::OpenOptions;
@@ -46,9 +46,7 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
-    let devices = block_utils::get_block_devices().map_err(|e| {
-        Error::new(ErrorKind::Other, e)
-    })?;
+    let devices = block_utils::get_block_devices().map_err(|e| Error::new(ErrorKind::Other, e))?;
 
     // Gather info on all devices and skip Loopback devices
     let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
@@ -68,9 +66,9 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
     // Remove any mtab_devices that udev already knows about leaving only ones
     // that udev doesn't know about, ie broken mounted devices
     mtab_devices.retain(|mtab_device| {
-        !device_info.iter().any(|udev_device| {
-            mtab_device.name.contains(&udev_device.name)
-        })
+        !device_info
+            .iter()
+            .any(|udev_device| mtab_device.name.contains(&udev_device.name))
     });
 
     // Check any devices that udev doesn't know about that are still mounted
@@ -135,8 +133,7 @@ fn run_checks(device_info: &Device) -> Result<Status> {
                                 } else {
                                     error!(
                                         "Failed to gather udev info on {:?}. error: {:?}",
-                                        device,
-                                        info
+                                        device, info
                                     );
                                 }
                             }
@@ -201,18 +198,16 @@ fn check_xfs(device: &Path) -> Result<()> {
         .args(&vec!["-n", &device.to_string_lossy()])
         .status()?;
     match status.code() {
-        Some(code) => {
-            match code {
-                0 => return Ok(()),
-                1 => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        "Filesystem corruption detected",
-                    ))
-                }
-                _ => {}
+        Some(code) => match code {
+            0 => return Ok(()),
+            1 => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Filesystem corruption detected",
+                ))
             }
-        }
+            _ => {}
+        },
         //Process terminated by signal
         None => {
             return Err(Error::new(
@@ -228,12 +223,10 @@ fn repair_xfs(device: &Path) -> Result<()> {
     debug!("Running xfs_repair");
     let status = Command::new("xfs_repair").arg(device).status()?;
     match status.code() {
-        Some(code) => {
-            match code {
-                0 => return Ok(()),
-                _ => return Err(Error::new(ErrorKind::Other, "xfs_repair failed")),
-            }
-        }
+        Some(code) => match code {
+            0 => return Ok(()),
+            _ => return Err(Error::new(ErrorKind::Other, "xfs_repair failed")),
+        },
         //Process terminated by signal
         None => {
             return Err(Error::new(
@@ -316,11 +309,9 @@ fn repair_ext(device: &Path) -> Result<()> {
 
 // Run smart checks against the disk
 fn run_smart_checks(device: &Path) -> Result<bool> {
-    let mut smart = libatasmart::Disk::new(device).map_err(|e| {
-        Error::new(ErrorKind::Other, e)
-    })?;
-    let status = smart.get_smart_status().map_err(
-        |e| Error::new(ErrorKind::Other, e),
-    )?;
+    let mut smart = libatasmart::Disk::new(device).map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let status = smart
+        .get_smart_status()
+        .map_err(|e| Error::new(ErrorKind::Other, e))?;
     Ok(status)
 }

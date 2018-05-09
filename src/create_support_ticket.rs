@@ -18,14 +18,28 @@ pub fn create_support_ticket(
 ) -> Result<String, GojiError> {
     let issue_description = CreateIssue {
         fields: Fields {
-            assignee: Assignee { name: settings.jira_ticket_assignee.clone() },
-            components: vec![Component { name: "Ceph".into() }],
+            assignee: Assignee {
+                name: settings.jira_ticket_assignee.clone(),
+            },
+            components: vec![
+                Component {
+                    name: "Ceph".into(),
+                },
+            ],
             description: description.into(),
             environment: environment.into(),
-            issuetype: IssueType { id: settings.jira_issue_type.clone() },
-            reporter: Assignee { name: settings.jira_user.clone() },
-            priority: Priority { id: settings.jira_priority.clone() },
-            project: Project { key: settings.jira_project_id.clone() },
+            issuetype: IssueType {
+                id: settings.jira_issue_type.clone(),
+            },
+            reporter: Assignee {
+                name: settings.jira_user.clone(),
+            },
+            priority: Priority {
+                id: settings.jira_priority.clone(),
+            },
+            project: Project {
+                key: settings.jira_project_id.clone(),
+            },
             summary: title.into(),
         },
     };
@@ -43,15 +57,13 @@ pub fn create_support_ticket(
                 client,
             )?
         }
-        None => {
-            Jira::new(
-                settings.jira_host.clone().to_string(),
-                Credentials::Basic(
-                    settings.jira_user.clone().into(),
-                    settings.jira_password.clone().into(),
-                ),
-            )?
-        }
+        None => Jira::new(
+            settings.jira_host.clone().to_string(),
+            Credentials::Basic(
+                settings.jira_user.clone().into(),
+                settings.jira_password.clone().into(),
+            ),
+        )?,
     };
     let issue = Issues::new(&jira);
 
@@ -79,15 +91,13 @@ pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> Result<bool
                 client,
             )?
         }
-        None => {
-            Jira::new(
-                settings.jira_host.clone().to_string(),
-                Credentials::Basic(
-                    settings.jira_user.clone().into(),
-                    settings.jira_password.clone().into(),
-                ),
-            )?
-        }
+        None => Jira::new(
+            settings.jira_host.clone().to_string(),
+            Credentials::Basic(
+                settings.jira_user.clone().into(),
+                settings.jira_password.clone().into(),
+            ),
+        )?,
     };
     let issue = Issues::new(&jira);
     debug!("Fetching issue: {} for resolution information", issue_id);

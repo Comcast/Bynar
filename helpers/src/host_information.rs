@@ -31,9 +31,7 @@ impl Host {
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
-        let raid_info = block_utils::get_raid_info().map_err(|e| {
-            Error::new(ErrorKind::Other, e)
-        })?;
+        let raid_info = block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
         Ok(Host {
             hostname: hostname,
             kernel: uname_info.release,

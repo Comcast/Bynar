@@ -51,10 +51,7 @@ fn choose_ceph_config(config_dir: Option<&Path>) -> IOResult<PathBuf> {
                 error!("{}", err_msg);
                 return Err(Error::new(ErrorKind::NotFound, err_msg));
             }
-            debug!(
-                "Loading ceph config from: {}",
-                json_path.display(),
-            );
+            debug!("Loading ceph config from: {}", json_path.display(),);
             Ok(json_path)
         }
         None => {
@@ -67,10 +64,7 @@ fn choose_ceph_config(config_dir: Option<&Path>) -> IOResult<PathBuf> {
                 error!("{}", err_msg);
                 return Err(Error::new(ErrorKind::NotFound, err_msg));
             }
-            info!(
-                "Reading ceph config file: {}",
-                json_path.display(),
-            );
+            info!("Reading ceph config file: {}", json_path.display(),);
             Ok(json_path)
         }
     }
@@ -88,7 +82,9 @@ impl CephBackend {
         let cluster_handle = connect_to_ceph(&deserialized.user_id, &deserialized.config_file)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
         info!("Connected to Ceph");
-        Ok(CephBackend { cluster_handle: cluster_handle })
+        Ok(CephBackend {
+            cluster_handle: cluster_handle,
+        })
     }
 
     /// Add a new /dev/ path as an osd.
@@ -104,8 +100,7 @@ impl CephBackend {
         };
         debug!(
             "Formatting {:?} with XFS options: {:?}",
-            dev_path,
-            xfs_options
+            dev_path, xfs_options
         );
         if !simulate {
             block_utils::format_block_device(dev_path, &xfs_options)?;
@@ -124,9 +119,7 @@ impl CephBackend {
         }
 
         // Create a new osd id
-        let new_osd_id = osd_create(self.cluster_handle, id, simulate).map_err(|e| {
-            e.to_string()
-        })?;
+        let new_osd_id = osd_create(self.cluster_handle, id, simulate).map_err(|e| e.to_string())?;
         debug!("New osd id created: {:?}", new_osd_id);
 
         // Mount the drive
@@ -142,22 +135,17 @@ impl CephBackend {
         // Format the osd with the osd filesystem
         ceph_mkfs(new_osd_id, None, simulate)?;
         debug!("Creating ceph authorization entry");
-        osd_auth_add(self.cluster_handle, new_osd_id, simulate)
-            .map_err(|e| e.to_string())?;
+        osd_auth_add(self.cluster_handle, new_osd_id, simulate).map_err(|e| e.to_string())?;
         let auth_key = auth_get_key(self.cluster_handle, "osd", &new_osd_id.to_string())
             .map_err(|e| e.to_string())?;
         debug!("Saving ceph keyring");
-        save_keyring(new_osd_id, &auth_key, simulate).map_err(|e| {
-            e.to_string()
-        })?;
+        save_keyring(new_osd_id, &auth_key, simulate).map_err(|e| e.to_string())?;
         let host_info = Host::new().map_err(|e| e.to_string())?;
         let gb_capacity = info.capacity / 1073741824;
         let osd_weight = gb_capacity as f64 * 0.001_f64;
         debug!(
             "Adding OSD {} to crushmap under host {} with weight: {}",
-            new_osd_id,
-            host_info.hostname,
-            osd_weight
+            new_osd_id, host_info.hostname, osd_weight
         );
         osd_crush_add(
             self.cluster_handle,
@@ -176,9 +164,7 @@ impl CephBackend {
     fn remove_osd(&self, dev_path: &Path, simulate: bool) -> Result<(), String> {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
-        let mount_point = match block_utils::get_mountpoint(&dev_path).map_err(
-            |e| e.to_string(),
-        )? {
+        let mount_point = match block_utils::get_mountpoint(&dev_path).map_err(|e| e.to_string())? {
             Some(osd_path) => osd_path,
             None => {
                 let temp_dir = TempDir::new("osd").map_err(|e| e.to_string())?;
@@ -198,24 +184,13 @@ impl CephBackend {
             }
         };
         debug!("Setting osd {} out", osd_id);
-        osd_out(self.cluster_handle, osd_id, simulate).map_err(
-            |e| {
-                e.to_string()
-            },
-        )?;
+        osd_out(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
         debug!("Removing osd {} from crush", osd_id);
-        osd_crush_remove(self.cluster_handle, osd_id, simulate)
-            .map_err(|e| e.to_string())?;
+        osd_crush_remove(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
         debug!("Deleting osd {} auth key", osd_id);
-        auth_del(self.cluster_handle, osd_id, simulate).map_err(
-            |e| {
-                e.to_string()
-            },
-        )?;
+        auth_del(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
         debug!("Removing osd {}", osd_id);
-        osd_rm(self.cluster_handle, osd_id, simulate).map_err(|e| {
-            e.to_string()
-        })?;
+        osd_rm(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
 
         // Wipe the disk
         debug!("Erasing disk {}", dev_path.display());
@@ -250,15 +225,13 @@ impl Backend for CephBackend {
         journal_partition: Option<u32>,
         simulate: bool,
     ) -> IOResult<()> {
-        self.add_osd(device, id, simulate).map_err(|e| {
-            Error::new(ErrorKind::Other, e)
-        })?;
+        self.add_osd(device, id, simulate)
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
         Ok(())
     }
     fn remove_disk(&self, device: &Path, simulate: bool) -> IOResult<()> {
-        self.remove_osd(device, simulate).map_err(|e| {
-            Error::new(ErrorKind::Other, e)
-        })?;
+        self.remove_osd(device, simulate)
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
         Ok(())
     }
 
@@ -313,9 +286,7 @@ fn save_keyring(osd_id: u64, key: &str, simulate: bool) -> IOResult<()> {
     debug!("Creating {}/keyring", base_dir);
     if !simulate {
         let mut f = File::create(format!("{}/keyring", base_dir))?;
-        f.write_all(
-            format!("[osd.{}]\n\tkey = {}\n", osd_id, key).as_bytes(),
-        )?;
+        f.write_all(format!("[osd.{}]\n\tkey = {}\n", osd_id, key).as_bytes())?;
     }
     Ok(())
 }
@@ -416,9 +387,10 @@ fn ceph_mkfs(osd_id: u64, journal: Option<&Path>, simulate: bool) -> Result<(), 
     if simulate {
         return Ok(());
     }
-    Command::new("ceph-osd").args(&args).output().map_err(|e| {
-        e.to_string()
-    })?;
+    Command::new("ceph-osd")
+        .args(&args)
+        .output()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

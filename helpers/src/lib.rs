@@ -5,9 +5,9 @@ extern crate hashicorp_vault;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 extern crate serde_json;
 extern crate zmq;
 
@@ -16,7 +16,7 @@ use std::io::Result as IOResult;
 use std::fs::File;
 use std::path::Path;
 
-use api::service::{Disk, Operation, Op, OpBoolResult, ResultType};
+use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
 use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::core::parse_from_bytes;
@@ -33,9 +33,8 @@ where
     let mut f = File::open(format!("{}/{}", config_dir, name))?;
     let mut s = String::new();
     f.read_to_string(&mut s)?;
-    let deserialized: T = serde_json::from_str(&s).map_err(|e| {
-        Error::new(ErrorKind::Other, e.to_string())
-    })?;
+    let deserialized: T =
+        serde_json::from_str(&s).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     Ok(deserialized)
 }
 
@@ -92,8 +91,8 @@ pub fn add_disk_request(
     debug!("Waiting for response");
     let add_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
     debug!("Decoding msg len: {}", add_response.len());
-    let op_result = parse_from_bytes::<api::service::OpResult>(&add_response)
-        .map_err(|e| e.to_string())?;
+    let op_result =
+        parse_from_bytes::<api::service::OpResult>(&add_response).map_err(|e| e.to_string())?;
     match op_result.get_result() {
         ResultType::OK => {
             debug!("Add disk successful");
@@ -149,8 +148,8 @@ pub fn list_disks_request(s: &mut Socket) -> Result<Vec<Disk>, String> {
     debug!("Waiting for response");
     let disks_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
     debug!("Decoding msg len: {}", disks_response.len());
-    let disk_list = parse_from_bytes::<api::service::Disks>(&disks_response)
-        .map_err(|e| e.to_string())?;
+    let disk_list =
+        parse_from_bytes::<api::service::Disks>(&disks_response).map_err(|e| e.to_string())?;
 
     let mut d: Vec<Disk> = Vec::new();
     for disk in disk_list.get_disk() {
@@ -173,11 +172,7 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> Result<bool, Strin
     debug!("Waiting for response");
     let safe_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
     debug!("Decoding msg len: {}", safe_response.len());
-    let op_result = parse_from_bytes::<OpBoolResult>(&safe_response).map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
+    let op_result = parse_from_bytes::<OpBoolResult>(&safe_response).map_err(|e| e.to_string())?;
     match op_result.get_result() {
         ResultType::OK => Ok(op_result.get_value()),
         ResultType::ERR => Err(op_result.get_error_msg().into()),
@@ -207,8 +202,8 @@ pub fn remove_disk_request(
     debug!("Waiting for response");
     let remove_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
     debug!("Decoding msg len: {}", remove_response.len());
-    let op_result = parse_from_bytes::<api::service::OpResult>(&remove_response)
-        .map_err(|e| e.to_string())?;
+    let op_result =
+        parse_from_bytes::<api::service::OpResult>(&remove_response).map_err(|e| e.to_string())?;
     match op_result.get_result() {
         ResultType::OK => {
             debug!("Add disk successful");

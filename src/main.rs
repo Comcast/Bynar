@@ -10,9 +10,9 @@ extern crate helpers;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 extern crate serde_json;
 extern crate simplelog;
 extern crate slack_hook;
@@ -28,10 +28,10 @@ use std::io::Result as IOResult;
 use std::path::{Path, PathBuf};
 
 use create_support_ticket::{create_support_ticket, ticket_resolved};
-use clap::{Arg, App};
+use clap::{App, Arg};
 use helpers::host_information::Host;
-use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
-use slack_hook::{Slack, PayloadBuilder};
+use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
+use slack_hook::{PayloadBuilder, Slack};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -91,19 +91,14 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> IOResult<String>
 }
 
 fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
-    let config: ConfigSettings = helpers::load_config(config_dir, "").map_err(
-        |e| e.to_string(),
-    )?;
+    let config: ConfigSettings = helpers::load_config(config_dir, "").map_err(|e| e.to_string())?;
     let host_info = Host::new().map_err(|e| e.to_string())?;
     debug!("Gathered host info: {:?}", host_info);
-    let public_key = get_public_key(&config, &host_info).map_err(
-        |e| e.to_string(),
-    )?;
+    let public_key = get_public_key(&config, &host_info).map_err(|e| e.to_string())?;
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
-    let environment =
-        format!(
+    let environment = format!(
         "Hostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
         host_info.hostname,
         host_info.server_type,
@@ -128,11 +123,8 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                     info!("Connecting to database to check if disk is in progress");
                     let conn = in_progress::connect_to_repair_database(&config_location)
                         .map_err(|e| e.to_string())?;
-                    let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path).map_err(
-                        |e| {
-                            e.to_string()
-                        },
-                    )?;
+                    let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)
+                        .map_err(|e| e.to_string())?;
                     if !simulate {
                         if !in_progress {
                             debug!("Asking disk-manager if it's safe to remove disk");
@@ -193,7 +185,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                                             &config,
                                             &format!(
                                                 "Need to remove disk {} but can't tell if it's \
-                                                safe on host: {}. Error: {:?}.  Filing a ticket",
+                                                 safe on host: {}. Error: {:?}.  Filing a ticket",
                                                 dev_path.display(),
                                                 host_info.hostname,
                                                 err
@@ -229,26 +221,17 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
 }
 
 fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
-    let config: ConfigSettings = helpers::load_config(config_dir, "bynar.json").map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
+    let config: ConfigSettings =
+        helpers::load_config(config_dir, "bynar.json").map_err(|e| e.to_string())?;
     let host_info = Host::new().map_err(|e| e.to_string())?;
     let config_location = Path::new(&config.db_location);
-    let public_key = get_public_key(&config, &host_info).map_err(
-        |e| e.to_string(),
-    )?;
+    let public_key = get_public_key(&config, &host_info).map_err(|e| e.to_string())?;
 
     info!("Connecting to database to find repaired drives");
-    let conn = in_progress::connect_to_repair_database(&config_location)
-        .map_err(|e| e.to_string())?;
+    let conn =
+        in_progress::connect_to_repair_database(&config_location).map_err(|e| e.to_string())?;
     info!("Getting outstanding repair tickets");
-    let tickets = in_progress::get_outstanding_repair_tickets(&conn).map_err(
-        |e| {
-            e.to_string()
-        },
-    )?;
+    let tickets = in_progress::get_outstanding_repair_tickets(&conn).map_err(|e| e.to_string())?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         match ticket_resolved(&config, &ticket.ticket_id.to_string()) {
@@ -276,8 +259,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
                                 Err(e) => {
                                     error!(
                                         "Failed to delete record for {}.  {:?}",
-                                        ticket.ticket_id,
-                                        e
+                                        ticket.ticket_id, e
                                     );
                                 }
                             };
@@ -291,8 +273,7 @@ fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
             Err(e) => {
                 error!(
                     "Error gatting resolved ticket status for {}.  {:?}",
-                    &ticket.ticket_id,
-                    e
+                    &ticket.ticket_id, e
                 );
             }
         };
@@ -310,9 +291,7 @@ fn main() {
     let matches = App::new("Dead Disk Detector")
         .version(crate_version!())
         .author(crate_authors!())
-        .about(
-            "Detect dead hard drives, create a support ticket and watch for resolution",
-        )
+        .about("Detect dead hard drives, create a support ticket and watch for resolution")
         .arg(
             Arg::with_name("configdir")
                 .default_value("/etc/bynar")
@@ -327,9 +306,12 @@ fn main() {
                 .long("simulate")
                 .required(false),
         )
-        .arg(Arg::with_name("v").short("v").multiple(true).help(
-            "Sets the level of verbosity",
-        ))
+        .arg(
+            Arg::with_name("v")
+                .short("v")
+                .multiple(true)
+                .help("Sets the level of verbosity"),
+        )
         .get_matches();
     let level = match matches.occurrences_of("v") {
         0 => log::LogLevelFilter::Info, //default
@@ -341,7 +323,7 @@ fn main() {
         WriteLogger::new(
             level,
             Config::default(),
-            File::create("/var/log/bynar.log").unwrap()
+            File::create("/var/log/bynar.log").unwrap(),
         ),
     ]);
     info!("Starting up");

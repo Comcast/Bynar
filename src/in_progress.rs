@@ -101,16 +101,12 @@ pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
 /// Gather all the outstanding repair tickets
 pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<Vec<DiskRepairTicket>> {
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
-    let mut stmt = conn.prepare(
-        "SELECT id, ticket_id, time_created, disk_path FROM repairs",
-    )?;
-    let repair_iter = stmt.query_map(&[], |row| {
-        DiskRepairTicket {
-            id: row.get(0),
-            ticket_id: row.get(1),
-            time_created: row.get(2),
-            disk_path: row.get(3),
-        }
+    let mut stmt = conn.prepare("SELECT id, ticket_id, time_created, disk_path FROM repairs")?;
+    let repair_iter = stmt.query_map(&[], |row| DiskRepairTicket {
+        id: row.get(0),
+        ticket_id: row.get(1),
+        time_created: row.get(2),
+        disk_path: row.get(3),
     })?;
 
     for repair in repair_iter {

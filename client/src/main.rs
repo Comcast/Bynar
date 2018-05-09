@@ -14,8 +14,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use api::service::Disk;
-use clap::{Arg, ArgMatches, App, SubCommand};
-use simplelog::{Config, CombinedLogger, TermLogger, WriteLogger};
+use clap::{App, Arg, ArgMatches, SubCommand};
+use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
     CLI client to call functions over RPC
@@ -96,9 +96,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())
         .author(crate_authors!())
-        .about(
-            "Manually make RPC calls to the disk-manager to list, add or remove disks",
-        )
+        .about("Manually make RPC calls to the disk-manager to list, add or remove disks")
         .arg(
             Arg::with_name("host")
                 .default_value("localhost")
@@ -153,9 +151,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                         .takes_value(true),
                 ),
         )
-        .subcommand(SubCommand::with_name("list").about(
-            "List all disks on a server",
-        ))
+        .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -186,9 +182,12 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                         .takes_value(true),
                 ),
         )
-        .arg(Arg::with_name("v").short("v").multiple(true).help(
-            "Sets the level of verbosity",
-        ))
+        .arg(
+            Arg::with_name("v")
+                .short("v")
+                .multiple(true)
+                .help("Sets the level of verbosity"),
+        )
         .get_matches()
 }
 
@@ -206,7 +205,7 @@ fn main() {
         WriteLogger::new(
             level,
             Config::default(),
-            File::create("/var/log/bynar-client.log").unwrap()
+            File::create("/var/log/bynar-client.log").unwrap(),
         ),
     ]);
     info!("Starting up");
