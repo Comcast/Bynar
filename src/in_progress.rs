@@ -4,20 +4,21 @@ extern crate time;
 
 use std::path::Path;
 
-use self::time::Timespec;
 use self::rusqlite::{Connection, Result};
+use self::time::Timespec;
 
 #[cfg(test)]
 mod tests {
+    extern crate tempdir;
+
+    use self::tempdir::TempDir;
     use std::path::Path;
 
     #[test]
     fn test_in_progress() {
-        let temp_dir = Temp::new_dir().expect("mktemp creation failed");
-        let mut db_file = temp_dir.to_path_buf();
-        db_file.push("test_db.sqlite3");
+        let db_file = TempDir::new("test_db.sqlite3").expect("Temp file creation failed");
 
-        let conn = super::create_repair_database(&db_file).expect("sqlite3 creation failed");
+        let conn = super::connect_to_repair_database(db_file.path()).expect("sqlite3 creation failed");
         super::record_new_repair_ticket(&conn, "001", &Path::new("/dev/sda"))
             .expect("Create repair ticket failed");
         let result = super::is_disk_in_progress(&conn, &Path::new("/dev/sda"))
@@ -91,9 +92,8 @@ pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
         "Searching for repair ticket for disk: {}",
         dev_path.display()
     );
-    let mut stmt = conn.prepare(
-        "SELECT id, ticket_id, time_created, disk_path FROM repairs where disk_path=?",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT id, ticket_id, time_created, disk_path FROM repairs where disk_path=?")?;
     let in_progress = stmt.exists(&[&dev_path.to_string_lossy().into_owned()])?;
     Ok(in_progress)
 }

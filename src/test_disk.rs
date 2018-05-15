@@ -9,15 +9,18 @@
 //!       + no                 + yes         + no      ^   + yes
 //!is_disk_writable            +------>is_mounted      |   +----->repair_disk
 //!       + yes                              + yes     +
-//!       +----->disk_is_ok                  +---->unmoun
+//!       +----->disk_is_ok                  +---->unmount
 //extern crate blkid;
 extern crate block_utils;
 extern crate fstab;
 extern crate libatasmart;
 extern crate log;
+extern crate petgraph;
 extern crate tempdir;
 
 use self::block_utils::{get_mountpoint, Device, FilesystemType, MediaType};
+use self::petgraph::graphmap::GraphMap;
+use self::petgraph::{Directed, Direction};
 use self::tempdir::TempDir;
 
 use std::fs::OpenOptions;
@@ -25,6 +28,318 @@ use std::io::{Error, ErrorKind};
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+trait Transition {
+    // Transition from the current state to an ending state given an Event
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State;
+}
+
+impl Transition for AttemptRepair {
+    // Take a Corrupt
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running AttemptRepair transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::Corrupt {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+        // Disk filesystem is corrupted.  Attempt repairs.
+        let tmp = format!("/dev/{}", device.name);
+        let dev_path = Path::new(&tmp);
+        match repair_filesystem(&device.fs_type, &dev_path) {
+            Ok(_) => to_state.clone(),
+            Err(e) => {
+                error!("repair_filesystem failed on {:?}: {}", device, e);
+                State::Fail
+            }
+        }
+    }
+}
+
+impl Transition for CheckForCorruption {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running CheckForCorruption transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::Scanned {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+        let tmp = format!("/dev/{}", device.name);
+        let dev_path = Path::new(&tmp);
+        match check_filesystem(&device.fs_type, &dev_path) {
+            Ok(_) => to_state.clone(),
+            Err(e) => {
+                error!("check_filesystem failed on {:?}: {}", device, e);
+                State::Fail
+            }
+        }
+    }
+}
+
+impl Transition for CheckWearLeveling {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running CheckWearLeveling transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::Scanned {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+        State::Unscanned
+    }
+}
+
+// Evaluate whether a scan is drive is good and transition to
+// Good or Fail
+impl Transition for Eval {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running Eval transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::Scanned {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+        State::Fail
+        /*
+        let dev_path = Path::new(&format!("/dev/{}", device.name));
+        match get_mountpoint(&dev_path) {
+            Ok(mount_info) => match mount_info {
+                Some(info) => {}
+                None => {}
+            },
+            Err(e) => {
+                error!(
+                    "Error getting mountpoint for {}: {:?}",
+                    dev_path.display(),
+                    e
+                );
+                return State::Fail;
+            }
+        };
+        match check_writable(&s) {
+            Ok(_) => to_state.clone(),
+            Err(e) => {
+                //Should proceed to error checking now
+                error!("Error writing to disk: {:?}", e);
+                State::Fail
+            }
+        }
+        */
+    }
+}
+
+impl Transition for MarkForReplacement {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running MarkForReplacement transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::WornOut || from_state != &State::Corrupt {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+        State::Unscanned
+    }
+}
+
+impl Transition for NoOp {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running NoOp transition");
+
+        to_state.clone()
+    }
+}
+
+impl Transition for Replace {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running Replace transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::WaitingForReplacement {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+        State::Unscanned
+    }
+}
+
+impl Transition for Scan {
+    fn transition(from_state: &State, to_state: &State, device: &Device) -> State {
+        debug!("running Scan transition");
+        // TODO: This information shouldn't be stored here
+        if from_state != &State::Unscanned {
+            error!("Invalid transition");
+            return State::Fail;
+        }
+
+        // TODO: Handle devices that live behind a raid controller
+        let dev_path = format!("/dev/{}", device.name);
+        // Run a smart check on the base device without partition
+        match run_smart_checks(&Path::new(&dev_path)) {
+            Ok(_) => {
+                //disk_status.smart_passed = Some(result);
+                to_state.clone()
+            }
+            Err(e) => {
+                error!("Smart test failed: {:?}", e);
+                State::Fail
+            }
+        }
+    }
+}
+
+struct StateMachine {
+    // Mapping of valid From -> To transitions
+    graph: GraphMap<
+        State,
+        fn(from_state: &State, to_state: &State, device: &Device) -> State,
+        Directed,
+    >,
+    state: State,
+    disk: Device,
+}
+
+impl StateMachine {
+    pub fn new(disk: Device) -> Self {
+        StateMachine {
+            graph: GraphMap::new(),
+            state: State::Unscanned,
+            disk: disk,
+        }
+    }
+
+    fn add_transition(
+        &mut self,
+        from_state: State,
+        to_state: State,
+        callback: fn(from_state: &State, to_state: &State, device: &Device) -> State,
+    ) {
+        self.graph.add_edge(from_state, to_state, callback);
+    }
+
+    // Run all transitions until we can't go any further and return
+    fn run(&mut self) {
+        //Start at Unscanned and work our way down the graph
+        let mut starting_state = State::Unscanned;
+        let mut done = false;
+        while !done {
+            let next_transition = self.graph.edges(starting_state).next();
+            match next_transition {
+                Some(n) => {
+                    // Run the transition
+                    n.2(&n.0, &n.1, &self.disk);
+                    if self.state == State::WaitingForReplacement {
+                        // TODO: This is the only state we shouldn't advance further from
+                        // TODO: How do we resume from this state after the disk is replaced?
+                        break;
+                    }
+                    starting_state = self.state;
+                }
+                None => {
+                    done = true;
+                }
+            };
+        }
+    }
+
+    fn print_graph(&self) {
+        // Walk the graph and create a Dot
+        println!("digraph state_machine{{");
+        for n in self.graph.nodes() {
+            println!("\t{:?}[label=\"{:?}\"];", n, n);
+        }
+        for edge in self.graph.all_edges() {
+            println!("\t{:?} -> {:?}[label=\"\"];", edge.0, edge.1);
+        }
+        println!("}}");
+    }
+    fn setup_state_machine(&mut self) {
+        /*
+        let mut m = StateMachine::new(Device {
+            id: None,
+            name: "sda".into(),
+            media_type: MediaType::Unknown,
+            capacity: 0,
+            fs_type: FilesystemType::Xfs,
+            serial_number: None,
+        });
+        */
+        self.add_transition(State::Unscanned, State::Scanned, Scan::transition);
+
+        self.add_transition(State::Scanned, State::Good, Eval::transition);
+        self.add_transition(
+            State::Scanned,
+            State::WornOut,
+            CheckWearLeveling::transition,
+        );
+        self.add_transition(
+            State::WornOut,
+            State::WaitingForReplacement,
+            MarkForReplacement::transition,
+        );
+        self.add_transition(
+            State::Scanned,
+            State::Corrupt,
+            CheckForCorruption::transition,
+        );
+        self.add_transition(State::Corrupt, State::Repaired, AttemptRepair::transition);
+        self.add_transition(
+            State::Corrupt,
+            State::WaitingForReplacement,
+            MarkForReplacement::transition,
+        );
+        self.add_transition(State::Repaired, State::Good, NoOp::transition);
+        self.add_transition(
+            State::WaitingForReplacement,
+            State::Replaced,
+            Replace::transition,
+        );
+        self.add_transition(State::Replaced, State::Unscanned, NoOp::transition);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum State {
+    // If the disk is in the corrupted state repairs are attempted
+    Corrupt,
+    Fail,
+    Good,
+    // NeedsReplacement,
+    // The disk is now repaired
+    Repaired,
+    Replaced,
+    Scanned,
+    Unscanned,
+    // The disk could not be repaired and needs to be replaced
+    WaitingForReplacement,
+    WornOut,
+}
+
+#[derive(Debug)]
+struct AttemptRepair;
+
+#[derive(Debug)]
+struct CheckForCorruption;
+
+#[derive(Debug)]
+struct CheckWearLeveling;
+
+#[derive(Debug)]
+struct Eval;
+
+#[derive(Debug)]
+struct MarkForReplacement;
+
+#[derive(Debug)]
+struct NoOp;
+
+#[derive(Debug)]
+struct Replace;
+
+#[derive(Debug)]
+struct Scan;
+
+#[test]
+fn test_state_machine() {
+    //
+    m.print_graph();
+}
 
 /// After a disk is checked this Status is returned
 #[derive(Debug)]
@@ -59,6 +374,13 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
         // Get rid of ram devices
         .filter(|d| !(d.media_type == MediaType::Ram))
         .collect();
+    // Create 1 state machine per Device
+    for device in device_info.clone() {
+        let mut s = StateMachine::new(device);
+        s.setup_state_machine();
+        // TODO: Run this in parallel
+        s.run();
+    }
 
     // Gather info on all the currently mounted devices
     let mut mtab_devices: Vec<Device> = block_utils::get_mounted_devices()?;
@@ -73,7 +395,7 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
 
     // Check any devices that udev doesn't know about that are still mounted
     for mtab_device in mtab_devices {
-        results.push(run_checks(&mtab_device));
+        //results.push(run_checks(&mtab_device));
     }
 
     //TODO: Add nvme devices to block-utils
@@ -81,6 +403,7 @@ pub fn check_all_disks() -> Result<Vec<Result<Status>>> {
     Ok(results)
 }
 
+/*
 fn run_checks(device_info: &Device) -> Result<Status> {
     let mut disk_status = Status {
         corrupted: false,
@@ -161,6 +484,7 @@ fn run_checks(device_info: &Device) -> Result<Status> {
     };
     Ok(disk_status)
 }
+*/
 
 fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()> {
     match filesystem_type {
