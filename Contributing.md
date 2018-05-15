@@ -13,6 +13,8 @@ Use your best judgment, and feel free to propose changes to this document in a p
   * [Suggesting Enhancements](#suggesting-enhancements)
   * [Your First Code Contribution](#your-first-code-contribution)
   * [Pull Requests](#pull-requests)
+  
+[Contributor License Agreement](#contributor-license-agreement)
 ## How Can I Contribute?
 
 ### Reporting Bugs
