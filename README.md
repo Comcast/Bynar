@@ -115,7 +115,7 @@ to keep you in the loop.
 The time saved here multplies with each piece of hardware replaced and now you 
 can focus your time and energy on other things.  It's a positive snowball effect!
 
-## Support
+## Support and Contributions
 
 If you need support, start by checking the [issues] page.
 If that doesn't answer your questions, or if you think you found a bug,
@@ -123,6 +123,8 @@ please [file an issue].
 
 That said, if you have questions, reach out to us
 [communication].
+
+Want to contribute to Bynar? Awesome! Check out the [contributing](https://github.com/Comcast/Bynar/blob/master/Contributing.md) guide.
 
 [Cassandra]: http://cassandra.apache.org/
 [Ceph]: http://docs.ceph.com/docs/master/
