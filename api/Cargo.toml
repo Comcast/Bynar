@@ -5,8 +5,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 build = "build.rs"
 
 [build-dependencies]
-protoc-rust = "*"
-protoc = "*"
+protobuf-codegen-pure = "~2"
 
 [dependencies]
-protobuf = "*"
+protobuf = "~2"
