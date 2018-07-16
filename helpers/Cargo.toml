@@ -9,7 +9,7 @@ block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 log = "*"
-protobuf = "*"
+protobuf = "~2"
 serde = "*"
 serde_derive = "*"
 serde_json = "*"

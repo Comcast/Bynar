@@ -35,7 +35,7 @@ use gpt::partition::read_partitions;
 use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
-use protobuf::core::parse_from_bytes;
+use protobuf::parse_from_bytes;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;
@@ -448,9 +448,9 @@ fn main() {
         )
         .get_matches();
     let level = match matches.occurrences_of("v") {
-        0 => log::LogLevelFilter::Info, //default
-        1 => log::LogLevelFilter::Debug,
-        _ => log::LogLevelFilter::Trace,
+        0 => log::LevelFilter::Info, //default
+        1 => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Trace,
     };
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();

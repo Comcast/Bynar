@@ -8,6 +8,6 @@ api = { path = "../api", version = "*"}
 clap = "*"
 helpers = { path="../helpers", version="*"}
 log = "*"
-protobuf = "*"
+protobuf = "~2"
 simplelog = "*"
 zmq = "*"
