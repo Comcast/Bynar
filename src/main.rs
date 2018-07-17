@@ -314,9 +314,9 @@ fn main() {
         )
         .get_matches();
     let level = match matches.occurrences_of("v") {
-        0 => log::LogLevelFilter::Info, //default
-        1 => log::LogLevelFilter::Debug,
-        _ => log::LogLevelFilter::Trace,
+        0 => log::LevelFilter::Info, //default
+        1 => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Trace,
     };
     let _ = CombinedLogger::init(vec![
         TermLogger::new(level, Config::default()).unwrap(),

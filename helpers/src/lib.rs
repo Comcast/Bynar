@@ -19,7 +19,7 @@ use std::path::Path;
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
 use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
-use protobuf::core::parse_from_bytes;
+use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;

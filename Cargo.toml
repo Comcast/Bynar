@@ -22,31 +22,31 @@ assets = [
 [dependencies]
 api = { path = "api" }
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
-ceph = "*"
-clap = "*"
+ceph = "~0.4"
+clap = "~2"
 client = { path = "client" }
 disk-manager = { path = "disk-manager" }
 dmi = {git = "https://github.com/cholcombe973/dmi"}
-fstab = "*"
-gluster = "*"
+fstab = "~0.3"
+gluster = "~0.6"
 goji = {git = "https://github.com/cholcombe973/goji"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path = "helpers" }
-init-daemon = "*"
-json = "*"
-libatasmart = "*"
-libc = "*"
-log = "*"
-protobuf = "*"
+init-daemon = "~0.1"
+json = "~0.11"
+libatasmart = "~0.1"
+libc = "~0.2"
+log = "~0.4"
+protobuf = "~2"
 reqwest = "~0.7"
-rusqlite = "*"
-serde = "*"
-serde_derive = "*"
-serde_json = "*"
-simplelog = "*"
-slack-hook = "*"
-tempdir = "*"
-time = "*"
-uname = "*"
-uuid = { version="*", features = ["v4"]}
+rusqlite = "~0.13"
+serde = "~1"
+serde_derive = "~1"
+serde_json = "~1"
+simplelog = "~0.5"
+slack-hook = "~0.6"
+tempdir = "~0.3"
+time = "~0.1"
+uname = "~0.1"
+uuid = { version="~0.6", features = ["v4"]}
 zmq = {version="~0.8"}
