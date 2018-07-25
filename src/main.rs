@@ -23,15 +23,16 @@ mod in_progress;
 mod test_disk;
 
 use std::fs::File;
-use std::io::{Error, ErrorKind, Read};
 use std::io::Result as IOResult;
+use std::io::{Error, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
-use create_support_ticket::{create_support_ticket, ticket_resolved};
 use clap::{App, Arg};
+use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::host_information::Host;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
+use self::test_disk::State;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -108,21 +109,21 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
     );
 
     info!("Checking all drives");
-    for result in test_disk::check_all_disks().map_err(|e| e.to_string())? {
+    let conn =
+        in_progress::connect_to_repair_database(&config_location).map_err(|e| e.to_string())?;
+    for result in test_disk::check_all_disks(&config_location).map_err(|e| e.to_string())? {
         match result {
-            Ok(status) => {
-                info!("Disk status: {:?}", status);
+            Ok(state) => {
+                info!("Disk status: {:?}", state);
                 let mut dev_path = PathBuf::from("/dev");
-                dev_path.push(status.device.name);
+                dev_path.push(state.disk.name);
 
-                if status.corrupted == true && status.repaired == false {
+                if state.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = status.device.serial_number {
+                    if let Some(serial) = state.disk.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
-                    let conn = in_progress::connect_to_repair_database(&config_location)
-                        .map_err(|e| e.to_string())?;
                     let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)
                         .map_err(|e| e.to_string())?;
                     if !simulate {
@@ -211,7 +212,6 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                 }
             }
             Err(e) => {
-                //
                 error!("check_all_disks failed with error: {:?}", e);
                 return Err(format!("check_all_disks failed with error: {:?}", e));
             }
@@ -336,7 +336,6 @@ fn main() {
     let simulate = matches.is_present("simulate");
     let config_dir = matches.value_of("configdir").unwrap();
 
-    //TODO: Get a vault token so I can talk to disk-manager
     match check_for_failed_disks(config_dir, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
@@ -345,7 +344,6 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    // TODO: Use token here
     match add_repaired_disks(config_dir, simulate) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
