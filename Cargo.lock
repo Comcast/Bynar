@@ -136,7 +136,7 @@ dependencies = [
  "dmi 0.1.0 (git+https://github.com/cholcombe973/dmi)",
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gluster 0.6.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "goji 0.1.1 (git+https://github.com/cholcombe973/goji)",
+ "goji 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)",
  "helpers 0.1.0",
  "init-daemon 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -452,8 +452,8 @@ dependencies = [
 
 [[package]]
 name = "goji"
-version = "0.1.1"
-source = "git+https://github.com/cholcombe973/goji#a69504bef262579fc09bcabb3c1b1b1e54fcb13d"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1880,7 +1880,7 @@ dependencies = [
 "checksum futures-cpupool 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "ab90cde24b3319636588d0c35fe03b1333857621051837ed769faefb4c2162e4"
 "checksum getopts 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)" = "0a7292d30132fb5424b354f5dc02512a86e4c516fe544bb7a25e7f266951b797"
 "checksum gluster 0.6.10 (registry+https://github.com/rust-lang/crates.io-index)" = "b12feb10b1b1d1bac443a736305186dc510cd45ad9d9c2457fa24c231e684fe7"
-"checksum goji 0.1.1 (git+https://github.com/cholcombe973/goji)" = "<none>"
+"checksum goji 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "3ad7ff8afef91c88c1ae5775bd64536bca8a02b056674e420c49215fea4df919"
 "checksum gpt 0.1.8 (git+https://github.com/Quyzi/gpt)" = "<none>"
 "checksum hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)" = "<none>"
 "checksum hex 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d6a22814455d41612f41161581c2883c0c6a1c41852729b17d5ed88f01e153aa"

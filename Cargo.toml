@@ -29,7 +29,7 @@ disk-manager = { path = "disk-manager" }
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~0.6"
-goji = {git = "https://github.com/cholcombe973/goji"}
+goji = "~0.2"
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path = "helpers" }
 init-daemon = "~0.1"
