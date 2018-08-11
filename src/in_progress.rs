@@ -154,6 +154,7 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> Result<Option<test_disk:
             let state: String = row.get(0);
             state
         })?;
+        debug!("Found state: {}", state);
 
         return Ok(Some(test_disk::State::from_str(&state).unwrap()));
     }

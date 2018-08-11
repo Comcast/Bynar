@@ -43,17 +43,83 @@ mod tests {
     extern crate simplelog;
     extern crate uuid;
 
+    use in_progress;
+
+    use std::fs::{remove_file, File};
+    use std::io::Write;
     use std::path::Path;
+    use std::process::Command;
 
     use self::uuid::Uuid;
     use simplelog::{Config, TermLogger};
 
     #[test]
-    fn test_state_machine() {
+    fn test_state_machine_base() {
+        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+
+        // Note: /dev/loop10 needs o+rw for this to work
+
+        // Create a loopback device for testing
+        let mut f = File::create("/tmp/file.img").unwrap();
+        // Write 25MB to a file
+        debug!("writing 25MB to /tmp/file.img");
+        let buff = [0x00; 1024];
+        for _ in 0..25600 {
+            f.write(&buff).unwrap();
+        }
+        f.sync_all().unwrap();
+
+        // Setup a loopback device for testing filesystem corruption
+        debug!("setting up /dev/loop10 device");
+        Command::new("losetup")
+            .args(&["/dev/loop10", "/tmp/file.img"])
+            .status()
+            .unwrap();
+
+        // Put an xfs filesystem down on it
+        debug!("Putting xfs on to /dev/loop10");
+        Command::new("mkfs.xfs")
+            .args(&["/dev/loop10"])
+            .status()
+            .unwrap();
+
+        let drive_id = Uuid::parse_str("6eab3005-73a8-4287-b6c6-b83e1def469a").unwrap();
+        // Cleanup previous test runs
+        remove_file("/tmp/db.sqlite3").unwrap();
+        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+
+        let d = super::Device {
+            id: Some(drive_id),
+            name: "loop10".to_string(),
+            media_type: super::MediaType::Rotational,
+            capacity: 26214400,
+            fs_type: super::FilesystemType::Xfs,
+            serial_number: Some("123456".into()),
+        };
+        let mut s = super::StateMachine::new(d, conn, true);
+        s.setup_state_machine();
+        s.print_graph();
+        s.restore_state().unwrap();
+        s.run();
+        println!("final state: {}", s.state);
+        assert_eq!(s.state, super::State::Good);
+    }
+
+    #[test]
+    fn test_state_machine_resume() {
         TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
 
         let drive_id = Uuid::parse_str("6eab3005-73a8-4287-b6c6-b83e1def469a").unwrap();
+        // Cleanup previous test runs
+        remove_file("/tmp/db.sqlite3").unwrap();
         let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+
+        // Set the previous state to something other than Unscanned
+        in_progress::save_state(
+            &conn,
+            Path::new("/dev/sda"),
+            super::State::WaitingForReplacement,
+        ).unwrap();
 
         let d = super::Device {
             id: Some(drive_id),
@@ -70,6 +136,50 @@ mod tests {
         s.run();
         println!("final state: {}", s.state);
     }
+
+}
+
+trait SmartCheck {
+    fn run_smart_checks(&self, device: &Path) -> Result<bool>;
+}
+
+// How does the runtime use the correct trait impl?
+struct SmartPasses;
+struct SmartFails;
+struct Smart;
+
+impl SmartCheck for Smart {
+    fn run_smart_checks(&self, device: &Path) -> Result<bool> {
+        let mut smart = libatasmart::Disk::new(device).map_err(|e| Error::new(ErrorKind::Other, e))?;
+        let status = smart
+            .get_smart_status()
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        Ok(status)
+    }
+}
+
+impl SmartCheck for SmartPasses {
+    fn run_smart_checks(&self, device: &Path) -> Result<bool> {
+        return Ok(true);
+    }
+}
+
+impl SmartCheck for SmartFails {
+    fn run_smart_checks(&self, device: &Path) -> Result<bool> {
+        return Ok(false);
+    }
+}
+
+trait CheckWritable {
+    fn check_writable(path: &Path) -> Result<()>;
+}
+
+trait CheckFilesystem {
+    fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()>;
+}
+
+trait RepairFilesystem {
+    fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()>;
 }
 
 trait Transition {
@@ -402,25 +512,24 @@ impl StateMachine {
 
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
-        //Start at Unscanned and work our way down the graph
+        // Start at the current state the disk is at and work our way down the graph
+        debug!("Starting state: {}", self.state);
         let tmp = format!("/dev/{}", self.disk.name);
         let dev_path = Path::new(&tmp);
-        let mut starting_state = State::Unscanned;
         let mut done = false;
         while !done {
-            let next_transition = self.graph.edges(starting_state).next();
+            let next_transition = self.graph.edges(self.state).next();
             match next_transition {
                 Some(n) => {
                     // Run the transition
+                    debug!("Attemption {} to {} transition", &n.0, &n.1);
                     self.state = n.2(&n.0, &n.1, &self.disk, &self.db_conn, self.simulate);
                     // Save state after every transition in case of power failure, etc
                     save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     if self.state == State::WaitingForReplacement || self.state == State::Fail {
-                        // TODO: This is the only state we shouldn't advance further from
-                        // TODO: How do we resume from this state after the disk is replaced?
+                        // TODO: Are these the only states we shouldn't advance further from?
                         break;
                     }
-                    starting_state = self.state;
                 }
                 None => {
                     done = true;
@@ -554,23 +663,6 @@ struct Replace;
 struct Scan;
 // Transitions
 
-/*
-/// After a disk is checked this Status is returned
-#[derive(Debug)]
-pub struct Status {
-    /// Disk was corrupted
-    pub corrupted: bool,
-    /// This was able to repair it
-    pub repaired: bool,
-    /// Disk that was operated on
-    pub device: Device,
-    /// Osd that was operated on
-    pub mount_path: PathBuf,
-    /// If smart is supported this filed will be filled in
-    pub smart_passed: Option<bool>,
-}
-*/
-
 pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
     let mut results: Vec<Result<StateMachine>> = Vec::new();
     // Udev will only show the disks that are currently attached to the tree
@@ -630,8 +722,7 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
                 let in_progress = is_disk_in_progress(&conn, &disk_path)?;
             }
             Ok(s)
-        })
-        .collect();
+        }).collect();
 
     Ok(results)
 }
@@ -868,6 +959,12 @@ fn repair_ext(device: &Path) -> Result<()> {
         }
     }
 }
+
+/*
+fn run_smart_checks<T: SmartCheck>(check: T, device: &Path) -> Result<bool> {
+    check.run_smart_checks(device)
+}
+*/
 
 // Run smart checks against the disk
 fn run_smart_checks(device: &Path) -> Result<bool> {
