@@ -15,6 +15,8 @@ extern crate block_utils;
 extern crate fstab;
 extern crate libatasmart;
 extern crate log;
+#[cfg(test)]
+extern crate mocktopus;
 extern crate petgraph;
 extern crate rayon;
 extern crate rusqlite;
@@ -22,7 +24,9 @@ extern crate tempdir;
 
 use in_progress;
 
-use self::block_utils::{get_mountpoint, Device, FilesystemType, MediaType};
+use self::block_utils::{get_mountpoint, Device, FilesystemType, is_mounted, MediaType, mount_device};
+#[cfg(test)]
+use self::mocktopus::macros::*;
 use self::in_progress::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
@@ -40,8 +44,10 @@ use std::str::FromStr;
 
 #[cfg(test)]
 mod tests {
+    extern crate blkid;
     extern crate simplelog;
     extern crate uuid;
+
 
     use in_progress;
 
@@ -50,12 +56,18 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
+    use self::blkid::BlkId;
     use self::uuid::Uuid;
+    use super::mocktopus::macros::*;
+    use super::mocktopus::mocking::*;
     use simplelog::{Config, TermLogger};
 
     #[test]
     fn test_state_machine_base() {
         TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+
+        // Mock smart to return Ok(true)
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
 
         // Note: /dev/loop10 needs o+rw for this to work
 
@@ -83,7 +95,12 @@ mod tests {
             .status()
             .unwrap();
 
-        let drive_id = Uuid::parse_str("6eab3005-73a8-4287-b6c6-b83e1def469a").unwrap();
+        let blkid = BlkId::new(&Path::new("/dev/loop10")).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
         // Cleanup previous test runs
         remove_file("/tmp/db.sqlite3").unwrap();
         let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
@@ -137,49 +154,6 @@ mod tests {
         println!("final state: {}", s.state);
     }
 
-}
-
-trait SmartCheck {
-    fn run_smart_checks(&self, device: &Path) -> Result<bool>;
-}
-
-// How does the runtime use the correct trait impl?
-struct SmartPasses;
-struct SmartFails;
-struct Smart;
-
-impl SmartCheck for Smart {
-    fn run_smart_checks(&self, device: &Path) -> Result<bool> {
-        let mut smart = libatasmart::Disk::new(device).map_err(|e| Error::new(ErrorKind::Other, e))?;
-        let status = smart
-            .get_smart_status()
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
-        Ok(status)
-    }
-}
-
-impl SmartCheck for SmartPasses {
-    fn run_smart_checks(&self, device: &Path) -> Result<bool> {
-        return Ok(true);
-    }
-}
-
-impl SmartCheck for SmartFails {
-    fn run_smart_checks(&self, device: &Path) -> Result<bool> {
-        return Ok(false);
-    }
-}
-
-trait CheckWritable {
-    fn check_writable(path: &Path) -> Result<()>;
-}
-
-trait CheckFilesystem {
-    fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()>;
-}
-
-trait RepairFilesystem {
-    fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()>;
 }
 
 trait Transition {
@@ -294,6 +268,18 @@ impl Transition for Eval {
         let tmp = format!("/dev/{}", device.name);
         let dev_path = Path::new(&tmp);
 
+        let mnt_dir: TempDir;
+        if !is_mounted(&dev_path).unwrap_or(false){
+            debug!("Mounting device: {}", dev_path.display());
+            mnt_dir = TempDir::new("bynar").unwrap();
+            // This requires root perms
+            if let Err(e) = mount_device(&device, &mnt_dir.path().to_string_lossy()) {
+                error!("Mounting {} failed: {}", dev_path.display(), e);
+                return State::Fail;
+            }
+        }
+
+        debug!("Getting mountpoint info for {}", dev_path.display());
         match get_mountpoint(&dev_path) {
             Ok(mount_info) => match mount_info {
                 Some(info) => {
@@ -319,6 +305,10 @@ impl Transition for Eval {
                 None => {
                     // Device isn't mounted.  Mount in temp location and check?
                     // what if it doesn't have a filesystem.
+                    
+                    // This shouldn't happen because !is_mounted above 
+                    // took care of it
+                    error!("Device is not mounted");
                     State::Fail
                 }
             },
@@ -960,13 +950,8 @@ fn repair_ext(device: &Path) -> Result<()> {
     }
 }
 
-/*
-fn run_smart_checks<T: SmartCheck>(check: T, device: &Path) -> Result<bool> {
-    check.run_smart_checks(device)
-}
-*/
-
 // Run smart checks against the disk
+#[cfg_attr(test, mockable)]
 fn run_smart_checks(device: &Path) -> Result<bool> {
     let mut smart = libatasmart::Disk::new(device).map_err(|e| Error::new(ErrorKind::Other, e))?;
     let status = smart
