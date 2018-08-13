@@ -1,17 +1,17 @@
 // Monitor in progress disk repairs
+extern crate postgres;
 extern crate rusqlite;
 extern crate time;
-extern crate postgres;
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::fs::File;
 
 use test_disk;
 
+use self::postgres::{Connection as pConnection, Result as pResult, TlsMode};
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
-use self::postgres::{Connection as pConnection, TlsMode, Result as pResult};
 
 #[cfg(test)]
 mod tests {
@@ -19,7 +19,7 @@ mod tests {
 
     use self::tempdir::TempDir;
     use std::path::Path;
-    use std::process::{id};
+    use std::process::id;
     #[test]
     fn test_in_progress() {
         // FIX THIS
@@ -54,9 +54,9 @@ mod tests {
             pool_name: String::from("unknown"),
         };
         let result = update_storage_info(&info, pid).expect(
-                "Failed to update
+            "Failed to update
                 storage details",
-                );
+        );
 
         println!("Successfully updated storage details");
         assert!(result);
@@ -128,9 +128,8 @@ pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
         "Searching for repair ticket for disk: {}",
         dev_path.display()
     );
-    let mut stmt = conn.prepare(
-        "SELECT id, ticket_id, time_created, disk_path FROM repairs where disk_path=?",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT id, ticket_id, time_created, disk_path FROM repairs where disk_path=?")?;
     let in_progress = stmt.exists(&[&dev_path.to_string_lossy().into_owned()])?;
     Ok(in_progress)
 }
@@ -274,7 +273,7 @@ pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -
 
 #[derive(Debug)]
 pub struct HostDetails {
-    pub ip: String, 
+    pub ip: String,
     pub hostname: String,
     pub region: String,
     pub storage_type: String,
@@ -290,16 +289,16 @@ pub fn update_storage_info(s_info: &HostDetails, pid: u32) -> pResult<bool> {
     let mut connection_string = read_db_config();
     if connection_string.is_empty() {
         error!("Failed to build database connection string");
-        return Ok(false)
+        return Ok(false);
     }
-    let conn = pConnection::connect(connection_string, TlsMode::None).expect("Database connection failed");
-
+    let conn =
+        pConnection::connect(connection_string, TlsMode::None).expect("Database connection failed");
 
     let entry_id = register_to_process_manager(&conn, pid, &s_info.ip.clone())?;
     let region_id = update_region(&conn, &s_info.region.clone())?;
     let detail_id = update_storage_details(&conn, &s_info, region_id)?;
-    
-    if entry_id == 0 || region_id == 0 || detail_id == 0 { 
+
+    if entry_id == 0 || region_id == 0 || detail_id == 0 {
         error!("Failed to update storage information in the database");
     } else {
         // TODO: Add entry, region_id and storage_id to bynar_operations table
@@ -342,22 +341,28 @@ fn read_db_config() -> String {
 }
 
 /// responsible to store the pid, ip of the system on which bynar is running
-fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) ->
-pResult<u32> {
+fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResult<u32> {
     debug!("Adding daemon details with pid {} to process manager", pid);
     let mut entry_id: u32 = 0;
     let stmt = format!(
         "SELECT entry_id FROM process_manager WHERE
-    pid={} AND ip='{}'",pid, &ip);
+    pid={} AND ip='{}'",
+        pid, &ip
+    );
     let stmt_query = conn.query(&stmt, &[])?;
     if let Some(r) = stmt_query.into_iter().next() {
         // entry exists for this ip with this pid. Update status
         let update_stmt = format!(
             "UPDATE process_manager SET status='idle'
-           WHERE pid={} AND ip='{}'",pid,&ip);
+           WHERE pid={} AND ip='{}'",
+            pid, &ip
+        );
         conn.execute(&update_stmt, &[])?;
-        let select_stmt = format!("SELECT entry_id FROM process_manager WHERE pid
-        = {} AND ip = '{}'", pid, &ip);
+        let select_stmt = format!(
+            "SELECT entry_id FROM process_manager WHERE pid
+        = {} AND ip = '{}'",
+            pid, &ip
+        );
         let select_stmt_query = conn.query(&select_stmt, &[])?;
         if let Some(r) = select_stmt_query.into_iter().next() {
             entry_id = r.get(0);
@@ -366,7 +371,9 @@ pResult<u32> {
         // does not exist, insert
         let insert_stmt = format!(
             "INSERT INTO process_manager (pid, ip, status)
-                            VALUES ({}, '{}', 'idle') RETURNING entry_id",pid, &ip);
+                            VALUES ({}, '{}', 'idle') RETURNING entry_id",
+            pid, &ip
+        );
         let insert_stmt_query = conn.query(&insert_stmt, &[])?;
         if let Some(r) = insert_stmt_query.into_iter().next() {
             entry_id = r.get(0);
@@ -382,7 +389,10 @@ pub fn deregister_from_process_manager() -> pResult<()> {
 }
 
 fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
-    let stmt = format!("SELECT region_id FROM regions WHERE region_name = '{}'",region);
+    let stmt = format!(
+        "SELECT region_id FROM regions WHERE region_name = '{}'",
+        region
+    );
     let stmt_query = conn.query(&stmt, &[])?;
     let mut region_id: u32 = 0;
 
@@ -394,7 +404,9 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
         debug!("Updating region {} to database", region);
         let stmt = format!(
             "INSERT INTO regions (region_name)
-                            VALUES ('{}') RETURNING region_id", region);
+                            VALUES ('{}') RETURNING region_id",
+            region
+        );
         let stmt_query = conn.query(&stmt, &[])?;
         if let Some(res) = stmt_query.into_iter().next() {
             // Exists
@@ -404,9 +416,15 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
     Ok(region_id)
 }
 
-fn update_storage_details(conn: &pConnection, s_info: &HostDetails, region_id:
-u32) -> pResult<u32> {
-    let stmt = format!("SELECT storage_id FROM storage_types WHERE storage_type={}", s_info.storage_type);
+fn update_storage_details(
+    conn: &pConnection,
+    s_info: &HostDetails,
+    region_id: u32,
+) -> pResult<u32> {
+    let stmt = format!(
+        "SELECT storage_id FROM storage_types WHERE storage_type={}",
+        s_info.storage_type
+    );
     let stmt_query = conn.query(&stmt, &[])?;
     let mut storage_detail_id: u32 = 0;
 
@@ -416,8 +434,9 @@ u32) -> pResult<u32> {
         // query if these storage details are already in DB
         let details_query = format!(
             "SELECT detail_id FROM storage_details WHERE storage_id = {}
-            AND region_id = {} AND hostname = '{}'", storage_id, region_id,
-            s_info.hostname);
+            AND region_id = {} AND hostname = '{}'",
+            storage_id, region_id, s_info.hostname
+        );
         let details_query_exec = conn.query(&details_query, &[])?;
         if let Some(res) = details_query_exec.into_iter().next() {
             //Exists
@@ -427,8 +446,9 @@ u32) -> pResult<u32> {
             let details_query = format!(
                 "INSERT INTO storage_details
             (storage_id, region_id, hostname, name_key1) VALUES ({}, {}, '{}',
-            '{}' RETURNING detail_id", storage_id, region_id, s_info.hostname,
-            s_info.array_name);
+            '{}' RETURNING detail_id",
+                storage_id, region_id, s_info.hostname, s_info.array_name
+            );
             let dqr = conn.query(&details_query, &[])?;
             if let Some(result) = dqr.into_iter().next() {
                 storage_detail_id = result.get("detail_id");
