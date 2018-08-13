@@ -365,7 +365,7 @@ pResult<u32> {
     } else {
         // does not exist, insert
         let insert_stmt = format!(
-            "INSERT INTO process_manages (pid, ip, status)
+            "INSERT INTO process_manager (pid, ip, status)
                             VALUES ({}, '{}', 'idle') RETURNING entry_id",pid, &ip);
         let insert_stmt_query = conn.query(&insert_stmt, &[])?;
         if let Some(r) = insert_stmt_query.into_iter().next() {
