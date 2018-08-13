@@ -24,10 +24,13 @@ extern crate tempdir;
 
 use in_progress;
 
-use self::block_utils::{get_mountpoint, Device, FilesystemType, is_mounted, MediaType, mount_device};
+use self::block_utils::{
+    format_block_device, get_mountpoint, is_mounted, mount_device, Device, Filesystem,
+    FilesystemType, MediaType,
+};
+use self::in_progress::*;
 #[cfg(test)]
 use self::mocktopus::macros::*;
-use self::in_progress::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
 use self::rayon::prelude::*;
@@ -48,28 +51,27 @@ mod tests {
     extern crate simplelog;
     extern crate uuid;
 
-
     use in_progress;
 
     use std::fs::{remove_file, File};
-    use std::io::Write;
-    use std::path::Path;
+    use std::io::{Error, ErrorKind, Write};
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     use self::blkid::BlkId;
     use self::uuid::Uuid;
-    use super::mocktopus::macros::*;
+    //    use super::mocktopus::macros::*;
     use super::mocktopus::mocking::*;
     use simplelog::{Config, TermLogger};
 
-    #[test]
-    fn test_state_machine_base() {
-        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+    fn create_loop_device() -> PathBuf {
+        // Find free loopback device
+        let out = Command::new("losetup").args(&["-f"]).output().unwrap();
+        // Assert we created the device
+        assert_eq!(out.status.success(), true);
 
-        // Mock smart to return Ok(true)
-        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
-
-        // Note: /dev/loop10 needs o+rw for this to work
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let free_device = stdout.trim();
 
         // Create a loopback device for testing
         let mut f = File::create("/tmp/file.img").unwrap();
@@ -82,20 +84,45 @@ mod tests {
         f.sync_all().unwrap();
 
         // Setup a loopback device for testing filesystem corruption
-        debug!("setting up /dev/loop10 device");
+        debug!("setting up {} device", free_device);
         Command::new("losetup")
-            .args(&["/dev/loop10", "/tmp/file.img"])
+            .args(&[free_device, "/tmp/file.img"])
             .status()
             .unwrap();
 
         // Put an xfs filesystem down on it
-        debug!("Putting xfs on to /dev/loop10");
+        debug!("Putting xfs on to {}", free_device);
         Command::new("mkfs.xfs")
-            .args(&["/dev/loop10"])
+            .args(&[free_device])
             .status()
             .unwrap();
 
-        let blkid = BlkId::new(&Path::new("/dev/loop10")).unwrap();
+        PathBuf::from(free_device)
+    }
+
+    fn cleanup_loop_device(p: &Path) {
+        // Cleanup
+        Command::new("umount")
+            .args(&[&p.to_string_lossy().into_owned()])
+            .status()
+            .unwrap();
+
+        Command::new("losetup")
+            .args(&["-d", &p.to_string_lossy()])
+            .status()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_state_machine_base() {
+        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+
+        // Mock smart to return Ok(true)
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+
+        let dev = create_loop_device();
+
+        let blkid = BlkId::new(&dev).unwrap();
         blkid.do_probe().unwrap();
         let drive_uuid = blkid.lookup_value("UUID").unwrap();
         debug!("drive_uuid: {}", drive_uuid);
@@ -107,7 +134,7 @@ mod tests {
 
         let d = super::Device {
             id: Some(drive_id),
-            name: "loop10".to_string(),
+            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
             media_type: super::MediaType::Rotational,
             capacity: 26214400,
             fs_type: super::FilesystemType::Xfs,
@@ -119,8 +146,109 @@ mod tests {
         s.restore_state().unwrap();
         s.run();
         println!("final state: {}", s.state);
+
+        cleanup_loop_device(&dev);
+
         assert_eq!(s.state, super::State::Good);
     }
+
+    #[test]
+    fn test_state_machine_bad_filesystem() {
+        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+
+        // Mock smart to return Ok(true)
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+
+        let dev = create_loop_device();
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        debug!("Corrupting the filesystem");
+        // This is repairable by xfs_repair
+        Command::new("xfs_db")
+            .args(&[
+                "-x",
+                "-c",
+                "blockget",
+                "-c",
+                "blocktrash",
+                &dev.to_string_lossy().into_owned(),
+            ]).status()
+            .unwrap();
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
+        // Cleanup previous test runs
+        remove_file("/tmp/db.sqlite3").unwrap();
+        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+        let d = super::Device {
+            id: Some(drive_id),
+            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+            media_type: super::MediaType::Rotational,
+            capacity: 26214400,
+            fs_type: super::FilesystemType::Xfs,
+            serial_number: Some("123456".into()),
+        };
+        let mut s = super::StateMachine::new(d, conn, true);
+        s.setup_state_machine();
+        s.print_graph();
+        s.restore_state().unwrap();
+        s.run();
+        println!("final state: {}", s.state);
+
+        cleanup_loop_device(&dev);
+        assert_eq!(s.state, super::State::Good);
+    }
+
+    #[test]
+    fn test_state_machine_replace_disk() {
+        // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
+        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+        super::check_writable.mock_safe(|_| MockResult::Return(Err(Error::new(ErrorKind::Other, "Mock Error"))));
+        super::check_filesystem
+            .mock_safe(|_, _| MockResult::Return(Err(Error::new(ErrorKind::Other, "Mock Error"))));
+        super::repair_filesystem
+            .mock_safe(|_, _| MockResult::Return(Err(Error::new(ErrorKind::Other, "Mock Error"))));
+        super::format_block_device.mock_safe(|_, _| MockResult::Return(Err("error".to_string())));
+        // That should leave the disk in WaitingForReplacement
+
+        let dev = create_loop_device();
+
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
+        // Cleanup previous test runs
+        remove_file("/tmp/db.sqlite3").unwrap();
+        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+
+        let d = super::Device {
+            id: Some(drive_id),
+            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+            media_type: super::MediaType::Rotational,
+            capacity: 26214400,
+            fs_type: super::FilesystemType::Xfs,
+            serial_number: Some("123456".into()),
+        };
+        let mut s = super::StateMachine::new(d, conn, true);
+        s.setup_state_machine();
+        s.print_graph();
+        s.restore_state().unwrap();
+        s.run();
+        println!("final state: {}", s.state);
+
+        cleanup_loop_device(&dev);
+
+        assert_eq!(s.state, super::State::WaitingForReplacement);
+    }
+
+    #[test]
+    fn test_state_machine_replaced_disk() {}
 
     #[test]
     fn test_state_machine_resume() {
@@ -191,7 +319,7 @@ impl Transition for AttemptRepair {
                 Ok(_) => to_state.clone(),
                 Err(e) => {
                     error!("repair_filesystem failed on {:?}: {}", device, e);
-                    State::Fail
+                    State::RepairFailed
                 }
             }
         } else {
@@ -269,13 +397,19 @@ impl Transition for Eval {
         let dev_path = Path::new(&tmp);
 
         let mnt_dir: TempDir;
-        if !is_mounted(&dev_path).unwrap_or(false){
+        if !is_mounted(&dev_path).unwrap_or(false) {
             debug!("Mounting device: {}", dev_path.display());
-            mnt_dir = TempDir::new("bynar").unwrap();
+            mnt_dir = match TempDir::new("bynar") {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("temp dir creation failed: {:?}", e);
+                    return State::Fail;
+                }
+            };
             // This requires root perms
             if let Err(e) = mount_device(&device, &mnt_dir.path().to_string_lossy()) {
                 error!("Mounting {} failed: {}", dev_path.display(), e);
-                return State::Fail;
+                return State::MountFailed;
             }
         }
 
@@ -283,6 +417,7 @@ impl Transition for Eval {
         match get_mountpoint(&dev_path) {
             Ok(mount_info) => match mount_info {
                 Some(info) => {
+                    debug!("mount info: {:?}", info);
                     if let Err(e) = save_mount_location(&db_conn, &dev_path, &info) {
                         error!(
                             "save mount location failed for {}: {:?}",
@@ -298,18 +433,18 @@ impl Transition for Eval {
                         Err(e) => {
                             //Should proceed to error checking now
                             error!("Error writing to disk: {:?}", e);
-                            State::Fail
+                            State::WriteFailed
                         }
                     }
                 }
                 None => {
                     // Device isn't mounted.  Mount in temp location and check?
                     // what if it doesn't have a filesystem.
-                    
-                    // This shouldn't happen because !is_mounted above 
+
+                    // This shouldn't happen because !is_mounted above
                     // took care of it
                     error!("Device is not mounted");
-                    State::Fail
+                    State::NotMounted
                 }
             },
             Err(e) => {
@@ -362,6 +497,37 @@ impl Transition for MarkForReplacement {
     }
 }
 
+impl Transition for Mount {
+    fn transition(
+        _from_state: &State,
+        to_state: &State,
+        device: &Device,
+        _db_conn: &Connection,
+        _simulate: bool,
+    ) -> State {
+        debug!("running mount transition");
+
+        let tmp = format!("/dev/{}", device.name);
+        let dev_path = Path::new(&tmp);
+        let mnt_dir: TempDir;
+
+        debug!("Mounting device: {}", dev_path.display());
+        mnt_dir = match TempDir::new("bynar") {
+            Ok(d) => d,
+            Err(e) => {
+                error!("temp dir creation failed: {:?}", e);
+                return State::Fail;
+            }
+        };
+        if let Err(e) = mount_device(&device, &mnt_dir.path().to_string_lossy()) {
+            error!("Mounting {} failed: {}", dev_path.display(), e);
+            return State::MountFailed;
+        }
+
+        to_state.clone()
+    }
+}
+
 impl Transition for NoOp {
     fn transition(
         _from_state: &State,
@@ -376,13 +542,63 @@ impl Transition for NoOp {
     }
 }
 
+impl Transition for Reformat {
+    fn transition(
+        _from_state: &State,
+        to_state: &State,
+        device: &Device,
+        _db_conn: &Connection,
+        _simulate: bool,
+    ) -> State {
+        debug!("running Reformat transition");
+        let tmp = format!("/dev/{}", device.name);
+        let dev_path = Path::new(&tmp);
+
+        match format_block_device(&dev_path, &Filesystem::new(device.fs_type.to_str())) {
+            Ok(_) => to_state.clone(),
+            Err(e) => {
+                error!("Reformat failed: {}", e);
+                State::ReformatFailed
+            }
+        }
+    }
+}
+
+impl Transition for Remount {
+    fn transition(
+        _from_state: &State,
+        to_state: &State,
+        _device: &Device,
+        _db_conn: &Connection,
+        _simulate: bool,
+    ) -> State {
+        debug!("running Remount transition");
+        // TODO: Investigate using libmount here
+        match Command::new("mount").args(&["-o", "remount"]).output() {
+            Ok(output) => {
+                if output.status.success() {
+                    to_state.clone()
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    error!("Remount failed: {}", stderr);
+                    State::MountFailed
+                }
+            }
+            Err(e) => {
+                error!("Remount failed: {}", e);
+                State::MountFailed
+            }
+        }
+    }
+}
+
 impl Transition for Replace {
     fn transition(
         from_state: &State,
         to_state: &State,
-        device: &Device,
-        db_conn: &Connection,
-        simulate: bool,
+        _device: &Device,
+        _db_conn: &Connection,
+        _simulate: bool,
     ) -> State {
         debug!("running Replace transition");
         // TODO: This information shouldn't be stored here
@@ -516,7 +732,8 @@ impl StateMachine {
                     self.state = n.2(&n.0, &n.1, &self.disk, &self.db_conn, self.simulate);
                     // Save state after every transition in case of power failure, etc
                     save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
-                    if self.state == State::WaitingForReplacement || self.state == State::Fail {
+                    if self.state == State::WaitingForReplacement {
+                        //|| self.state == State::Fail {
                         // TODO: Are these the only states we shouldn't advance further from?
                         break;
                     }
@@ -543,29 +760,60 @@ impl StateMachine {
     // Add all the transition states here
     fn setup_state_machine(&mut self) {
         self.add_transition(State::Unscanned, State::Scanned, Scan::transition);
+        self.add_transition(State::Unscanned, State::Fail, Scan::transition);
+        self.add_transition(State::NotMounted, State::Mounted, Mount::transition);
+        self.add_transition(State::NotMounted, State::MountFailed, Mount::transition);
+        self.add_transition(
+            State::MountFailed,
+            State::Corrupt,
+            CheckForCorruption::transition,
+        );
 
         self.add_transition(State::Scanned, State::Good, Eval::transition);
+        self.add_transition(State::Scanned, State::NotMounted, Scan::transition);
+        self.add_transition(State::Scanned, State::WriteFailed, Eval::transition);
         self.add_transition(
             State::Scanned,
             State::WornOut,
             CheckWearLeveling::transition,
         );
+
+        self.add_transition(State::Mounted, State::Scanned, NoOp::transition);
+        self.add_transition(State::ReadOnly, State::Mounted, Remount::transition);
+        self.add_transition(State::ReadOnly, State::MountFailed, Remount::transition);
+
+        self.add_transition(State::Corrupt, State::Repaired, AttemptRepair::transition);
+        self.add_transition(
+            State::Corrupt,
+            State::RepairFailed,
+            AttemptRepair::transition,
+        );
+
+        self.add_transition(
+            State::RepairFailed,
+            State::Reformatted,
+            Reformat::transition,
+        );
+        self.add_transition(
+            State::RepairFailed,
+            State::ReformatFailed,
+            Reformat::transition,
+        );
+
+        self.add_transition(
+            State::ReformatFailed,
+            State::WaitingForReplacement,
+            NoOp::transition,
+        );
+
+        self.add_transition(State::Reformatted, State::Unscanned, NoOp::transition);
+
         self.add_transition(
             State::WornOut,
             State::WaitingForReplacement,
             MarkForReplacement::transition,
         );
-        self.add_transition(
-            State::Scanned,
-            State::Corrupt,
-            CheckForCorruption::transition,
-        );
-        self.add_transition(State::Corrupt, State::Repaired, AttemptRepair::transition);
-        self.add_transition(
-            State::Corrupt,
-            State::WaitingForReplacement,
-            MarkForReplacement::transition,
-        );
+
         self.add_transition(State::Repaired, State::Good, NoOp::transition);
         self.add_transition(
             State::WaitingForReplacement,
@@ -573,6 +821,27 @@ impl StateMachine {
             Replace::transition,
         );
         self.add_transition(State::Replaced, State::Unscanned, NoOp::transition);
+
+        self.add_transition(
+            State::WriteFailed,
+            State::Corrupt,
+            CheckForCorruption::transition,
+        );
+        self.add_transition(State::WriteFailed, State::ReadOnly, Eval::transition);
+        /*
+        self.add_transition(
+            State::Scanned,
+            State::Corrupt,
+            CheckForCorruption::transition,
+        );
+        */
+        /*
+        self.add_transition(
+            State::Corrupt,
+            State::WaitingForReplacement,
+            MarkForReplacement::transition,
+        );
+        */
     }
 }
 
@@ -582,7 +851,17 @@ pub enum State {
     Corrupt,
     Fail,
     Good,
-    // The disk is now repaired
+    Mounted,
+    MountFailed,
+    // Should be mounted but isn't
+    NotMounted,
+    // Device is mounted read only
+    ReadOnly,
+    // Tried to reformat but failed
+    ReformatFailed,
+    Reformatted,
+    // Tried to repair corruption and failed
+    RepairFailed,
     Repaired,
     Replaced,
     Scanned,
@@ -590,6 +869,8 @@ pub enum State {
     // The disk could not be repaired and needs to be replaced
     WaitingForReplacement,
     WornOut,
+    // Write test failed
+    WriteFailed,
 }
 
 impl FromStr for State {
@@ -600,7 +881,13 @@ impl FromStr for State {
             "corrupt" => Ok(State::Corrupt),
             "fail" => Ok(State::Fail),
             "good" => Ok(State::Good),
+            "mounted" => Ok(State::Mounted),
+            "mount_failed" => Ok(State::MountFailed),
+            "readonly" => Ok(State::ReadOnly),
+            "reformatted" => Ok(State::Reformatted),
+            "reformat_failed" => Ok(State::ReformatFailed),
             "repaired" => Ok(State::Repaired),
+            "repair_failed" => Ok(State::RepairFailed),
             "replaced" => Ok(State::Replaced),
             "scanned" => Ok(State::Scanned),
             "unscanned" => Ok(State::Unscanned),
@@ -617,11 +904,19 @@ impl fmt::Display for State {
             State::Corrupt => write!(f, "corrupt"),
             State::Fail => write!(f, "fail"),
             State::Good => write!(f, "good"),
+            State::Mounted => write!(f, "mounted"),
+            State::MountFailed => write!(f, "mount_failed"),
+            State::NotMounted => write!(f, "not_mounted"),
+            State::ReadOnly => write!(f, "readonly"),
+            State::RepairFailed => write!(f, "repair_failed"),
+            State::ReformatFailed => write!(f, "reformat_failed"),
+            State::Reformatted => write!(f, "reformatted"),
             State::Repaired => write!(f, "repaired"),
             State::Replaced => write!(f, "replaced"),
             State::Scanned => write!(f, "scanned"),
             State::Unscanned => write!(f, "unscanned"),
             State::WaitingForReplacement => write!(f, "waiting_for_replacement"),
+            State::WriteFailed => write!(f, "write_failed"),
             State::WornOut => write!(f, "worn_out"),
         }
     }
@@ -644,17 +939,26 @@ struct Eval;
 struct MarkForReplacement;
 
 #[derive(Debug)]
+struct Mount;
+
+#[derive(Debug)]
 struct NoOp;
 
 #[derive(Debug)]
+struct Remount;
+
+#[derive(Debug)]
 struct Replace;
+
+#[derive(Debug)]
+struct Reformat;
 
 #[derive(Debug)]
 struct Scan;
 // Transitions
 
 pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
-    let mut results: Vec<Result<StateMachine>> = Vec::new();
+    let results: Vec<Result<StateMachine>> = Vec::new();
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
