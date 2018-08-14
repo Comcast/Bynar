@@ -1,4 +1,4 @@
-#![cfg_attr(test, feature(proc_macro, proc_macro_mod))]
+#![cfg_attr(test, feature(proc_macro_mod))]
 #![feature(use_extern_macros)]
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
