@@ -130,7 +130,7 @@ mod tests {
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
         // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3").unwrap();
+        remove_file("/tmp/db.sqlite3");
         let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
 
         let d = super::Device {
@@ -181,7 +181,7 @@ mod tests {
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
         // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3").unwrap();
+        remove_file("/tmp/db.sqlite3");
         let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
         let d = super::Device {
             id: Some(drive_id),
@@ -227,7 +227,7 @@ mod tests {
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
         // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3").unwrap();
+        remove_file("/tmp/db.sqlite3");
         let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
 
         let d = super::Device {
@@ -256,33 +256,39 @@ mod tests {
     #[test]
     fn test_state_machine_resume() {
         TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
 
-        let drive_id = Uuid::parse_str("6eab3005-73a8-4287-b6c6-b83e1def469a").unwrap();
+        let dev = create_loop_device();
+
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
         // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3").unwrap();
+        remove_file("/tmp/db.sqlite3");
         let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
 
         // Set the previous state to something other than Unscanned
-        in_progress::save_state(
-            &conn,
-            Path::new("/dev/sda"),
-            super::State::WaitingForReplacement,
-        ).unwrap();
+        in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
 
         let d = super::Device {
             id: Some(drive_id),
-            name: "sda".to_string(),
+            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
             media_type: super::MediaType::Rotational,
-            capacity: 1024,
+            capacity: 26214400,
             fs_type: super::FilesystemType::Xfs,
             serial_number: Some("123456".into()),
         };
+
         let mut s = super::StateMachine::new(d, conn, true);
         s.setup_state_machine();
         s.print_graph();
         s.restore_state().unwrap();
         s.run();
         println!("final state: {}", s.state);
+        assert_eq!(s.state, super::State::Good);
     }
 
 }
@@ -666,12 +672,7 @@ pub struct StateMachine {
     // Mapping of valid From -> To transitions
     graph: GraphMap<
         State,
-        fn(
-            to_state: &State,
-            device: &mut Device,
-            db_conn: &Connection,
-            simulate: bool,
-        ) -> State,
+        fn(to_state: &State, device: &mut Device, db_conn: &Connection, simulate: bool) -> State,
         Directed,
     >,
     pub state: State,
@@ -702,16 +703,13 @@ impl StateMachine {
         &mut self,
         from_state: State,
         to_state: State,
-        callback: fn(
-            to_state: &State,
-            device: &mut Device,
-            db_conn: &Connection,
-            simulate: bool,
-        ) -> State,
+        callback: fn(to_state: &State, device: &mut Device, db_conn: &Connection, simulate: bool)
+            -> State,
         // Just for debugging dot graph creation
         transition_label: &str,
     ) {
-        self.dot_graph.push((from_state, to_state, transition_label.to_string()));
+        self.dot_graph
+            .push((from_state, to_state, transition_label.to_string()));
         self.graph.add_edge(from_state, to_state, callback);
     }
 
@@ -738,12 +736,8 @@ impl StateMachine {
             let edges: Vec<(
                 State,
                 State,
-                &fn(
-                    to_state: &State,
-                    device: &mut Device,
-                    db_conn: &Connection,
-                    simulate: bool,
-                ) -> State,
+                &fn(to_state: &State, device: &mut Device, db_conn: &Connection, simulate: bool)
+                    -> State,
             )> = self.graph.edges(self.state).collect();
             // Some states have multiple paths they could go down.
             // If the state transition returns State::Fail try the next path
@@ -759,6 +753,11 @@ impl StateMachine {
                 if state == State::WaitingForReplacement {
                     // TODO: Is this the only state we shouldn't advance further from?
                     debug!("state==State::WaitingForReplacement");
+                    self.state = state;
+                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    break 'outer;
+                } else if state == State::Good {
+                    debug!("state==State::Good");
                     self.state = state;
                     save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break 'outer;
@@ -780,7 +779,6 @@ impl StateMachine {
                 debug!("Breaking loop: {}=={}", self.state, beginning_state);
                 break 'outer;
             }
-
         }
     }
 
@@ -789,7 +787,7 @@ impl StateMachine {
         // Walk the graph and create a Dot
         let mut states = HashSet::new();
         println!("digraph state_machine{{");
-        for n in &self.dot_graph{
+        for n in &self.dot_graph {
             states.insert(n.0.clone());
             states.insert(n.1.clone());
             println!("\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2);
@@ -798,7 +796,7 @@ impl StateMachine {
             println!("\t{:?}[label=\"{:?}\"];", n, n);
         }
         //for edge in self.graph.all_edges() {
-            //println!("\t{:?} -> {:?}[label=\"\"];", edge.0, edge.1);
+        //println!("\t{:?} -> {:?}[label=\"\"];", edge.0, edge.1);
         //}
         println!("}}");
     }
@@ -811,13 +809,23 @@ impl StateMachine {
         // states are ordered from most ideal outcome first.
         self.add_transition(State::Unscanned, State::Scanned, Scan::transition, "Scan");
         self.add_transition(State::Unscanned, State::Fail, Scan::transition, "Scan");
-        self.add_transition(State::NotMounted, State::Mounted, Mount::transition, "Mount");
-        self.add_transition(State::NotMounted, State::MountFailed, Mount::transition, "Mount");
+        self.add_transition(
+            State::NotMounted,
+            State::Mounted,
+            Mount::transition,
+            "Mount",
+        );
+        self.add_transition(
+            State::NotMounted,
+            State::MountFailed,
+            Mount::transition,
+            "Mount",
+        );
         self.add_transition(
             State::MountFailed,
             State::Corrupt,
             CheckForCorruption::transition,
-            "CheckForCorruption"
+            "CheckForCorruption",
         );
 
         self.add_transition(State::Scanned, State::Good, Eval::transition, "Eval");
@@ -827,42 +835,62 @@ impl StateMachine {
             State::Scanned,
             State::WornOut,
             CheckWearLeveling::transition,
-            "CheckWearLeveling"
+            "CheckWearLeveling",
         );
 
         self.add_transition(State::Mounted, State::Scanned, NoOp::transition, "NoOp");
-        self.add_transition(State::ReadOnly, State::Mounted, Remount::transition, "Remount");
-        self.add_transition(State::ReadOnly, State::MountFailed, Remount::transition, "Remount");
+        self.add_transition(
+            State::ReadOnly,
+            State::Mounted,
+            Remount::transition,
+            "Remount",
+        );
+        self.add_transition(
+            State::ReadOnly,
+            State::MountFailed,
+            Remount::transition,
+            "Remount",
+        );
 
-        self.add_transition(State::Corrupt, State::Repaired, AttemptRepair::transition, "AttemptRepair");
+        self.add_transition(
+            State::Corrupt,
+            State::Repaired,
+            AttemptRepair::transition,
+            "AttemptRepair",
+        );
         self.add_transition(
             State::Corrupt,
             State::RepairFailed,
             NoOp::transition,
-            "NoOp"
+            "NoOp",
         );
 
         self.add_transition(
             State::RepairFailed,
             State::Reformatted,
             Reformat::transition,
-            "Reformat"
+            "Reformat",
         );
         self.add_transition(
             State::RepairFailed,
             State::ReformatFailed,
             NoOp::transition,
-            "NoOp"
+            "NoOp",
         );
 
         self.add_transition(
             State::ReformatFailed,
             State::WaitingForReplacement,
             NoOp::transition,
-            "NoOp"
+            "NoOp",
         );
 
-        self.add_transition(State::Reformatted, State::Unscanned, NoOp::transition, "NoOp");
+        self.add_transition(
+            State::Reformatted,
+            State::Unscanned,
+            NoOp::transition,
+            "NoOp",
+        );
 
         self.add_transition(
             State::WornOut,
@@ -884,14 +912,14 @@ impl StateMachine {
             State::WriteFailed,
             State::ReadOnly,
             CheckReadOnly::transition,
-            "CheckReadOnly"
+            "CheckReadOnly",
         );
         // Fsck can either conclude here that everything is fine or the filesystem is corrupt
         self.add_transition(
             State::WriteFailed,
             State::Corrupt,
             CheckForCorruption::transition,
-            "CheckForCorruption"
+            "CheckForCorruption",
         );
     }
 }
@@ -1017,7 +1045,6 @@ enum Fsck {
 }
 
 pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
-    let results: Vec<Result<StateMachine>> = Vec::new();
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
@@ -1054,114 +1081,35 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
     //TODO: Add nvme devices to block-utils
 
     // Create 1 state machine per Device and evaulate all devices in parallel
-    let disk_states: Vec<rusqlite::Result<StateMachine>> = device_info
+    let disk_states: Vec<Result<StateMachine>> = device_info
         .clone()
         .into_par_iter()
         .map(|device| {
             // Lookup the disk and see if it's in progress.  If so then
             // set the state to WaitingOnReplacement.
             // Resume where we left off
-            let conn = connect_to_repair_database(db)?;
+            let conn =
+                connect_to_repair_database(db).map_err(|e| Error::new(ErrorKind::Other, e))?;
             let mut s = StateMachine::new(device, conn, false);
             s.setup_state_machine();
-            s.restore_state()?;
+            s.restore_state()
+                .map_err(|e| Error::new(ErrorKind::Other, e))?;
             s.run();
             // Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");
                 let tmp = format!("/dev/{}", s.disk.name);
                 let disk_path = Path::new(&tmp);
-                let conn = connect_to_repair_database(db)?;
-                let in_progress = is_disk_in_progress(&conn, &disk_path)?;
+                let conn =
+                    connect_to_repair_database(db).map_err(|e| Error::new(ErrorKind::Other, e))?;
+                let in_progress = is_disk_in_progress(&conn, &disk_path)
+                    .map_err(|e| Error::new(ErrorKind::Other, e))?;
             }
             Ok(s)
         }).collect();
 
-    Ok(results)
+    Ok(disk_states)
 }
-
-/*
-fn run_checks(device_info: &Device) -> Result<Status> {
-    let mut disk_status = Status {
-        corrupted: false,
-        repaired: false,
-        device: device_info.clone(),
-        mount_path: PathBuf::from(""),
-        smart_passed: None,
-    };
-    let dev_path = format!("/dev/{}", device_info.name);
-
-    // Run a smart check on the base device without partition
-    match run_smart_checks(&Path::new(&dev_path)) {
-        Ok(result) => {
-            disk_status.smart_passed = Some(result);
-        }
-        Err(e) => {
-            error!("Smart test failed: {:?}", e);
-        }
-    };
-
-    let device = Path::new(&dev_path);
-    match get_mountpoint(&device) {
-        Ok(mount_info) => {
-            match mount_info {
-                Some(s) => {
-                    // mounted at s
-                    info!("Device is mounted at: {:?}", s);
-                    debug!("Checking if device exists: {:?}", device);
-                    match device.exists() {
-                        true => {
-                            debug!("udev Probing device {:?}", device);
-                            let info = block_utils::get_device_info(&device);
-                            let corrupted = match check_writable(&s) {
-                                Ok(_) => false,
-                                Err(e) => {
-                                    //Should proceed to error checking now
-                                    error!("Error writing to disk: {:?}", e);
-                                    disk_status.corrupted = true;
-                                    true
-                                }
-                            };
-                            if corrupted {
-                                if let Ok(udev_info) = info {
-                                    let check_result =
-                                        check_filesystem(&udev_info.fs_type, &device);
-                                    debug!("check_filesystem result: {:?}", check_result);
-                                    let repair_result =
-                                        repair_filesystem(&udev_info.fs_type, &device);
-                                    debug!("repair_result result: {:?}", repair_result);
-                                } else {
-                                    error!(
-                                        "Failed to gather udev info on {:?}. error: {:?}",
-                                        device, info
-                                    );
-                                }
-                            }
-                        }
-                        false => {
-                            // mountpoint exists for device that does not exist.  Lets flag it
-                            // so it gets checked out by a human
-                            debug!(
-                                "Device does not exist: {:?} but system thinks it is mounted",
-                                device
-                            );
-                            disk_status.corrupted = true;
-                        }
-                    };
-                }
-                None => {
-                    // It's not mounted.  Lets run an check/repair on it
-                    debug!("Device is not mounted: {:?}", device);
-                }
-            };
-        }
-        Err(e) => {
-            error!("Failed to determine if device is mounted.  {:?}", e);
-        }
-    };
-    Ok(disk_status)
-}
-*/
 
 #[cfg_attr(test, mockable)]
 fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<Fsck> {

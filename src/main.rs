@@ -29,12 +29,12 @@ use std::io::Result as IOResult;
 use std::io::{Error, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
+use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::host_information::Host;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
-use self::test_disk::State;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -211,6 +211,11 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                             debug!("Device is already in the repair queue");
                         }
                     }
+                // Handle the ones that ended up stuck in Fail
+                } else if state.state == State::Fail {
+                    //
+                }else {
+                    // The rest should be State::Good ?
                 }
             }
             Err(e) => {
@@ -301,20 +306,17 @@ fn main() {
                 .long("configdir")
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("simulate")
                 .help("Log messages but take no action")
                 .long("simulate")
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        )
-        .get_matches();
+        ).get_matches();
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
