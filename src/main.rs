@@ -213,8 +213,8 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                     }
                 // Handle the ones that ended up stuck in Fail
                 } else if state.state == State::Fail {
-                    //
-                }else {
+                    error!("Disk {} ended in a Fail state", dev_path.display(),);
+                } else {
                     // The rest should be State::Good ?
                 }
             }

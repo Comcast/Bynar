@@ -1,15 +1,12 @@
-//! Disk checks are defined here.  To define a new
-//! check create a struct and impl the DiskCheck trait.
-//! To create a remediation should that check fail you
-//! should also impl the DiskRemediation trait.
-//!
-//!                            +------>disk_is_ok           +----->replace_disk
-//!                            + no                         +no
-//!       +---->is_filesystem_corrupted      +--------> can_i_repair
-//!       + no                 + yes         + no      ^   + yes
-//!is_disk_writable            +------>is_mounted      |   +----->repair_disk
-//!       + yes                              + yes     +
-//!       +----->disk_is_ok                  +---->unmount
+//! Disk checks are defined here.  To define a new check create a new
+//! struct and then impl Transition for it.  The disks here use a state 
+//! machine to determine what is and is not possible.  To see the state 
+//! machine as a visual diagram run one of the unit tests and copy the
+//! digraph output into a dot file and convert using 
+//! `dot -Tps example.dot -o example.ps` to postscript or 
+//! `dot -Tsvg example.dot -o example.svg` to svg.
+//! See comments on the run() function for StateMachine and also
+//! the comments under setup_state_machine() to learn more about how it works.
 extern crate blkid;
 extern crate block_utils;
 extern crate fstab;
@@ -251,10 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_state_machine_replaced_disk() {}
-
-    #[test]
-    fn test_state_machine_resume() {
+    fn test_state_machine_replaced_disk() {
         TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
 
@@ -805,8 +799,8 @@ impl StateMachine {
     fn setup_state_machine(&mut self) {
         // GraphMap will run the transitions in the order they're added here
         // If Unscanned has 2 edges it will run the first added one first
-        // and then the second one.  To deal with this these
-        // states are ordered from most ideal outcome first.
+        // and then the second one.  To deal with this the
+        // states are ordered from most to least ideal outcome.
         self.add_transition(State::Unscanned, State::Scanned, Scan::transition, "Scan");
         self.add_transition(State::Unscanned, State::Fail, Scan::transition, "Scan");
         self.add_transition(
