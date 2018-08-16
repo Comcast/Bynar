@@ -52,3 +52,4 @@ time = "~0.1"
 uname = "~0.1"
 uuid = { version="~0.6", features = ["v4"]}
 zmq = {version="~0.8"}
+postgres = "~0.15"
