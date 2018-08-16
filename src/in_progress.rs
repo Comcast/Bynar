@@ -6,6 +6,7 @@ extern crate time;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::net::IpAddr;
 
 use test_disk;
 
@@ -41,19 +42,20 @@ mod tests {
 
     #[test]
     fn test_update_storage_info() {
-        let connection_string = read_db_config();
+        let configFile = "/tmp/dbconfig.json".to_string();
+        let connection_string = read_db_config(&configFile);
 
         println!("Connection string is {}", connection_string);
         let pid = id();
         let info = HostDetails {
             region: String::from("test-region"),
-            ip: String::from("10.1.1.1"),
+            ip: IpAddr::from_str("10.1.1.1"),
             hostname: String::from("test-host"),
-            storage_type: String::from("test-type"),
+            storage_type: StorageTypeEnum::Ceph,
             array_name: String::from("array-name"),
             pool_name: String::from("unknown"),
         };
-        let result = update_storage_info(&info, pid).expect(
+        let result = update_storage_info(&info, pid, &configFile).expect(
             "Failed to update
                 storage details",
         );
@@ -273,28 +275,48 @@ pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -
 
 #[derive(Debug)]
 pub struct HostDetails {
-    pub ip: String,
+    pub ip: IpAddr,
     pub hostname: String,
     pub region: String,
-    pub storage_type: String,
+    pub storage_type: StorageTypeEnum,
     pub array_name: String,
     pub pool_name: String,
 }
 
+#[derive(Debug)]
+pub enum StorageTypeEnum {
+    Ceph,
+    Scaleio,
+    Gluster,
+    Hitachi,
+}
+
+impl ToString for StorageTypeEnum {
+    fn to_string(&self) -> String {
+        match self {
+            &StorageTypeEnum::Ceph => "ceph".into(),
+            &StorageTypeEnum::Scaleio => "scaleio".into(),
+            &StorageTypeEnum::Gluster => "gluster".into(),
+            &StorageTypeEnum::Hitachi => "hitachi".into(),
+        }
+    }
+}
+
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
-pub fn update_storage_info(s_info: &HostDetails, pid: u32) -> pResult<bool> {
+pub fn update_storage_info(s_info: &HostDetails, pid: u32, config: &str) -> pResult<bool> {
     debug!("Adding datacenter and host information to database");
 
-    let mut connection_string = read_db_config();
+    let connection_string = read_db_config(&config);
     if connection_string.is_empty() {
         error!("Failed to build database connection string");
         return Ok(false);
     }
     let conn =
         pConnection::connect(connection_string, TlsMode::None).expect("Database connection failed");
-
-    let entry_id = register_to_process_manager(&conn, pid, &s_info.ip.clone())?;
+    // extract ip address to a &str
+    let ip_address: String = s_info.ip.to_string();
+    let entry_id = register_to_process_manager(&conn, pid, &ip_address)?;
     let region_id = update_region(&conn, &s_info.region.clone())?;
     let detail_id = update_storage_details(&conn, &s_info, region_id)?;
 
@@ -306,15 +328,15 @@ pub fn update_storage_info(s_info: &HostDetails, pid: u32) -> pResult<bool> {
     Ok(true)
 }
 
-fn read_db_config() -> String {
+fn read_db_config(config_file: &str) -> String {
     //TODO: 1. Propagate errors.
-    //2. Change location of Db config
 
-    let config_file = match File::open("/tmp/dbconfig.json") {
+    let config_file_fd = match File::open(&config_file) {
         Ok(file) => file,
         Err(_e) => return "".to_string(),
     };
-    let config: super::serde_json::Value = match super::serde_json::from_reader(config_file) {
+    let config: super::serde_json::Value = match
+    super::serde_json::from_reader(config_file_fd) {
         Ok(v) => v,
         Err(_e) => return "".to_string(),
     };
@@ -327,11 +349,18 @@ fn read_db_config() -> String {
     let dbname = config["database"]
         .as_str()
         .expect("database name is missing");
-    let port = config["port"].as_u64().expect("port number is missing");
-    let endpoint = config["endpoint"].as_str().expect("port number is missing");
-
-    // usual connection is
-    // postgresql://[username[:passwd]@][netloc][:port][,...][/dbname]
+    let port = config["port"].as_u64().expect("port number is missing") as u16;
+    let endpoint = config["endpoint"]
+                                .as_str()
+                                .expect("port number is missing");
+                                
+    //params = ConnectParams::builder()
+        //            .user(username, Some(password))
+      //              .port(port)
+          //          .database(dbname)
+            //        .build(Host::Tcp(endpoint.to_string()));
+//     usual connection is
+//   postgresql://[username[:passwd]@][netloc][:port][,...][/dbname]
     connection_string.push_str(&format!("{}:{}@", username, password));
     connection_string.push_str(endpoint);
     connection_string.push_str(&format!(":{}", port));
@@ -388,6 +417,8 @@ pub fn deregister_from_process_manager() -> pResult<()> {
     Ok(())
 }
 
+// Checks for the region in the database, inserts if it does not exist 
+// and returns the region_id
 fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
     let stmt = format!(
         "SELECT region_id FROM regions WHERE region_name = '{}'",
@@ -401,7 +432,7 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
         region_id = r.get(0);
     } else {
         // does not exist, insert
-        debug!("Updating region {} to database", region);
+        debug!("Adding region {} to database", region);
         let stmt = format!(
             "INSERT INTO regions (region_name)
                             VALUES ('{}') RETURNING region_id",
@@ -423,7 +454,7 @@ fn update_storage_details(
 ) -> pResult<u32> {
     let stmt = format!(
         "SELECT storage_id FROM storage_types WHERE storage_type={}",
-        s_info.storage_type
+        s_info.storage_type.to_string()
     );
     let stmt_query = conn.query(&stmt, &[])?;
     let mut storage_detail_id: u32 = 0;
@@ -458,7 +489,7 @@ fn update_storage_details(
             }
         }
     } else {
-        error!("Storage type {} not in database", s_info.storage_type);
+        error!("Storage type {} not in database", s_info.storage_type.to_string());
     }
     Ok(storage_detail_id)
 }
