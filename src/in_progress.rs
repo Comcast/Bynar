@@ -7,6 +7,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::net::IpAddr;
+use std::fmt::{Display, Result as fResult, Formatter};
 
 use test_disk;
 
@@ -291,14 +292,15 @@ pub enum StorageTypeEnum {
     Hitachi,
 }
 
-impl ToString for StorageTypeEnum {
-    fn to_string(&self) -> String {
-        match self {
-            &StorageTypeEnum::Ceph => "ceph".into(),
-            &StorageTypeEnum::Scaleio => "scaleio".into(),
-            &StorageTypeEnum::Gluster => "gluster".into(),
-            &StorageTypeEnum::Hitachi => "hitachi".into(),
-        }
+impl Display for StorageTypeEnum {
+    fn fmt(&self, f: &mut Formatter) -> fResult {
+        let message = match *self {
+            StorageTypeEnum::Ceph => "ceph",
+            StorageTypeEnum::Scaleio => "scaleio",
+            StorageTypeEnum::Hitachi => "hitachi",
+            StorageTypeEnum::Gluster => "gluster",
+        };
+        write!(f, "{}", message)
     }
 }
 
@@ -454,7 +456,7 @@ fn update_storage_details(
 ) -> pResult<u32> {
     let stmt = format!(
         "SELECT storage_id FROM storage_types WHERE storage_type={}",
-        s_info.storage_type.to_string()
+        s_info.storage_type
     );
     let stmt_query = conn.query(&stmt, &[])?;
     let mut storage_detail_id: u32 = 0;
@@ -489,7 +491,7 @@ fn update_storage_details(
             }
         }
     } else {
-        error!("Storage type {} not in database", s_info.storage_type.to_string());
+        error!("Storage type {} not in database", s_info.storage_type);
     }
     Ok(storage_detail_id)
 }
