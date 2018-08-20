@@ -115,6 +115,14 @@ to keep you in the loop.
 The time saved here multplies with each piece of hardware replaced and now you 
 can focus your time and energy on other things.  It's a positive snowball effect!
 
+## Testing
+
+Note that root permissions are required for integration testing.  The reason
+is that the test functions will attempt to create loopback devices, mount them,
+check their filesystems etc and all that requires root. The nightly compiler
+is also required for testing because mocktopus makes use of features that 
+haven't landed in stable yet.
+
 ## Support and Contributions
 
 If you need support, start by checking the [issues] page.
