@@ -121,7 +121,7 @@ Note that root permissions are required for integration testing.  The reason
 is that the test functions will attempt to create loopback devices, mount them,
 check their filesystems etc and all that requires root. The nightly compiler
 is also required for testing because mocktopus makes use of features that 
-haven't landed in stable yet.
+haven't landed in stable yet.  Run: `sudo ~/.cargo/bin/cargo test -- --nocapture` to test.
 
 ## Support and Contributions
 
