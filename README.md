@@ -85,6 +85,7 @@ If you want to build Bynar:
 
 ```
 $ curl https://sh.rustup.rs -sSf | sh
+$ rustup override set nightly
 $ cargo build --release
 ```
 #### Dependencies:
