@@ -1,9 +1,9 @@
 //! Disk checks are defined here.  To define a new check create a new
-//! struct and then impl Transition for it.  The disks here use a state 
-//! machine to determine what is and is not possible.  To see the state 
+//! struct and then impl Transition for it.  The disks here use a state
+//! machine to determine what is and is not possible.  To see the state
 //! machine as a visual diagram run one of the unit tests and copy the
-//! digraph output into a dot file and convert using 
-//! `dot -Tps example.dot -o example.ps` to postscript or 
+//! digraph output into a dot file and convert using
+//! `dot -Tps example.dot -o example.ps` to postscript or
 //! `dot -Tsvg example.dot -o example.svg` to svg.
 //! See comments on the run() function for StateMachine and also
 //! the comments under setup_state_machine() to learn more about how it works.
@@ -48,7 +48,9 @@ use std::str::FromStr;
 
 #[cfg(test)]
 mod tests {
+    extern crate rand;
     extern crate simplelog;
+    extern crate tempdir;
 
     use in_progress;
 
@@ -56,13 +58,21 @@ mod tests {
     use std::io::{Error, ErrorKind, Write};
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    use std::sync::Mutex;
 
+    use self::tempdir::TempDir;
     use super::blkid::BlkId;
     use super::mocktopus::mocking::*;
     use super::uuid::Uuid;
     use simplelog::{Config, TermLogger};
 
+    lazy_static! {
+        // This prevents all threads from getting the same loopback device
+        static ref LOOP: Mutex<()> = Mutex::new(());
+    }
+
     fn create_loop_device() -> PathBuf {
+        let _shared = LOOP.lock().unwrap();
         // Find free loopback device
         let out = Command::new("losetup").args(&["-f"]).output().unwrap();
         // Assert we created the device
@@ -72,19 +82,23 @@ mod tests {
         let free_device = stdout.trim();
 
         // Create a loopback device for testing
-        let mut f = File::create("/tmp/file.img").unwrap();
+        let random = rand::random::<u32>();
+        let d = TempDir::new(&format!("bynar.{}", random)).expect("Temp dir creation failed");
+        let file_path = d.path().join("file.img");
+
+        let mut f = File::create(&file_path).expect("loop backing file creation failed");
         // Write 25MB to a file
-        debug!("writing 25MB to /tmp/file.img");
+        debug!("writing 25MB to {}", file_path.display());
         let buff = [0x00; 1024];
         for _ in 0..25600 {
-            f.write(&buff).unwrap();
+            f.write(&buff).expect("Failed to write to loop backing file");
         }
         f.sync_all().unwrap();
 
         // Setup a loopback device for testing filesystem corruption
         debug!("setting up {} device", free_device);
         Command::new("losetup")
-            .args(&[free_device, "/tmp/file.img"])
+            .args(&[free_device, &file_path.to_string_lossy()])
             .status()
             .unwrap();
 
@@ -113,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_base() {
-        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
 
         // Mock smart to return Ok(true)
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
@@ -126,9 +140,11 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3");
-        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+        let sql_dir = TempDir::new("bynar").unwrap();
+        let db_path = sql_dir.path().join("base.sqlite3");
+        //cleanup old
+        let _ = remove_file(&db_path);
+        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         let d = super::Device {
             id: Some(drive_id),
@@ -152,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_bad_filesystem() {
-        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
 
         // Mock smart to return Ok(true)
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
@@ -177,9 +193,11 @@ mod tests {
             .unwrap();
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3");
-        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+        let sql_dir = TempDir::new("bynar").unwrap();
+        let db_path = sql_dir.path().join("bad_fs.sqlite3");
+        //cleanup old
+        let _ = remove_file(&db_path);
+        let conn = super::connect_to_repair_database(&db_path).unwrap();
         let d = super::Device {
             id: Some(drive_id),
             name: dev.file_name().unwrap().to_str().unwrap().to_string(),
@@ -202,7 +220,7 @@ mod tests {
     #[test]
     fn test_state_machine_replace_disk() {
         // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
-        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
 
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
         super::check_writable
@@ -223,9 +241,11 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3");
-        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+        let sql_dir = TempDir::new("bynar").unwrap();
+        let db_path = sql_dir.path().join("replace_disk.sqlite3");
+        //cleanup old
+        let _ = remove_file(&db_path);
+        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         let d = super::Device {
             id: Some(drive_id),
@@ -249,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_replaced_disk() {
-        TermLogger::init(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
 
         let dev = create_loop_device();
@@ -260,9 +280,11 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        // Cleanup previous test runs
-        remove_file("/tmp/db.sqlite3");
-        let conn = super::connect_to_repair_database(Path::new("/tmp/db.sqlite3")).unwrap();
+        let sql_dir = TempDir::new("bynar").unwrap();
+        let db_path = sql_dir.path().join("replaced_disk.sqlite3");
+        //cleanup old
+        let _ = remove_file(&db_path);
+        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         // Set the previous state to something other than Unscanned
         in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
@@ -332,9 +354,9 @@ impl Transition for CheckForCorruption {
         simulate: bool,
     ) -> State {
         debug!("running CheckForCorruption transition");
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
         if !simulate {
+            let tmp = format!("/dev/{}", device.name);
+            let dev_path = Path::new(&tmp);
             match check_filesystem(&device.fs_type, &dev_path) {
                 Ok(fsck) => match fsck {
                     // Writes are failing but fsck is ok?
