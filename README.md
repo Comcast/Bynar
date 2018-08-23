@@ -93,6 +93,7 @@ $ cargo build --release
 3. librados  # ceph jewel or higher
 4. libatasmart
 5. openssl-dev
+6. libblkid-dev
 
 ## Hard Drive Workflow
 Hard drives die all the time as part of the regular cycle of things in servers.  Bynar
