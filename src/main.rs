@@ -1,5 +1,4 @@
-#![cfg_attr(test, feature(proc_macro_mod))]
-#![feature(use_extern_macros)]
+#![cfg_attr(test, feature(test, proc_macro_mod))]
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
 /// 2. Report dead disk to JIRA for repairs
@@ -9,6 +8,11 @@ extern crate api;
 #[macro_use]
 extern crate clap;
 extern crate helpers;
+
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
+
 #[macro_use]
 extern crate log;
 extern crate protobuf;
