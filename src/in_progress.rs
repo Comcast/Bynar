@@ -2,18 +2,22 @@
 extern crate postgres;
 extern crate rusqlite;
 extern crate time;
+extern crate chrono;
 
+use self::chrono::offset::Utc;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::net::IpAddr;
 use std::fmt::{Display, Result as fResult, Formatter};
-
-use test_disk;
-
+use std::default::Default;
 use self::postgres::{Connection as pConnection, Result as pResult, TlsMode};
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
+use self::chrono::DateTime;
+
+use test_disk;
+
 
 #[cfg(test)]
 mod tests {
@@ -305,8 +309,53 @@ impl Display for StorageTypeEnum {
     }
 }
 
+#[derive(Debug)]
+pub struct HostDetailsMapping {
+    pub entry_id: u32,
+    pub region_id: u32,
+    pub storage_detail_id: u32,
+}
+
+impl HostDetailsMapping {
+    pub fn new(entry_id: u32, region_id: u32, storage_detail_id: u32) -> HostDetailsMapping {
+        HostDetailsMapping {
+            entry_id,
+            region_id,
+            storage_detail_id
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct OperationInfo {
+    pub operation_id: u32,
+    pub host_details: HostDetailsMapping,
+    pub disk_uuid: String,
+    pub behalf_of: Option<String>,
+    pub reason: Option<String>,
+    pub start_time: DateTime<Utc>,
+    pub snapshot_time: DateTime<Utc>,
+    pub done_time: Option<DateTime<Utc>>,
+}
+
+impl Default for OperationInfo {
+    fn default() -> OperationInfo {
+        OperationInfo {
+            operation_id: 0,
+            host_details: HostDetailsMapping::new(0,0,0),
+            disk_uuid: String::from(""),
+            behalf_of: None,
+            reason: None,
+            start_time: Utc::now(),
+            snapshot_time: Utc::now(),
+            done_time: None,
+        }
+    }
+}
+
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
+/// TODO: return conn, entry_id, region_id, detail_id
 pub fn update_storage_info(s_info: &HostDetails, pid: u32, config: &str) -> pResult<bool> {
     debug!("Adding datacenter and host information to database");
 
@@ -496,3 +545,71 @@ fn update_storage_details(
     }
     Ok(storage_detail_id)
 }
+
+// inserts the operation record and returns the operation_id
+// If updating, performs the query and returns the given operation_id if successful update
+pub fn add_or_update_operation(
+    conn: &pConnection,
+    op_info: &OperationInfo) -> pResult<u32> {
+        let mut op_id: u32 = 0;
+        let mut stmt = String::new();
+        
+        match op_info.operation_id {
+                    0 => {
+                        // no operation_id, validate new record input
+                        let host_info: HostDetailsMapping = op_info.host_details;
+                        if host_info.region_id == 0 ||
+                            host_info.entry_id == 0 ||
+                                host_info.storage_detail_id == 0 {
+                            error!("Required region_id, storage_detail_id, entry_id");
+                            return Ok(0);
+                        }
+                        stmt.push_str("INSERT INTO operations (
+                                    region_id, storage_detail_id, entry_id
+                                    start_time, disk_uuid");
+
+                                if let Some(_) = op_info.behalf_of {
+                                stmt.push_str(", behalf_of");
+                                }
+                                if let Some(_) = op_info.reason {
+                                stmt.push_str(", reason");
+                                }
+
+                                stmt.push_str(")");
+
+                                stmt.push_str(&format!(" VALUES ({},{},{},{}, {}",
+                                        host_info.region_id, host_info.storage_detail_id,
+                                        host_info.entry_id, op_info.start_time, op_info.disk_uuid));
+
+                                if let Some(behalf_of) = op_info.behalf_of {
+                                    stmt.push_str(&format!(", {}", behalf_of));
+                                }
+                                if let Some(reason) = op_info.reason {
+                                    stmt.push_str(&format!(", {}", reason));
+                                }
+
+                                stmt.push_str(") RETURNING operation_id");
+                    }
+                    _ => {
+                        // update existing record. Only snapshot_time and done_time 
+                        // can be updated.
+                        stmt.push_str(&format!("UPDATE operations SET (snapshot_time = {}", op_info.snapshot_time));
+
+                        if let Some(d_time) = op_info.done_time {
+                            stmt.push_str(&format!(", done_time = {}", d_time));
+                        }
+                        stmt.push_str(&format!(") WHERE operation_id = {}", op_info.operation_id));
+
+                        op_id = op_info.operation_id;
+                    }
+                }
+        let stmt_query = conn.query(&stmt, &[])?;
+        if let Some(result) = stmt_query.into_iter().next() {
+            op_id = result.get("operation_id");
+        } else {
+            // failed to insert
+            error!("Failed to update operation to database");
+        }
+
+        Ok(op_id)
+    }

@@ -40,3 +40,45 @@ CREATE TABLE IF NOT EXISTS disks (
     disk_name VARCHAR,
     disk_path VARCHAR
     );
+
+CREATE TABLE IF NOT EXISTS operation_types (
+    type_id SERIAL NOT NULL UNIQUE,
+    op_name VARCHAR (128) PRIMARY KEY NOT NULL
+    );
+
+INSERT INTO operation_types (op_name) VALUES ('diskadd');
+INSERT INTO operation_types (op_name) VALUES ('diskreplace');
+INSERT INTO operation_types (op_name) VALUES ('diskremove');
+INSERT INTO operation_types (op_name) VALUES ('clusteradd');
+INSERT INTO operation_types (op_name) VALUES ('clusterdelete');
+INSERT INTO operation_types (op_name) VALUES ('waitforreplacement');
+-- Evaluation combines all the internal work like checking 
+-- file system for corruption, attempting repair etc.
+INSERT INTO operation_types (op_name) VALUES ('evaluation');
+
+
+CREATE TABLE IF NOT EXISTS operations (
+    operation_id BIGINT SERIAL NOT NULL UNIQUE,
+    region_id INTEGER REFERENCES regions(region_id) ON DELETE CASCADE,
+    storage_detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
+    disk_uuid VARCHAR REFERENCES disks(disk_uuid) ON DELETE CASCADE,
+    entry_id INTEGER REFERENCES process_manager(entry_id), -- do not delete cascade
+    -- this record is still needed after bynar stops running on a system
+    start_time BIGINT NOT NULL,-- epoch when it started
+    snapshot_time BIGINT, -- epoch when last updated
+    done_time BIGINT, -- epoch when operation is done
+    behalf_of VARCHAR(256), -- who requested this
+    reason VARCHAR,
+    );
+
+CREATE TABLE IF NOT EXISTS operation_details (
+    operation_detail_id BIGINT SERIAL NOT NULL UNIQUE,
+    operation_id REFERENCES operations(operation_id) ON DELETE CASCADE,
+    type_id INTEGER REFERENCES operation_types(type_id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL, -- one of pending, in-progress, done
+    tracking_id VARCHAR -- JIRA tracking id
+    start_time BIGINT NOT NULL,-- epoch when it started
+    snapshot_time BIGINT, -- epoch when last updated
+    done_time BIGINT, -- epoch when operation is done
+    PRIMARY KEY (operation_id, type_id, status)
+);
