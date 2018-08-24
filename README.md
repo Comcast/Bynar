@@ -85,6 +85,7 @@ If you want to build Bynar:
 
 ```
 $ curl https://sh.rustup.rs -sSf | sh
+$ rustup override set nightly
 $ cargo build --release
 ```
 #### Dependencies:
@@ -93,6 +94,7 @@ $ cargo build --release
 3. librados  # ceph jewel or higher
 4. libatasmart
 5. openssl-dev
+6. libblkid-dev
 
 ## Hard Drive Workflow
 Hard drives die all the time as part of the regular cycle of things in servers.  Bynar
@@ -114,6 +116,14 @@ While it is replacing your drives it can also inform you over slack or other cha
 to keep you in the loop.
 The time saved here multplies with each piece of hardware replaced and now you 
 can focus your time and energy on other things.  It's a positive snowball effect!
+
+## Testing
+
+Note that root permissions are required for integration testing.  The reason
+is that the test functions will attempt to create loopback devices, mount them,
+check their filesystems etc and all that requires root. The nightly compiler
+is also required for testing because mocktopus makes use of features that 
+haven't landed in stable yet.  Run: `sudo ~/.cargo/bin/cargo test -- --nocapture` to test.
 
 ## Support and Contributions
 

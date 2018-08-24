@@ -1,3 +1,4 @@
+#![cfg_attr(test, feature(test, proc_macro_mod))]
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
 /// 2. Report dead disk to JIRA for repairs
@@ -7,6 +8,11 @@ extern crate api;
 #[macro_use]
 extern crate clap;
 extern crate helpers;
+
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
+
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -23,12 +29,13 @@ mod in_progress;
 mod test_disk;
 
 use std::fs::File;
-use std::io::{Error, ErrorKind, Read};
 use std::io::Result as IOResult;
+use std::io::{Error, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
-use create_support_ticket::{create_support_ticket, ticket_resolved};
+use self::test_disk::State;
 use clap::{App, Arg};
+use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::host_information::Host;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
@@ -108,21 +115,21 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
     );
 
     info!("Checking all drives");
-    for result in test_disk::check_all_disks().map_err(|e| e.to_string())? {
+    let conn =
+        in_progress::connect_to_repair_database(&config_location).map_err(|e| e.to_string())?;
+    for result in test_disk::check_all_disks(&config_location).map_err(|e| e.to_string())? {
         match result {
-            Ok(status) => {
-                info!("Disk status: {:?}", status);
+            Ok(state) => {
+                info!("Disk status: {:?}", state);
                 let mut dev_path = PathBuf::from("/dev");
-                dev_path.push(status.device.name);
+                dev_path.push(state.disk.name);
 
-                if status.corrupted == true && status.repaired == false {
+                if state.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = status.device.serial_number {
+                    if let Some(serial) = state.disk.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
-                    let conn = in_progress::connect_to_repair_database(&config_location)
-                        .map_err(|e| e.to_string())?;
                     let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)
                         .map_err(|e| e.to_string())?;
                     if !simulate {
@@ -208,10 +215,14 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                             debug!("Device is already in the repair queue");
                         }
                     }
+                // Handle the ones that ended up stuck in Fail
+                } else if state.state == State::Fail {
+                    error!("Disk {} ended in a Fail state", dev_path.display(),);
+                } else {
+                    // The rest should be State::Good ?
                 }
             }
             Err(e) => {
-                //
                 error!("check_all_disks failed with error: {:?}", e);
                 return Err(format!("check_all_disks failed with error: {:?}", e));
             }
@@ -299,20 +310,17 @@ fn main() {
                 .long("configdir")
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("simulate")
                 .help("Log messages but take no action")
                 .long("simulate")
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        )
-        .get_matches();
+        ).get_matches();
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
@@ -336,7 +344,6 @@ fn main() {
     let simulate = matches.is_present("simulate");
     let config_dir = matches.value_of("configdir").unwrap();
 
-    //TODO: Get a vault token so I can talk to disk-manager
     match check_for_failed_disks(config_dir, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
@@ -345,7 +352,6 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    // TODO: Use token here
     match add_repaired_disks(config_dir, simulate) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
