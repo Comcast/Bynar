@@ -28,11 +28,11 @@ mod tests {
     use std::process::id;
     #[test]
     fn test_in_progress() {
-        // FIX THIS
-        let db_file = TempDir::new("test_db.sqlite3").expect("Temp file creation failed");
+        let sql_dir = TempDir::new("bynar").expect("Temp file creation failed");
+        let db_path = sql_dir.path().join("in_progress.sqlite3");
 
         let conn =
-            super::connect_to_repair_database(db_file.path()).expect("sqlite3 creation failed");
+            super::connect_to_repair_database(&db_path).expect("sqlite3 creation failed");
         super::record_new_repair_ticket(&conn, "001", &Path::new("/dev/sda"))
             .expect("Create repair ticket failed");
         let result = super::is_disk_in_progress(&conn, &Path::new("/dev/sda"))
