@@ -557,7 +557,7 @@ pub fn add_or_update_operation(
         match op_info.operation_id {
                     0 => {
                         // no operation_id, validate new record input
-                        let host_info: HostDetailsMapping = op_info.host_details;
+                        let host_info: &HostDetailsMapping = &op_info.host_details;
                         if host_info.region_id == 0 ||
                             host_info.entry_id == 0 ||
                                 host_info.storage_detail_id == 0 {
@@ -581,10 +581,10 @@ pub fn add_or_update_operation(
                                         host_info.region_id, host_info.storage_detail_id,
                                         host_info.entry_id, op_info.start_time, op_info.disk_uuid));
 
-                                if let Some(behalf_of) = op_info.behalf_of {
+                                if let Some(ref behalf_of) = op_info.behalf_of {
                                     stmt.push_str(&format!(", {}", behalf_of));
                                 }
-                                if let Some(reason) = op_info.reason {
+                                if let Some(ref reason) = op_info.reason {
                                     stmt.push_str(&format!(", {}", reason));
                                 }
 
