@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::net::IpAddr;
 use std::fmt::{Display, Result as fResult, Formatter};
-use std::default::Default;
 use self::postgres::{Connection as pConnection, Result as pResult, TlsMode};
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
@@ -310,6 +309,34 @@ impl Display for StorageTypeEnum {
 }
 
 #[derive(Debug)]
+pub struct DiskInfo {
+    pub disk_id: u32,
+    pub storage_detail_id: u32,
+    pub disk_path: String,
+    pub disk_name: String,
+    pub disk_uuid: Option<String>
+}
+
+impl DiskInfo {
+    pub fn new(disk_name: String, disk_path: String, storage_detail_id: u32) -> DiskInfo {
+        DiskInfo {
+            disk_id: 0,
+            disk_name,
+            disk_path,
+            storage_detail_id,
+            disk_uuid: None
+        }
+    }
+
+    pub fn set_disk_id(&mut self, disk_id: u32) {
+        self.disk_id = disk_id;
+    }
+    pub fn set_disk_uuid(&mut self, disk_uuid: String) {
+        self.disk_uuid = Some(disk_uuid);
+    }
+}
+
+#[derive(Debug)]
 pub struct HostDetailsMapping {
     pub entry_id: u32,
     pub region_id: u32,
@@ -330,7 +357,7 @@ impl HostDetailsMapping {
 pub struct OperationInfo {
     pub operation_id: u32,
     pub host_details: HostDetailsMapping,
-    pub disk_uuid: String,
+    pub disk_id: u32,
     pub behalf_of: Option<String>,
     pub reason: Option<String>,
     pub start_time: DateTime<Utc>,
@@ -338,12 +365,12 @@ pub struct OperationInfo {
     pub done_time: Option<DateTime<Utc>>,
 }
 
-impl Default for OperationInfo {
-    fn default() -> OperationInfo {
+impl OperationInfo {
+    fn new(host_details: HostDetailsMapping, disk_id: u32) -> OperationInfo {
         OperationInfo {
             operation_id: 0,
-            host_details: HostDetailsMapping::new(0,0,0),
-            disk_uuid: String::from(""),
+            host_details,
+            disk_id,
             behalf_of: None,
             reason: None,
             start_time: Utc::now(),
@@ -546,6 +573,48 @@ fn update_storage_details(
     Ok(storage_detail_id)
 }
 
+// Inserts disk informatation record into bynar.disks and adds the disk_id to struct
+pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<bool> {
+    let mut stmt = String::new();
+
+    match disk_info.disk_id {
+        0 => {
+            // no disk_id present, add a new record
+            stmt.push_str("INSERT INTO disks (storage_detail_id, disk_path, disk_name");
+            if let Some(ref uuid) = disk_info.disk_uuid {
+                stmt.push_str(", disk_uuid");
+            }
+            stmt.push_str(&format!(") VALUES ({}, {}, {}", disk_info.storage_detail_id,
+                            disk_info.disk_path, disk_info.disk_name));
+            if let Some(ref uuid) = disk_info.disk_uuid {
+                    stmt.push_str(&format!(", {}", uuid));
+            }
+            
+            stmt.push_str(") RETURNING disk_id");
+        } 
+        _ => {
+            // verify if all other details match, select disk_id to match with the
+            // return from the insert stmt above
+            stmt.push_str(&format!("SELECT disk_id FROM disks WHERE disk_id = {} AND
+                                    disk_name = {} AND disk_path = {} AND 
+                                    storage_detail_id = {}", disk_info.disk_id,
+                                    disk_info.disk_name, disk_info.disk_path,
+                                    disk_info.storage_detail_id));
+        }
+    }
+    let stmt_query = conn.query(&stmt, &[])?;
+
+    if let Some(result) = stmt_query
+                        .into_iter()
+                        .next() {
+        disk_info.disk_id = result.get("disk_id");
+        Ok(true)
+    } else {
+        error!("Failed to add disk information to database");
+        Ok(false)
+    }
+}
+
 // inserts the operation record and returns the operation_id
 // If updating, performs the query and returns the given operation_id if successful update
 pub fn add_or_update_operation(
@@ -566,7 +635,7 @@ pub fn add_or_update_operation(
                         }
                         stmt.push_str("INSERT INTO operations (
                                     region_id, storage_detail_id, entry_id
-                                    start_time, disk_uuid");
+                                    start_time, disk_id");
 
                                 if let Some(_) = op_info.behalf_of {
                                 stmt.push_str(", behalf_of");
@@ -579,7 +648,7 @@ pub fn add_or_update_operation(
 
                                 stmt.push_str(&format!(" VALUES ({},{},{},{}, {}",
                                         host_info.region_id, host_info.storage_detail_id,
-                                        host_info.entry_id, op_info.start_time, op_info.disk_uuid));
+                                        host_info.entry_id, op_info.start_time, op_info.disk_id));
 
                                 if let Some(ref behalf_of) = op_info.behalf_of {
                                     stmt.push_str(&format!(", {}", behalf_of));
@@ -613,3 +682,4 @@ pub fn add_or_update_operation(
 
         Ok(op_id)
     }
+

@@ -36,11 +36,11 @@ CREATE TABLE IF NOT EXISTS storage_details (
 
 CREATE TABLE IF NOT EXISTS disks (
     disk_id SERIAL NOT NULL UNIQUE,
-    disk_uuid VARCHAR NOT NULL,
+    disk_uuid VARCHAR,
     detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
     disk_name VARCHAR,
-    disk_path VARCHAR,
-    UNIQUE (disk_uuid, detail_id)
+    disk_path VARCHAR NOT NULL,
+    UNIQUE (disk_path, detail_id)
     );
 
 CREATE TABLE IF NOT EXISTS operation_types (
