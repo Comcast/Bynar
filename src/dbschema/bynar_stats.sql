@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS disks (
     detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
     disk_name VARCHAR,
     disk_path VARCHAR NOT NULL,
+    mount_path VARCHAR NOT NULL,
     UNIQUE (disk_path, detail_id)
     );
 
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS operations (
     entry_id INTEGER REFERENCES process_manager(entry_id), -- do not delete cascade
     -- this record is still needed after bynar stops running on a system
     start_time TIMESTAMPTZ NOT NULL,-- when operation started
-    snapshot_time TIMESTAMPTZ, -- when last updated
+    snapshot_time TIMESTAMPTZ NOT NULL, -- when last updated
     done_time TIMESTAMPTZ, --  when operation is done
     behalf_of VARCHAR(256), -- who requested this
     reason VARCHAR
@@ -80,7 +81,7 @@ CREATE TABLE IF NOT EXISTS operation_details (
     status VARCHAR(20) NOT NULL, -- one of pending, in-progress, done
     tracking_id VARCHAR, -- JIRA tracking id
     start_time TIMESTAMPTZ NOT NULL,-- when it started
-    snapshot_time TIMESTAMPTZ, -- when last updated
+    snapshot_time TIMESTAMPTZ NOT NULL, -- when last updated
     done_time TIMESTAMPTZ, -- when operation is done
     PRIMARY KEY (operation_id, type_id, status)
 );

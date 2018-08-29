@@ -1,5 +1,6 @@
 // Monitor in progress disk repairs
 extern crate postgres;
+extern crate postgres_shared;
 extern crate rusqlite;
 extern crate time;
 extern crate chrono;
@@ -11,6 +12,7 @@ use std::str::FromStr;
 use std::net::IpAddr;
 use std::fmt::{Display, Result as fResult, Formatter};
 use self::postgres::{Connection as pConnection, Result as pResult, TlsMode};
+use self::postgres_shared::{error};
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
 use self::chrono::DateTime;
@@ -313,16 +315,18 @@ pub struct DiskInfo {
     pub disk_id: u32,
     pub storage_detail_id: u32,
     pub disk_path: String,
+    pub mount_path: String,
     pub disk_name: String,
     pub disk_uuid: Option<String>
 }
 
 impl DiskInfo {
-    pub fn new(disk_name: String, disk_path: String, storage_detail_id: u32) -> DiskInfo {
+    pub fn new(disk_name: String, disk_path: String, mount_path: String, storage_detail_id: u32) -> DiskInfo {
         DiskInfo {
             disk_id: 0,
             disk_name,
             disk_path,
+            mount_path,
             storage_detail_id,
             disk_uuid: None
         }
@@ -380,19 +384,115 @@ impl OperationInfo {
     }
 }
 
-/// Should be called when bynar daemon first starts up
-/// Returns whether or not all steps in this call have been successful
-/// TODO: return conn, entry_id, region_id, detail_id
-pub fn update_storage_info(s_info: &HostDetails, pid: u32, config: &str) -> pResult<bool> {
-    debug!("Adding datacenter and host information to database");
+#[derive(Debug)]
+pub enum OperationType {
+    DiskAdd,
+    DiskReplace,
+    DiskRemove,
+    WaitForReplacement,
+    Evaluation,
+}
 
+impl Display for OperationType {
+    fn fmt(&self, f: &mut Formatter) -> fResult {
+        let message = match *self {
+            OperationType::DiskAdd => "diskadd",
+            OperationType::DiskReplace => "diskreplace",
+            OperationType::DiskRemove => "diskremove",
+            OperationType::WaitForReplacement => "waitforreplacement",
+            OperationType::Evaluation => "evaluation",
+        };
+        write!(f, "{}", message)
+    }
+}
+
+#[derive(Debug)]
+pub enum OperationStatus {
+    Pending,
+    InProgress,
+    Complete,
+}
+
+impl Display for OperationStatus {
+    fn fmt(&self, f: &mut Formatter) -> fResult {
+        let message = match *self {
+            OperationStatus::Pending => "pending",
+            OperationStatus::InProgress => "in_progress",
+            OperationStatus::Complete => "complete",
+        };
+        write!(f, "{}", message)
+    }
+}
+
+#[derive(Debug)]
+pub struct OperationDetail {
+    pub op_detail_id: u32,
+    pub operation_id: u32,
+    pub op_type: OperationType,
+    pub status: OperationStatus,
+    pub tracking_id: Option<u32>,
+    pub start_time: DateTime<Utc>,
+    pub snapshot_time: DateTime<Utc>,
+    pub done_time: Option<DateTime<Utc>>,
+}
+
+impl OperationDetail {
+    fn new(operation_id: u32, op_type: OperationType) -> OperationDetail {
+        OperationDetail {
+            op_detail_id:0,
+            operation_id,
+            op_type,
+            status: OperationStatus::Pending,
+            tracking_id: None,
+            start_time: Utc::now(),
+            snapshot_time: Utc::now(),
+            done_time: None,
+        }
+    }
+    fn set_operation_detail_id(&mut self, op_detail_id: u32) {
+        self.op_detail_id = op_detail_id;
+    }
+
+    fn set_tracking_id(&mut self, tracking_id: u32) {
+        self.tracking_id = Some(tracking_id);
+    }
+
+    fn set_done_time(&mut self, done_time: DateTime<Utc>) {
+        self.done_time = Some(done_time);
+    }
+
+    fn set_operation_status(&mut self, status: OperationStatus) {
+        self.status = status;
+    }
+}
+
+/// Reads the config file to establish a database connection
+pub fn connect_to_database(config: &str) -> pResult<pConnection>{
+    
+    debug!("Establishing a database connection");
     let connection_string = read_db_config(&config);
     if connection_string.is_empty() {
-        error!("Failed to build database connection string");
-        return Ok(false);
+        return Err(error::connect("connection string missing".into(),
+                ));
     }
     let conn =
         pConnection::connect(connection_string, TlsMode::None).expect("Database connection failed");
+    Ok(conn)
+
+}
+
+/// closes the connection. Should be called for every corresponding call 
+/// to connect_to_database()
+pub fn disconnect_database(conn: pConnection) -> pResult<()> {
+    conn.finish()
+}
+
+/// Should be called when bynar daemon first starts up
+/// Returns whether or not all steps in this call have been successful
+/// TODO: return conn, entry_id, region_id, detail_id
+pub fn update_storage_info(s_info: &HostDetails, pid: u32, conn: &pConnection) -> pResult<bool> {
+    debug!("Adding datacenter and host information to database");
+
     // extract ip address to a &str
     let ip_address: String = s_info.ip.to_string();
     let entry_id = register_to_process_manager(&conn, pid, &ip_address)?;
@@ -409,7 +509,8 @@ pub fn update_storage_info(s_info: &HostDetails, pid: u32, config: &str) -> pRes
 
 fn read_db_config(config_file: &str) -> String {
     //TODO: 1. Propagate errors.
-
+    // 2. Change to ConnectParams
+    
     let config_file_fd = match File::open(&config_file) {
         Ok(file) => file,
         Err(_e) => return "".to_string(),
@@ -580,12 +681,12 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
     match disk_info.disk_id {
         0 => {
             // no disk_id present, add a new record
-            stmt.push_str("INSERT INTO disks (storage_detail_id, disk_path, disk_name");
+            stmt.push_str("INSERT INTO disks (storage_detail_id, disk_path, disk_name, mount_path");
             if let Some(ref uuid) = disk_info.disk_uuid {
                 stmt.push_str(", disk_uuid");
             }
-            stmt.push_str(&format!(") VALUES ({}, {}, {}", disk_info.storage_detail_id,
-                            disk_info.disk_path, disk_info.disk_name));
+            stmt.push_str(&format!(") VALUES ({}, {}, {}, {}", disk_info.storage_detail_id,
+                            disk_info.disk_path, disk_info.disk_name, disk_info.mount_path));
             if let Some(ref uuid) = disk_info.disk_uuid {
                     stmt.push_str(&format!(", {}", uuid));
             }
@@ -597,8 +698,10 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
             // return from the insert stmt above
             stmt.push_str(&format!("SELECT disk_id FROM disks WHERE disk_id = {} AND
                                     disk_name = {} AND disk_path = {} AND 
+                                    mounth_path = {} AND 
                                     storage_detail_id = {}", disk_info.disk_id,
                                     disk_info.disk_name, disk_info.disk_path,
+                                    disk_info.mount_path,
                                     disk_info.storage_detail_id));
         }
     }
@@ -607,7 +710,7 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
     if let Some(result) = stmt_query
                         .into_iter()
                         .next() {
-        disk_info.disk_id = result.get("disk_id");
+        disk_info.set_disk_id(result.get("disk_id"));
         Ok(true)
     } else {
         error!("Failed to add disk information to database");
@@ -683,3 +786,75 @@ pub fn add_or_update_operation(
         Ok(op_id)
     }
 
+pub fn add_or_update_operation_detail(conn: &pConnection, operation_detail: &mut OperationDetail) -> pResult<bool>{
+    
+    let mut stmt = String::new();
+    let mut insert = false;
+    match operation_detail.op_detail_id {
+        0 => {
+            // insert new detail record
+            let mut type_id = 0;
+            let stmt2 = format!("SELECT type_id FROM operation_types WHERE
+                                op_name={}", operation_detail.op_type);
+            let stmt_query = conn.query(&stmt, &[])?;
+            if let Some(result) = stmt_query.into_iter().next() {
+                type_id = result.get("type_id")
+            }
+            
+            if type_id == 0 {
+                error!("Failed to retrieve operation type ID");
+                return Ok(false)
+            }
+            stmt.push_str("INSERT INTO operation_details (operation_id, type_id,
+                            status, start_time, snapshot_time");
+            if let Some(t_id) = operation_detail.tracking_id {
+                stmt.push_str(", tracking_id");
+            }
+            if let Some(done_time) = operation_detail.done_time {
+                stmt.push_str(", done_time");
+            }
+
+            stmt.push_str(&format!(" ) VALUES ({}, {}, {}, {}, {}", operation_detail.operation_id,
+                            type_id, operation_detail.status, operation_detail.start_time, 
+                            operation_detail.snapshot_time));
+            
+            if let Some(t_id) = operation_detail.tracking_id {
+                stmt.push_str(&format!(", {}", t_id));
+            }
+            if let Some(done_time) = operation_detail.done_time {
+                stmt.push_str(&format!(", {}", done_time));
+            }
+            stmt.push_str(") RETURNING operation_detail_id"); 
+            insert = true;
+        }
+        _ => {
+            // update existing detail record.
+            // Only tracking_id, snapshot_time, done_time and status are update-able
+            stmt.push_str(&format!("UPDATE operation_details SET (snapshot_time = {}, 
+                            status = {}", operation_detail.snapshot_time, 
+                            operation_detail.status));
+            if let Some(t_id) = operation_detail.tracking_id {
+                stmt.push_str(&format!(", tracking_id = {}", t_id));
+            }
+            if let Some(done_time) = operation_detail.done_time {
+                stmt.push_str(&format!(", done_time = {}", done_time));
+            }
+            stmt.push_str(&format!(") WHERE operation_detail_id = {}", 
+                            operation_detail.op_detail_id));
+        }
+    }
+     
+    let stmt_query = conn.query(&stmt, &[])?;
+    if insert {
+        if let Some(result) = stmt_query.into_iter().next() {
+            operation_detail.set_operation_detail_id(result.get("operation_detail_id"));
+            Ok(true)
+        } else {
+            // failed to insert
+            error!("Failed to add operation detail to database");
+            Ok(false)
+        }
+    } else {
+        Ok(true)
+    }
+}
