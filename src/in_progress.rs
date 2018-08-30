@@ -7,8 +7,10 @@ extern crate time;
 
 use self::chrono::offset::Utc;
 use self::chrono::DateTime;
-use self::postgres::{Connection as pConnection, Error as pError, 
-    params::ConnectParams, params::Host, Result as pResult, TlsMode};
+use self::postgres::{
+    params::ConnectParams, params::Host, Connection as pConnection, Error as pError,
+    Result as pResult, TlsMode,
+};
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
 
