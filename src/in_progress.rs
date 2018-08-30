@@ -1,39 +1,40 @@
 // Monitor in progress disk repairs
+extern crate chrono;
 extern crate postgres;
 extern crate postgres_shared;
 extern crate rusqlite;
 extern crate time;
-extern crate chrono;
 
 use self::chrono::offset::Utc;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::net::IpAddr;
-use std::fmt::{Display, Result as fResult, Formatter};
+use self::chrono::DateTime;
 use self::postgres::{Connection as pConnection, Result as pResult, TlsMode};
-use self::postgres_shared::{error};
+use self::postgres_shared::error;
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
-use self::chrono::DateTime;
+use std::fmt::{Display, Formatter, Result as fResult};
+use std::fs::File;
+use std::net::IpAddr;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use test_disk;
 
-
 #[cfg(test)]
 mod tests {
+    extern crate log;
     extern crate tempdir;
 
     use self::tempdir::TempDir;
+    use simplelog::{Config, TermLogger};
     use std::path::Path;
     use std::process::id;
+
     #[test]
     fn test_in_progress() {
         let sql_dir = TempDir::new("bynar").expect("Temp file creation failed");
         let db_path = sql_dir.path().join("in_progress.sqlite3");
 
-        let conn =
-            super::connect_to_repair_database(&db_path).expect("sqlite3 creation failed");
+        let conn = super::connect_to_repair_database(&db_path).expect("sqlite3 creation failed");
         super::record_new_repair_ticket(&conn, "001", &Path::new("/dev/sda"))
             .expect("Create repair ticket failed");
         let result = super::is_disk_in_progress(&conn, &Path::new("/dev/sda"))
@@ -48,27 +49,32 @@ mod tests {
 
     #[test]
     fn test_update_storage_info() {
-        let configFile = "/tmp/dbconfig.json".to_string();
-        let connection_string = read_db_config(&configFile);
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        let config_file = "/newDevice/tests/dbconfig.json".to_string();
+        let conn: super::pConnection = super::connect_to_database(&config_file).unwrap();
 
-        println!("Connection string is {}", connection_string);
-        let pid = id();
-        let info = HostDetails {
-            region: String::from("test-region"),
-            ip: IpAddr::from_str("10.1.1.1"),
-            hostname: String::from("test-host"),
-            storage_type: StorageTypeEnum::Ceph,
-            array_name: String::from("array-name"),
-            pool_name: String::from("unknown"),
-        };
-        let result = update_storage_info(&info, pid, &configFile).expect(
+        //let pid = id();
+        let pid = 1234;
+        let info = super::HostDetails::new(
+            "10.1.1.1".to_string(),
+            "test-host".to_string(),
+            "test-region".to_string(),
+            super::StorageTypeEnum::Ceph,
+            "array-name".to_string(),
+            "unknown".to_string(),
+        );
+        let result = super::update_storage_info(&info, pid, &conn).expect(
             "Failed to update
                 storage details",
         );
 
         println!("Successfully updated storage details");
         assert!(result);
+
+        // close database connection
+        super::disconnect_database(conn);
     }
+
 }
 
 #[derive(Debug)]
@@ -290,6 +296,26 @@ pub struct HostDetails {
     pub pool_name: String,
 }
 
+impl HostDetails {
+    fn new(
+        ip_addr: String,
+        hostname: String,
+        region: String,
+        storage_type: StorageTypeEnum,
+        array_name: String,
+        pool_name: String,
+    ) -> HostDetails {
+        HostDetails {
+            ip: ip_addr.parse().unwrap(),
+            hostname,
+            region,
+            storage_type,
+            array_name,
+            pool_name,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum StorageTypeEnum {
     Ceph,
@@ -317,18 +343,23 @@ pub struct DiskInfo {
     pub disk_path: String,
     pub mount_path: String,
     pub disk_name: String,
-    pub disk_uuid: Option<String>
+    pub disk_uuid: Option<String>,
 }
 
 impl DiskInfo {
-    pub fn new(disk_name: String, disk_path: String, mount_path: String, storage_detail_id: u32) -> DiskInfo {
+    pub fn new(
+        disk_name: String,
+        disk_path: String,
+        mount_path: String,
+        storage_detail_id: u32,
+    ) -> DiskInfo {
         DiskInfo {
             disk_id: 0,
             disk_name,
             disk_path,
             mount_path,
             storage_detail_id,
-            disk_uuid: None
+            disk_uuid: None,
         }
     }
 
@@ -352,7 +383,7 @@ impl HostDetailsMapping {
         HostDetailsMapping {
             entry_id,
             region_id,
-            storage_detail_id
+            storage_detail_id,
         }
     }
 }
@@ -439,7 +470,7 @@ pub struct OperationDetail {
 impl OperationDetail {
     fn new(operation_id: u32, op_type: OperationType) -> OperationDetail {
         OperationDetail {
-            op_detail_id:0,
+            op_detail_id: 0,
             operation_id,
             op_type,
             status: OperationStatus::Pending,
@@ -467,21 +498,18 @@ impl OperationDetail {
 }
 
 /// Reads the config file to establish a database connection
-pub fn connect_to_database(config: &str) -> pResult<pConnection>{
-    
+pub fn connect_to_database(config: &str) -> pResult<pConnection> {
     debug!("Establishing a database connection");
     let connection_string = read_db_config(&config);
     if connection_string.is_empty() {
-        return Err(error::connect("connection string missing".into(),
-                ));
+        return Err(error::connect("connection string missing".into()));
     }
     let conn =
         pConnection::connect(connection_string, TlsMode::None).expect("Database connection failed");
     Ok(conn)
-
 }
 
-/// closes the connection. Should be called for every corresponding call 
+/// closes the connection. Should be called for every corresponding call
 /// to connect_to_database()
 pub fn disconnect_database(conn: pConnection) -> pResult<()> {
     conn.finish()
@@ -510,13 +538,12 @@ pub fn update_storage_info(s_info: &HostDetails, pid: u32, conn: &pConnection) -
 fn read_db_config(config_file: &str) -> String {
     //TODO: 1. Propagate errors.
     // 2. Change to ConnectParams
-    
+
     let config_file_fd = match File::open(&config_file) {
         Ok(file) => file,
         Err(_e) => return "".to_string(),
     };
-    let config: super::serde_json::Value = match
-    super::serde_json::from_reader(config_file_fd) {
+    let config: super::serde_json::Value = match super::serde_json::from_reader(config_file_fd) {
         Ok(v) => v,
         Err(_e) => return "".to_string(),
     };
@@ -530,17 +557,15 @@ fn read_db_config(config_file: &str) -> String {
         .as_str()
         .expect("database name is missing");
     let port = config["port"].as_u64().expect("port number is missing") as u16;
-    let endpoint = config["endpoint"]
-                                .as_str()
-                                .expect("port number is missing");
-                                
+    let endpoint = config["endpoint"].as_str().expect("port number is missing");
+
     //params = ConnectParams::builder()
-        //            .user(username, Some(password))
-      //              .port(port)
-          //          .database(dbname)
-            //        .build(Host::Tcp(endpoint.to_string()));
-//     usual connection is
-//   postgresql://[username[:passwd]@][netloc][:port][,...][/dbname]
+    //            .user(username, Some(password))
+    //              .port(port)
+    //          .database(dbname)
+    //        .build(Host::Tcp(endpoint.to_string()));
+    //     usual connection is
+    //   postgresql://[username[:passwd]@][netloc][:port][,...][/dbname]
     connection_string.push_str(&format!("{}:{}@", username, password));
     connection_string.push_str(endpoint);
     connection_string.push_str(&format!(":{}", port));
@@ -574,8 +599,12 @@ fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResul
         );
         let select_stmt_query = conn.query(&select_stmt, &[])?;
         if let Some(r) = select_stmt_query.into_iter().next() {
-            entry_id = r.get(0);
+            let e: i32 = r.get("entry_id");
+            entry_id = e as u32;
         }
+    //if let Some(r) = select_stmt_query.into_iter().next() {
+    //  entry_id = r.get("entry_id");
+    // }
     } else {
         // does not exist, insert
         let insert_stmt = format!(
@@ -585,7 +614,8 @@ fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResul
         );
         let insert_stmt_query = conn.query(&insert_stmt, &[])?;
         if let Some(r) = insert_stmt_query.into_iter().next() {
-            entry_id = r.get(0);
+            let e: i32 = r.get("entry_id");
+            entry_id = e as u32;
         }
     }
     Ok(entry_id)
@@ -597,7 +627,7 @@ pub fn deregister_from_process_manager() -> pResult<()> {
     Ok(())
 }
 
-// Checks for the region in the database, inserts if it does not exist 
+// Checks for the region in the database, inserts if it does not exist
 // and returns the region_id
 fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
     let stmt = format!(
@@ -607,9 +637,10 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
     let stmt_query = conn.query(&stmt, &[])?;
     let mut region_id: u32 = 0;
 
-    if let Some(r) = stmt_query.into_iter().next() {
+    if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return region_id
-        region_id = r.get(0);
+        let id: i32 = res.get(0);
+        region_id = id as u32;
     } else {
         // does not exist, insert
         debug!("Adding region {} to database", region);
@@ -621,7 +652,8 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
         let stmt_query = conn.query(&stmt, &[])?;
         if let Some(res) = stmt_query.into_iter().next() {
             // Exists
-            region_id = res.get(0);
+            let id: i32 = res.get(0);
+            region_id = id as u32;
         }
     }
     Ok(region_id)
@@ -633,14 +665,15 @@ fn update_storage_details(
     region_id: u32,
 ) -> pResult<u32> {
     let stmt = format!(
-        "SELECT storage_id FROM storage_types WHERE storage_type={}",
+        "SELECT storage_id FROM storage_types WHERE storage_type='{}'",
         s_info.storage_type
     );
     let stmt_query = conn.query(&stmt, &[])?;
     let mut storage_detail_id: u32 = 0;
 
     if let Some(r) = stmt_query.into_iter().next() {
-        let storage_id: u32 = r.get("storage_id");
+        let sid: i32 = r.get("storage_id");
+        let storage_id: u32 = sid as u32;
 
         // query if these storage details are already in DB
         let details_query = format!(
@@ -651,18 +684,20 @@ fn update_storage_details(
         let details_query_exec = conn.query(&details_query, &[])?;
         if let Some(res) = details_query_exec.into_iter().next() {
             //Exists
-            storage_detail_id = res.get("detail_id");
+            let sdi: i32 = res.get("detail_id");
+            storage_detail_id = sdi as u32;
         } else {
             // TODO: modify when exact storage details are added
             let details_query = format!(
                 "INSERT INTO storage_details
-            (storage_id, region_id, hostname, name_key1) VALUES ({}, {}, '{}',
-            '{}' RETURNING detail_id",
-                storage_id, region_id, s_info.hostname, s_info.array_name
+            (storage_id, region_id, hostname, name_key1, name_key2) 
+            VALUES ({}, {}, '{}', '{}', '{}') RETURNING detail_id",
+                storage_id, region_id, s_info.hostname, s_info.array_name, s_info.pool_name
             );
             let dqr = conn.query(&details_query, &[])?;
-            if let Some(result) = dqr.into_iter().next() {
-                storage_detail_id = result.get("detail_id");
+            if let Some(res) = dqr.into_iter().next() {
+                let sdi: i32 = res.get("detail_id");
+                storage_detail_id = sdi as u32;
             } else {
                 // failed to insert
                 error!("Query to insert and retrive storage details failed");
@@ -685,32 +720,40 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
             if let Some(ref uuid) = disk_info.disk_uuid {
                 stmt.push_str(", disk_uuid");
             }
-            stmt.push_str(&format!(") VALUES ({}, {}, {}, {}", disk_info.storage_detail_id,
-                            disk_info.disk_path, disk_info.disk_name, disk_info.mount_path));
+            stmt.push_str(&format!(
+                ") VALUES ({}, {}, {}, {}",
+                disk_info.storage_detail_id,
+                disk_info.disk_path,
+                disk_info.disk_name,
+                disk_info.mount_path
+            ));
             if let Some(ref uuid) = disk_info.disk_uuid {
-                    stmt.push_str(&format!(", {}", uuid));
+                stmt.push_str(&format!(", {}", uuid));
             }
-            
+
             stmt.push_str(") RETURNING disk_id");
-        } 
+        }
         _ => {
             // verify if all other details match, select disk_id to match with the
             // return from the insert stmt above
-            stmt.push_str(&format!("SELECT disk_id FROM disks WHERE disk_id = {} AND
+            stmt.push_str(&format!(
+                "SELECT disk_id FROM disks WHERE disk_id = {} AND
                                     disk_name = {} AND disk_path = {} AND 
                                     mounth_path = {} AND 
-                                    storage_detail_id = {}", disk_info.disk_id,
-                                    disk_info.disk_name, disk_info.disk_path,
-                                    disk_info.mount_path,
-                                    disk_info.storage_detail_id));
+                                    storage_detail_id = {}",
+                disk_info.disk_id,
+                disk_info.disk_name,
+                disk_info.disk_path,
+                disk_info.mount_path,
+                disk_info.storage_detail_id
+            ));
         }
     }
     let stmt_query = conn.query(&stmt, &[])?;
 
-    if let Some(result) = stmt_query
-                        .into_iter()
-                        .next() {
-        disk_info.set_disk_id(result.get("disk_id"));
+    if let Some(result) = stmt_query.into_iter().next() {
+        let id: i32 = result.get("disk_id");
+        disk_info.set_disk_id(id as u32);
         Ok(true)
     } else {
         error!("Failed to add disk information to database");
@@ -720,93 +763,110 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
 
 // inserts the operation record and returns the operation_id
 // If updating, performs the query and returns the given operation_id if successful update
-pub fn add_or_update_operation(
-    conn: &pConnection,
-    op_info: &OperationInfo) -> pResult<u32> {
-        let mut op_id: u32 = 0;
-        let mut stmt = String::new();
-        
-        match op_info.operation_id {
-                    0 => {
-                        // no operation_id, validate new record input
-                        let host_info: &HostDetailsMapping = &op_info.host_details;
-                        if host_info.region_id == 0 ||
-                            host_info.entry_id == 0 ||
-                                host_info.storage_detail_id == 0 {
-                            error!("Required region_id, storage_detail_id, entry_id");
-                            return Ok(0);
-                        }
-                        stmt.push_str("INSERT INTO operations (
+pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> pResult<u32> {
+    let mut op_id: u32 = 0;
+    let mut stmt = String::new();
+
+    match op_info.operation_id {
+        0 => {
+            // no operation_id, validate new record input
+            let host_info: &HostDetailsMapping = &op_info.host_details;
+            if host_info.region_id == 0
+                || host_info.entry_id == 0
+                || host_info.storage_detail_id == 0
+            {
+                error!("Required region_id, storage_detail_id, entry_id");
+                return Ok(0);
+            }
+            stmt.push_str(
+                "INSERT INTO operations (
                                     region_id, storage_detail_id, entry_id
-                                    start_time, disk_id");
+                                    start_time, disk_id",
+            );
 
-                                if let Some(_) = op_info.behalf_of {
-                                stmt.push_str(", behalf_of");
-                                }
-                                if let Some(_) = op_info.reason {
-                                stmt.push_str(", reason");
-                                }
+            if let Some(_) = op_info.behalf_of {
+                stmt.push_str(", behalf_of");
+            }
+            if let Some(_) = op_info.reason {
+                stmt.push_str(", reason");
+            }
 
-                                stmt.push_str(")");
+            stmt.push_str(")");
 
-                                stmt.push_str(&format!(" VALUES ({},{},{},{}, {}",
-                                        host_info.region_id, host_info.storage_detail_id,
-                                        host_info.entry_id, op_info.start_time, op_info.disk_id));
+            stmt.push_str(&format!(
+                " VALUES ({},{},{},{}, {}",
+                host_info.region_id,
+                host_info.storage_detail_id,
+                host_info.entry_id,
+                op_info.start_time,
+                op_info.disk_id
+            ));
 
-                                if let Some(ref behalf_of) = op_info.behalf_of {
-                                    stmt.push_str(&format!(", {}", behalf_of));
-                                }
-                                if let Some(ref reason) = op_info.reason {
-                                    stmt.push_str(&format!(", {}", reason));
-                                }
+            if let Some(ref behalf_of) = op_info.behalf_of {
+                stmt.push_str(&format!(", {}", behalf_of));
+            }
+            if let Some(ref reason) = op_info.reason {
+                stmt.push_str(&format!(", {}", reason));
+            }
 
-                                stmt.push_str(") RETURNING operation_id");
-                    }
-                    _ => {
-                        // update existing record. Only snapshot_time and done_time 
-                        // can be updated.
-                        stmt.push_str(&format!("UPDATE operations SET (snapshot_time = {}", op_info.snapshot_time));
-
-                        if let Some(d_time) = op_info.done_time {
-                            stmt.push_str(&format!(", done_time = {}", d_time));
-                        }
-                        stmt.push_str(&format!(") WHERE operation_id = {}", op_info.operation_id));
-
-                        op_id = op_info.operation_id;
-                    }
-                }
-        let stmt_query = conn.query(&stmt, &[])?;
-        if let Some(result) = stmt_query.into_iter().next() {
-            op_id = result.get("operation_id");
-        } else {
-            // failed to insert
-            error!("Failed to update operation to database");
+            stmt.push_str(") RETURNING operation_id");
         }
+        _ => {
+            // update existing record. Only snapshot_time and done_time
+            // can be updated.
+            stmt.push_str(&format!(
+                "UPDATE operations SET (snapshot_time = {}",
+                op_info.snapshot_time
+            ));
 
-        Ok(op_id)
+            if let Some(d_time) = op_info.done_time {
+                stmt.push_str(&format!(", done_time = {}", d_time));
+            }
+            stmt.push_str(&format!(") WHERE operation_id = {}", op_info.operation_id));
+
+            op_id = op_info.operation_id;
+        }
+    }
+    let stmt_query = conn.query(&stmt, &[])?;
+    if let Some(result) = stmt_query.into_iter().next() {
+        let id: i32 = result.get("operation_id");
+        op_id = id as u32;
+    } else {
+        // failed to insert
+        error!("Failed to update operation to database");
     }
 
-pub fn add_or_update_operation_detail(conn: &pConnection, operation_detail: &mut OperationDetail) -> pResult<bool>{
-    
+    Ok(op_id)
+}
+
+pub fn add_or_update_operation_detail(
+    conn: &pConnection,
+    operation_detail: &mut OperationDetail,
+) -> pResult<bool> {
     let mut stmt = String::new();
     let mut insert = false;
     match operation_detail.op_detail_id {
         0 => {
             // insert new detail record
             let mut type_id = 0;
-            let stmt2 = format!("SELECT type_id FROM operation_types WHERE
-                                op_name={}", operation_detail.op_type);
+            let stmt2 = format!(
+                "SELECT type_id FROM operation_types WHERE
+                                op_name={}",
+                operation_detail.op_type
+            );
             let stmt_query = conn.query(&stmt, &[])?;
             if let Some(result) = stmt_query.into_iter().next() {
                 type_id = result.get("type_id")
             }
-            
+
             if type_id == 0 {
                 error!("Failed to retrieve operation type ID");
-                return Ok(false)
+                return Ok(false);
             }
-            stmt.push_str("INSERT INTO operation_details (operation_id, type_id,
-                            status, start_time, snapshot_time");
+            stmt.push_str(
+                "INSERT INTO operation_details (operation_id, type_id,
+                            status, start_time, snapshot_time",
+            );
             if let Some(t_id) = operation_detail.tracking_id {
                 stmt.push_str(", tracking_id");
             }
@@ -814,40 +874,50 @@ pub fn add_or_update_operation_detail(conn: &pConnection, operation_detail: &mut
                 stmt.push_str(", done_time");
             }
 
-            stmt.push_str(&format!(" ) VALUES ({}, {}, {}, {}, {}", operation_detail.operation_id,
-                            type_id, operation_detail.status, operation_detail.start_time, 
-                            operation_detail.snapshot_time));
-            
+            stmt.push_str(&format!(
+                " ) VALUES ({}, {}, {}, {}, {}",
+                operation_detail.operation_id,
+                type_id,
+                operation_detail.status,
+                operation_detail.start_time,
+                operation_detail.snapshot_time
+            ));
+
             if let Some(t_id) = operation_detail.tracking_id {
                 stmt.push_str(&format!(", {}", t_id));
             }
             if let Some(done_time) = operation_detail.done_time {
                 stmt.push_str(&format!(", {}", done_time));
             }
-            stmt.push_str(") RETURNING operation_detail_id"); 
+            stmt.push_str(") RETURNING operation_detail_id");
             insert = true;
         }
         _ => {
             // update existing detail record.
             // Only tracking_id, snapshot_time, done_time and status are update-able
-            stmt.push_str(&format!("UPDATE operation_details SET (snapshot_time = {}, 
-                            status = {}", operation_detail.snapshot_time, 
-                            operation_detail.status));
+            stmt.push_str(&format!(
+                "UPDATE operation_details SET (snapshot_time = {}, 
+                            status = {}",
+                operation_detail.snapshot_time, operation_detail.status
+            ));
             if let Some(t_id) = operation_detail.tracking_id {
                 stmt.push_str(&format!(", tracking_id = {}", t_id));
             }
             if let Some(done_time) = operation_detail.done_time {
                 stmt.push_str(&format!(", done_time = {}", done_time));
             }
-            stmt.push_str(&format!(") WHERE operation_detail_id = {}", 
-                            operation_detail.op_detail_id));
+            stmt.push_str(&format!(
+                ") WHERE operation_detail_id = {}",
+                operation_detail.op_detail_id
+            ));
         }
     }
-     
+
     let stmt_query = conn.query(&stmt, &[])?;
     if insert {
         if let Some(result) = stmt_query.into_iter().next() {
-            operation_detail.set_operation_detail_id(result.get("operation_detail_id"));
+            let id: i32 = result.get("operation_detail_id");
+            operation_detail.set_operation_detail_id(id as u32);
             Ok(true)
         } else {
             // failed to insert
