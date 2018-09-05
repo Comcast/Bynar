@@ -7,12 +7,16 @@ extern crate time;
 
 use self::chrono::offset::Utc;
 use self::chrono::DateTime;
-use self::postgres::{Connection as pConnection, Result as pResult, TlsMode};
-use self::postgres_shared::error;
+use self::postgres::{
+    params::ConnectParams, params::Host, Connection as pConnection, Error as pError,
+    Result as pResult, TlsMode,
+};
 use self::rusqlite::{Connection, Result};
 use self::time::Timespec;
+
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::File;
+use std::io::{Error as ioError, ErrorKind};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -500,12 +504,9 @@ impl OperationDetail {
 /// Reads the config file to establish a database connection
 pub fn connect_to_database(config: &str) -> pResult<pConnection> {
     debug!("Establishing a database connection");
-    let connection_string = read_db_config(&config);
-    if connection_string.is_empty() {
-        return Err(error::connect("connection string missing".into()));
-    }
+    let connection_params = read_db_config(&config).map_err(|e| pError::from(e))?;
     let conn =
-        pConnection::connect(connection_string, TlsMode::None).expect("Database connection failed");
+        pConnection::connect(connection_params, TlsMode::None).expect("Database connection failed");
     Ok(conn)
 }
 
@@ -535,18 +536,10 @@ pub fn update_storage_info(s_info: &HostDetails, pid: u32, conn: &pConnection) -
     Ok(true)
 }
 
-fn read_db_config(config_file: &str) -> String {
-    //TODO: 1. Propagate errors.
-    // 2. Change to ConnectParams
-
-    let config_file_fd = match File::open(&config_file) {
-        Ok(file) => file,
-        Err(_e) => return "".to_string(),
-    };
-    let config: super::serde_json::Value = match super::serde_json::from_reader(config_file_fd) {
-        Ok(v) => v,
-        Err(_e) => return "".to_string(),
-    };
+fn read_db_config(config_file: &str) -> ::std::io::Result<ConnectParams> {
+    let config_file_fd = File::open(&config_file)?;
+    let config: super::serde_json::Value = super::serde_json::from_reader(config_file_fd)
+        .map_err(|e| ioError::new(ErrorKind::InvalidData, e.to_string()))?;
 
     let mut connection_string = "postgresql://".to_string();
     let username = config["username"].as_str().expect("User name is missing");
@@ -559,19 +552,13 @@ fn read_db_config(config_file: &str) -> String {
     let port = config["port"].as_u64().expect("port number is missing") as u16;
     let endpoint = config["endpoint"].as_str().expect("port number is missing");
 
-    //params = ConnectParams::builder()
-    //            .user(username, Some(password))
-    //              .port(port)
-    //          .database(dbname)
-    //        .build(Host::Tcp(endpoint.to_string()));
-    //     usual connection is
-    //   postgresql://[username[:passwd]@][netloc][:port][,...][/dbname]
-    connection_string.push_str(&format!("{}:{}@", username, password));
-    connection_string.push_str(endpoint);
-    connection_string.push_str(&format!(":{}", port));
-    connection_string.push_str(&format!("/{}", dbname));
+    let connection_params = ConnectParams::builder()
+        .user(username, Some(password))
+        .port(port)
+        .database(dbname)
+        .build(Host::Tcp(endpoint.to_string()));
 
-    connection_string
+    Ok(connection_params)
 }
 
 /// responsible to store the pid, ip of the system on which bynar is running
