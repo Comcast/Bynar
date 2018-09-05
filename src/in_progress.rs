@@ -340,8 +340,8 @@ impl Display for StorageTypeEnum {
 pub struct DiskInfo {
     pub disk_id: u32,
     pub storage_detail_id: u32,
-    pub disk_path: String,
-    pub mount_path: String,
+    pub disk_path: PathBuf,
+    pub mount_path: PathBuf,
     pub disk_name: String,
     pub disk_uuid: Option<String>,
 }
@@ -349,8 +349,8 @@ pub struct DiskInfo {
 impl DiskInfo {
     pub fn new(
         disk_name: String,
-        disk_path: String,
-        mount_path: String,
+        disk_path: PathBuf,
+        mount_path: PathBuf,
         storage_detail_id: u32,
     ) -> DiskInfo {
         DiskInfo {
@@ -710,22 +710,23 @@ fn update_storage_details(
 }
 
 // Inserts disk informatation record into bynar.disks and adds the disk_id to struct
-pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<bool> {
+pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) ->
+pResult<bool> {
     let mut stmt = String::new();
 
     match disk_info.disk_id {
         0 => {
             // no disk_id present, add a new record
             stmt.push_str("INSERT INTO disks (storage_detail_id, disk_path, disk_name, mount_path");
-            if let Some(ref uuid) = disk_info.disk_uuid {
+            if disk_info.disk_uuid.is_some() {
                 stmt.push_str(", disk_uuid");
             }
             stmt.push_str(&format!(
                 ") VALUES ({}, {}, {}, {}",
                 disk_info.storage_detail_id,
-                disk_info.disk_path,
+                disk_info.disk_path.to_string_lossy().into_owned(),
                 disk_info.disk_name,
-                disk_info.mount_path
+                disk_info.mount_path.to_string_lossy().into_owned()
             ));
             if let Some(ref uuid) = disk_info.disk_uuid {
                 stmt.push_str(&format!(", {}", uuid));
@@ -743,8 +744,8 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
                                     storage_detail_id = {}",
                 disk_info.disk_id,
                 disk_info.disk_name,
-                disk_info.disk_path,
-                disk_info.mount_path,
+                disk_info.disk_path.to_string_lossy(),
+                disk_info.mount_path.to_string_lossy(),
                 disk_info.storage_detail_id
             ));
         }
@@ -784,10 +785,10 @@ pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> p
                                     start_time, disk_id",
             );
 
-            if let Some(_) = op_info.behalf_of {
+            if op_info.behalf_of.is_some() {
                 stmt.push_str(", behalf_of");
             }
-            if let Some(_) = op_info.reason {
+            if op_info.reason.is_some() {
                 stmt.push_str(", reason");
             }
 
@@ -839,7 +840,7 @@ pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> p
     Ok(op_id)
 }
 
-pub fn add_or_update_operation_detail(
+pub fn add_or_update_operation_detail (
     conn: &pConnection,
     operation_detail: &mut OperationDetail,
 ) -> pResult<bool> {
@@ -867,10 +868,10 @@ pub fn add_or_update_operation_detail(
                 "INSERT INTO operation_details (operation_id, type_id,
                             status, start_time, snapshot_time",
             );
-            if let Some(t_id) = operation_detail.tracking_id {
+            if operation_detail.tracking_id.is_some() {
                 stmt.push_str(", tracking_id");
             }
-            if let Some(done_time) = operation_detail.done_time {
+            if operation_detail.done_time.is_some() {
                 stmt.push_str(", done_time");
             }
 
