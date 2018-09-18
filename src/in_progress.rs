@@ -22,8 +22,7 @@ mod tests {
         let sql_dir = TempDir::new("bynar").expect("Temp file creation failed");
         let db_path = sql_dir.path().join("in_progress.sqlite3");
 
-        let conn =
-            super::connect_to_repair_database(&db_path).expect("sqlite3 creation failed");
+        let conn = super::connect_to_repair_database(&db_path).expect("sqlite3 creation failed");
         super::record_new_repair_ticket(&conn, "001", &Path::new("/dev/sda"))
             .expect("Create repair ticket failed");
         let result = super::is_disk_in_progress(&conn, &Path::new("/dev/sda"))
@@ -140,7 +139,9 @@ pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> Result<PathBuf>
 pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> Result<bool> {
     debug!("Searching smart results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT smart_passed FROM repairs where disk_path=?")?;
-    let passed = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| row.get(0))?;
+    let passed = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| {
+        row.get(0)
+    })?;
     Ok(passed)
 }
 
@@ -170,26 +171,23 @@ pub fn save_mount_location(conn: &Connection, dev_path: &Path, mount_path: &Path
     );
     // First check if a row exists with this disk
     let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    match stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        true => {
-            // It exists so we update
-            let mut stmt = conn.prepare("Update repairs set mount_path=? where disk_path=?")?;
-            stmt.execute(&[
+    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
+        // It exists so we update
+        let mut stmt = conn.prepare("Update repairs set mount_path=? where disk_path=?")?;
+        stmt.execute(&[
+            &mount_path.to_string_lossy().into_owned(),
+            &dev_path.to_string_lossy().into_owned(),
+        ])?;
+    } else {
+        // It does not exist so we insert
+        conn.execute(
+            "INSERT INTO repairs (mount_path, disk_path)
+                  VALUES (?1, ?2)",
+            &[
                 &mount_path.to_string_lossy().into_owned(),
                 &dev_path.to_string_lossy().into_owned(),
-            ])?;
-        }
-        false => {
-            // It does not exist so we insert
-            conn.execute(
-                "INSERT INTO repairs (mount_path, disk_path)
-                  VALUES (?1, ?2)",
-                &[
-                    &mount_path.to_string_lossy().into_owned(),
-                    &dev_path.to_string_lossy().into_owned(),
-                ],
-            )?;
-        }
+            ],
+        )?;
     }
 
     Ok(())
@@ -203,18 +201,15 @@ pub fn save_smart_results(conn: &Connection, dev_path: &Path, smart_passed: bool
     );
     // First check if a row exists with this disk
     let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    match stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        true => {
-            // It exists so we update
-            let mut stmt = conn.prepare("Update repairs set smart_passed=? where disk_path=?")?;
-            stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
-        }
-        false => {
-            // It does not exist so we insert
-            let mut stmt =
-                conn.prepare("Insert INTO repairs (smart_passed, disk_path) VALUES (?1, ?2)")?;
-            stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
-        }
+    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
+        // It exists so we update
+        let mut stmt = conn.prepare("Update repairs set smart_passed=? where disk_path=?")?;
+        stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
+    } else {
+        // It does not exist so we insert
+        let mut stmt =
+            conn.prepare("Insert INTO repairs (smart_passed, disk_path) VALUES (?1, ?2)")?;
+        stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
     }
 
     Ok(())
@@ -225,21 +220,18 @@ pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -
 
     // First check if a row exists with this disk
     let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    match stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        true => {
-            debug!("Updating state for {}", dev_path.display());
-            // It exists so we update
-            let mut stmt = conn.prepare("Update repairs set state=? where disk_path=?")?;
-            stmt.execute(&[&state.to_string(), &dev_path.to_string_lossy().into_owned()])?;
-        }
-        false => {
-            debug!("Inserting state for {}", dev_path.display());
-            // It does not exist so we insert
-            conn.execute(
-                "INSERT INTO repairs (state, disk_path) VALUES (?1, ?2)",
-                &[&state.to_string(), &dev_path.to_string_lossy().into_owned()],
-            )?;
-        }
+    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
+        debug!("Updating state for {}", dev_path.display());
+        // It exists so we update
+        let mut stmt = conn.prepare("Update repairs set state=? where disk_path=?")?;
+        stmt.execute(&[&state.to_string(), &dev_path.to_string_lossy().into_owned()])?;
+    } else {
+        debug!("Inserting state for {}", dev_path.display());
+        // It does not exist so we insert
+        conn.execute(
+            "INSERT INTO repairs (state, disk_path) VALUES (?1, ?2)",
+            &[&state.to_string(), &dev_path.to_string_lossy().into_owned()],
+        )?;
     }
     Ok(())
 }

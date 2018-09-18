@@ -33,12 +33,12 @@ impl Host {
         debug!("Gathering raid info");
         let raid_info = block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
         Ok(Host {
-            hostname: hostname,
+            hostname,
             kernel: uname_info.release,
             machine_architecture: uname_info.machine,
-            server_type: server_type,
-            serial_number: serial_number,
-            raid_info: raid_info,
+            server_type,
+            serial_number,
+            raid_info,
         })
     }
 }

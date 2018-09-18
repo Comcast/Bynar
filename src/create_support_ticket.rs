@@ -3,9 +3,9 @@ extern crate log;
 extern crate reqwest;
 extern crate serde_json;
 
-use self::goji::{Credentials, Jira};
-use self::goji::Error as GojiError;
 use self::goji::issues::*;
+use self::goji::Error as GojiError;
+use self::goji::{Credentials, Jira};
 use self::serde_json::value::Value;
 use super::ConfigSettings;
 
@@ -21,11 +21,9 @@ pub fn create_support_ticket(
             assignee: Assignee {
                 name: settings.jira_ticket_assignee.clone(),
             },
-            components: vec![
-                Component {
-                    name: "Ceph".into(),
-                },
-            ],
+            components: vec![Component {
+                name: "Ceph".into(),
+            }],
             description: description.into(),
             environment: environment.into(),
             issuetype: IssueType {
@@ -50,19 +48,13 @@ pub fn create_support_ticket(
                 .build()?;
             Jira::from_client(
                 settings.jira_host.to_string(),
-                Credentials::Basic(
-                    settings.jira_user.clone().into(),
-                    settings.jira_password.clone().into(),
-                ),
+                Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
                 client,
             )?
         }
         None => Jira::new(
             settings.jira_host.clone().to_string(),
-            Credentials::Basic(
-                settings.jira_user.clone().into(),
-                settings.jira_password.clone().into(),
-            ),
+            Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
         )?,
     };
     let issue = Issues::new(&jira);
@@ -84,19 +76,13 @@ pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> Result<bool
                 .build()?;
             Jira::from_client(
                 settings.jira_host.to_string(),
-                Credentials::Basic(
-                    settings.jira_user.clone().into(),
-                    settings.jira_password.clone().into(),
-                ),
+                Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
                 client,
             )?
         }
         None => Jira::new(
             settings.jira_host.clone().to_string(),
-            Credentials::Basic(
-                settings.jira_user.clone().into(),
-                settings.jira_password.clone().into(),
-            ),
+            Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
         )?,
     };
     let issue = Issues::new(&jira);
@@ -104,11 +90,11 @@ pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> Result<bool
     let results = issue.get(issue_id)?;
     match results.fields.get("resolutiondate") {
         Some(v) => {
-            match v {
+            match *v {
                 //resolutiondate is null
-                &Value::Null => Ok(false),
+                Value::Null => Ok(false),
                 //resolutiondate is set.
-                &Value::String(_) => Ok(true),
+                Value::String(_) => Ok(true),
                 _ => Ok(false),
             }
         }

@@ -63,8 +63,8 @@ pub struct ConfigSettings {
 fn notify_slack(config: &ConfigSettings, msg: &str) -> Result<(), slack_hook::Error> {
     let c = config.clone();
     let slack = Slack::new(c.slack_webhook.unwrap().as_ref())?;
-    let slack_channel = c.slack_channel.unwrap_or("".to_string());
-    let bot_name = c.slack_botname.unwrap_or("".to_string());
+    let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
+    let bot_name = c.slack_botname.unwrap_or_else(|| "".to_string());
     let p = PayloadBuilder::new()
         .text(msg)
         .channel(slack_channel)
@@ -144,45 +144,40 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
                             match helpers::safe_to_remove_request(&mut socket, &dev_path) {
                                 Ok(result) => {
                                     //Ok to remove the disk
-                                    match result {
-                                        true => {
-                                            if config.slack_webhook.is_some() {
-                                                let _ = notify_slack(
-                                                    &config,
-                                                    &format!(
-                                                        "Removing disk: {} on host: {}",
-                                                        dev_path.display(),
-                                                        host_info.hostname
-                                                    ),
-                                                );
-                                            }
-                                            match helpers::remove_disk_request(
-                                                &mut socket,
-                                                &dev_path,
-                                                None,
-                                                false,
-                                            ) {
-                                                Ok(_) => {
-                                                    debug!("Disk removal successful");
-                                                }
-                                                Err(e) => {
-                                                    error!("Disk removal failed: {}", e);
-                                                }
-                                            };
+                                    if result {
+                                        if config.slack_webhook.is_some() {
+                                            let _ = notify_slack(
+                                                &config,
+                                                &format!(
+                                                    "Removing disk: {} on host: {}",
+                                                    dev_path.display(),
+                                                    host_info.hostname
+                                                ),
+                                            );
                                         }
-                                        false => {
-                                            if config.slack_webhook.is_some() {
-                                                let _ = notify_slack(
-                                                    &config,
-                                                    &format!(
+                                        match helpers::remove_disk_request(
+                                            &mut socket,
+                                            &dev_path,
+                                            None,
+                                            false,
+                                        ) {
+                                            Ok(_) => {
+                                                debug!("Disk removal successful");
+                                            }
+                                            Err(e) => {
+                                                error!("Disk removal failed: {}", e);
+                                            }
+                                        };
+                                    } else if config.slack_webhook.is_some() {
+                                        let _ = notify_slack(
+                                            &config,
+                                            &format!(
                                                 "Need to remove disk {} but it's not safe \
-                                                on host: {}. I need a human.  Filing a ticket",
+                                                 on host: {}. I need a human.  Filing a ticket",
                                                 dev_path.display(),
                                                 host_info.hostname,
                                             ),
-                                                );
-                                            }
-                                        }
+                                        );
                                     }
                                 }
                                 Err(err) => {

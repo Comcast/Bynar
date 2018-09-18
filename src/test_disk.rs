@@ -91,7 +91,8 @@ mod tests {
         debug!("writing 25MB to {}", file_path.display());
         let buff = [0x00; 1024];
         for _ in 0..25600 {
-            f.write(&buff).expect("Failed to write to loop backing file");
+            f.write(&buff)
+                .expect("Failed to write to loop backing file");
         }
         f.sync_all().unwrap();
 
@@ -334,14 +335,14 @@ impl Transition for AttemptRepair {
         let dev_path = Path::new(&tmp);
         if !simulate {
             match repair_filesystem(&device.fs_type, &dev_path) {
-                Ok(_) => to_state.clone(),
+                Ok(_) => *to_state,
                 Err(e) => {
                     error!("repair_filesystem failed on {:?}: {}", device, e);
                     State::Fail
                 }
             }
         } else {
-            to_state.clone()
+            *to_state
         }
     }
 }
@@ -364,7 +365,7 @@ impl Transition for CheckForCorruption {
                     // or ??
                     Fsck::Ok => State::Fail,
                     // The filesystem is corrupted.  Proceed to repair
-                    Fsck::Corrupt => to_state.clone(),
+                    Fsck::Corrupt => *to_state,
                 },
                 Err(e) => {
                     error!("check_filesystem failed on {:?}: {}", device, e);
@@ -372,7 +373,7 @@ impl Transition for CheckForCorruption {
                 }
             }
         } else {
-            to_state.clone()
+            *to_state
         }
     }
 }
@@ -403,7 +404,7 @@ impl Transition for CheckWearLeveling {
         debug!("running CheckWearLeveling transition");
 
         //TODO: How can we check wear leveling?
-        to_state.clone()
+        *to_state
     }
 }
 
@@ -453,7 +454,7 @@ impl Transition for Eval {
                     debug!("Checking if mount is writable");
                     match check_writable(&info) {
                         // Mount point is writeable, smart passed.  Good to go
-                        Ok(_) => to_state.clone(),
+                        Ok(_) => *to_state,
                         Err(e) => {
                             //Should proceed to error checking now
                             error!("Error writing to disk: {:?}", e);
@@ -494,14 +495,14 @@ impl Transition for MarkForReplacement {
         let tmp = format!("/dev/{}", device.name);
         let dev_path = Path::new(&tmp);
         match is_disk_in_progress(&db_conn, &dev_path) {
-            Ok(in_progress) => {
-                if in_progress {
-                    // This is already in waiting for replacement
-                    to_state.clone()
-                } else {
-                    // TODO: Does this make sense?
-                    to_state.clone()
-                }
+            Ok(_in_progress) => {
+                //if in_progress {
+                // This is already in waiting for replacement
+                *to_state
+                //} else {
+                // TODO: Does this make sense?
+                //*to_state
+                //}
             }
             Err(e) => {
                 error!(
@@ -541,7 +542,7 @@ impl Transition for Mount {
             return State::Fail;
         }
 
-        to_state.clone()
+        *to_state
     }
 }
 
@@ -554,7 +555,7 @@ impl Transition for NoOp {
     ) -> State {
         debug!("running NoOp transition");
 
-        to_state.clone()
+        *to_state
     }
 }
 
@@ -595,7 +596,7 @@ impl Transition for Reformat {
                 debug!("drive_uuid: {}", Uuid::parse_str(&drive_uuid).unwrap());
                 device.id = Some(Uuid::parse_str(&drive_uuid).unwrap());
 
-                to_state.clone()
+                *to_state
             }
             Err(e) => {
                 error!("Reformat failed: {}", e);
@@ -617,7 +618,7 @@ impl Transition for Remount {
         match Command::new("mount").args(&["-o", "remount"]).output() {
             Ok(output) => {
                 if output.status.success() {
-                    to_state.clone()
+                    *to_state
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     error!("Remount failed: {}", stderr);
@@ -643,7 +644,7 @@ impl Transition for Replace {
         // So we know at this point that the disk has been replaced
         // We know the device we're working with
 
-        to_state.clone()
+        *to_state
     }
 }
 
@@ -661,7 +662,7 @@ impl Transition for Scan {
         // Run a smart check on the base device without partition
         match run_smart_checks(&Path::new(&dev_path)) {
             Ok(_) => match save_smart_results(&db_conn, &Path::new(&dev_path), true) {
-                Ok(_) => to_state.clone(),
+                Ok(_) => *to_state,
                 Err(e) => {
                     error!("Save smart results failed {:?}", e);
                     State::Fail
@@ -709,9 +710,9 @@ impl StateMachine {
             dot_graph: Vec::new(),
             graph: GraphMap::new(),
             state: State::Unscanned,
-            disk: disk,
-            db_conn: db_conn,
-            simulate: simulate,
+            disk,
+            db_conn,
+            simulate,
         }
     }
 
@@ -804,8 +805,8 @@ impl StateMachine {
         let mut states = HashSet::new();
         println!("digraph state_machine{{");
         for n in &self.dot_graph {
-            states.insert(n.0.clone());
-            states.insert(n.1.clone());
+            states.insert(n.0);
+            states.insert(n.1);
             println!("\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2);
         }
         for n in states {
@@ -1129,22 +1130,34 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
 
 #[cfg_attr(test, mockable)]
 fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<Fsck> {
-    match filesystem_type {
-        &FilesystemType::Ext2 => Ok(check_ext(device)?),
-        &FilesystemType::Ext3 => Ok(check_ext(device)?),
-        &FilesystemType::Ext4 => Ok(check_ext(device)?),
-        &FilesystemType::Xfs => Ok(check_xfs(device)?),
+    match *filesystem_type {
+        FilesystemType::Ext2 => check_ext(device),
+        FilesystemType::Ext3 => check_ext(device),
+        FilesystemType::Ext4 => check_ext(device),
+        FilesystemType::Xfs => check_xfs(device),
         _ => Err(Error::new(ErrorKind::Other, "Unknown filesystem detected")),
     }
 }
 
 #[cfg_attr(test, mockable)]
 fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()> {
-    match filesystem_type {
-        &FilesystemType::Ext2 => Ok(repair_ext(device)?),
-        &FilesystemType::Ext3 => Ok(repair_ext(device)?),
-        &FilesystemType::Ext4 => Ok(repair_ext(device)?),
-        &FilesystemType::Xfs => Ok(repair_xfs(device)?),
+    match *filesystem_type {
+        FilesystemType::Ext2 => {
+            repair_ext(device)?;
+            Ok(())
+        }
+        FilesystemType::Ext3 => {
+            repair_ext(device)?;
+            Ok(())
+        }
+        FilesystemType::Ext4 => {
+            repair_ext(device)?;
+            Ok(())
+        }
+        FilesystemType::Xfs => {
+            repair_xfs(device)?;
+            Ok(())
+        }
         _ => Err(Error::new(ErrorKind::Other, "Unknown filesystem detected")),
     }
 }
@@ -1192,17 +1205,15 @@ fn repair_xfs(device: &Path) -> Result<()> {
     let status = Command::new("xfs_repair").arg(device).status()?;
     match status.code() {
         Some(code) => match code {
-            0 => return Ok(()),
-            _ => return Err(Error::new(ErrorKind::Other, "xfs_repair failed")),
+            0 => Ok(()),
+            _ => Err(Error::new(ErrorKind::Other, "xfs_repair failed")),
         },
         //Process terminated by signal
-        None => {
-            return Err(Error::new(
-                ErrorKind::Interrupted,
-                "e2fsck terminated by signal",
-            ))
-        }
-    };
+        None => Err(Error::new(
+            ErrorKind::Interrupted,
+            "e2fsck terminated by signal",
+        )),
+    }
 }
 
 fn check_ext(device: &Path) -> Result<Fsck> {
@@ -1242,27 +1253,23 @@ fn repair_ext(device: &Path) -> Result<()> {
         Some(code) => {
             match code {
                 //0 - No errors
-                0 => return Ok(()),
+                0 => Ok(()),
                 // 1 - File system errors corrected
-                1 => return Ok(()),
+                1 => Ok(()),
                 //2 - File system errors corrected, system should
                 //be rebooted
-                2 => return Ok(()),
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("e2fsck returned error code: {}", code),
-                    ))
-                }
+                2 => Ok(()),
+                _ => Err(Error::new(
+                    ErrorKind::Other,
+                    format!("e2fsck returned error code: {}", code),
+                )),
             }
         }
         //Process terminated by signal
-        None => {
-            return Err(Error::new(
-                ErrorKind::Interrupted,
-                "e2fsck terminated by signal",
-            ))
-        }
+        None => Err(Error::new(
+            ErrorKind::Interrupted,
+            "e2fsck terminated by signal",
+        )),
     }
 }
 
@@ -1281,14 +1288,9 @@ fn format_device(device: &Device) -> ::std::result::Result<(), String> {
     let tmp = format!("/dev/{}", device.name);
     let dev_path = Path::new(&tmp);
     let mut fs = Filesystem::new(device.fs_type.to_str());
-    match &mut fs {
-        Filesystem::Xfs { force, .. } => {
-            // XFS needs to be forced to overwrite
-            *force = true;
-        }
-        _ => {
-            // Anyone else need tweaks
-        }
+    if let Filesystem::Xfs { force, .. } = &mut fs {
+        // XFS needs to be forced to overwrite
+        *force = true;
     };
     format_block_device(&dev_path, &fs)?;
 
