@@ -30,8 +30,7 @@ use api::service::{Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition,
 use backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{App, Arg};
-use gpt::header::read_header;
-use gpt::partition::read_partitions;
+use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
@@ -288,12 +287,12 @@ fn get_disks() -> Result<Vec<Disk>> {
 
     for device in device_info {
         let mut d = Disk::new();
-        let dev_path = format!("/dev/{}", device.name);
+        let dev_path = Path::new("/dev/").join(device.name);
         // This will skip partition_info if it fails to gather.  Blank disks will fail
         let p = get_partition_info(&dev_path).unwrap_or(PartitionInfo::new());
         //Translate block_utils MediaType -> Protobuf DiskType
         d.set_field_type(convert_media_to_disk_type(device.media_type));
-        d.set_dev_path(dev_path);
+        d.set_dev_path(dev_path.to_string_lossy().into_owned());
         d.set_partitions(p);
         if let Some(serial) = device.serial_number {
             d.set_serial_number(serial);
@@ -304,10 +303,10 @@ fn get_disks() -> Result<Vec<Disk>> {
     Ok(disks)
 }
 
-fn get_partition_info(dev_path: &str) -> Result<PartitionInfo> {
+fn get_partition_info(dev_path: &Path) -> Result<PartitionInfo> {
     let mut partition_info = PartitionInfo::new();
-    let h = read_header(dev_path)?;
-    let partitions = read_partitions(dev_path, &h)?;
+    let h = read_header(dev_path, disk::DEFAULT_SECTOR_SIZE)?;
+    let partitions = read_partitions(dev_path, &h, disk::DEFAULT_SECTOR_SIZE)?;
 
     // Transform partitions to protobuf
     let proto_parts: Vec<Partition> = partitions
@@ -315,8 +314,8 @@ fn get_partition_info(dev_path: &str) -> Result<PartitionInfo> {
         .map(|part| {
             let mut p = Partition::new();
             p.set_uuid(part.part_guid.hyphenated().to_string());
-            p.set_first_lba(part.first_LBA);
-            p.set_last_lba(part.last_LBA);
+            p.set_first_lba(part.first_lba);
+            p.set_last_lba(part.last_lba);
             p.set_flags(part.flags);
             p.set_name(part.name.clone());
             p

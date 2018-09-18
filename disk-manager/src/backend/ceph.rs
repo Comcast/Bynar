@@ -11,26 +11,25 @@ extern crate uuid;
 
 use std::env::home_dir;
 use std::fs::{create_dir, File};
-use std::io::{Error, ErrorKind, Read, Write};
 use std::io::Result as IOResult;
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
 use backend::Backend;
 
-use self::ceph::ceph::{connect_to_ceph, disconnect_from_ceph};
+use self::ceph::ceph::{connect_to_ceph, Rados};
 use self::ceph::cmd::*;
-use self::ceph::rados::rados_t;
 use self::ceph_safe_disk::diag::{DiagMap, Format, Status};
 use self::fstab::FsTab;
+use self::helpers::host_information::Host;
 use self::init_daemon::{detect_daemon, Daemon};
 use self::tempdir::TempDir;
-use self::helpers::host_information::Host;
 
 /// Ceph cluster
 pub struct CephBackend {
-    cluster_handle: rados_t,
+    cluster_handle: Rados,
 }
 
 #[derive(Deserialize, Debug)]
@@ -119,7 +118,8 @@ impl CephBackend {
         }
 
         // Create a new osd id
-        let new_osd_id = osd_create(self.cluster_handle, id, simulate).map_err(|e| e.to_string())?;
+        let new_osd_id =
+            osd_create(&self.cluster_handle, id, simulate).map_err(|e| e.to_string())?;
         debug!("New osd id created: {:?}", new_osd_id);
 
         // Mount the drive
@@ -135,8 +135,8 @@ impl CephBackend {
         // Format the osd with the osd filesystem
         ceph_mkfs(new_osd_id, None, simulate)?;
         debug!("Creating ceph authorization entry");
-        osd_auth_add(self.cluster_handle, new_osd_id, simulate).map_err(|e| e.to_string())?;
-        let auth_key = auth_get_key(self.cluster_handle, "osd", &new_osd_id.to_string())
+        osd_auth_add(&self.cluster_handle, new_osd_id, simulate).map_err(|e| e.to_string())?;
+        let auth_key = auth_get_key(&self.cluster_handle, "osd", &new_osd_id.to_string())
             .map_err(|e| e.to_string())?;
         debug!("Saving ceph keyring");
         save_keyring(new_osd_id, &auth_key, simulate).map_err(|e| e.to_string())?;
@@ -148,7 +148,7 @@ impl CephBackend {
             new_osd_id, host_info.hostname, osd_weight
         );
         osd_crush_add(
-            self.cluster_handle,
+            &self.cluster_handle,
             new_osd_id,
             osd_weight,
             &host_info.hostname,
@@ -184,13 +184,13 @@ impl CephBackend {
             }
         };
         debug!("Setting osd {} out", osd_id);
-        osd_out(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
+        osd_out(&self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
         debug!("Removing osd {} from crush", osd_id);
-        osd_crush_remove(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
+        osd_crush_remove(&self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
         debug!("Deleting osd {} auth key", osd_id);
-        auth_del(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
+        auth_del(&self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
         debug!("Removing osd {}", osd_id);
-        osd_rm(self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
+        osd_rm(&self.cluster_handle, osd_id, simulate).map_err(|e| e.to_string())?;
 
         // Wipe the disk
         debug!("Erasing disk {}", dev_path.display());
@@ -208,11 +208,6 @@ impl CephBackend {
         }
 
         Ok(())
-    }
-}
-impl Drop for CephBackend {
-    fn drop(&mut self) {
-        disconnect_from_ceph(self.cluster_handle);
     }
 }
 
@@ -298,7 +293,7 @@ fn add_osd_to_fstab(
 ) -> Result<(), String> {
     let fstab = FsTab::default();
     let fstab_entry = fstab::FsEntry {
-        fs_spec: format!("UUID={}", device_info.id.unwrap().hyphenated().to_string()),
+        fs_spec: format!("UUID={}", device_info.id.unwrap().to_hyphenated().to_string()),
         mountpoint: PathBuf::from(&format!("/var/lib/ceph/osd/ceph-{}", osd_id)),
         vfs_type: device_info.fs_type.to_string(),
         mount_options: vec![

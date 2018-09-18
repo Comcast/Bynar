@@ -45,7 +45,7 @@ pub fn create_support_ticket(
     };
     let jira: Jira = match settings.proxy {
         Some(ref url) => {
-            let client = reqwest::Client::builder()?
+            let client = reqwest::Client::builder()
                 .proxy(reqwest::Proxy::all(url)?)
                 .build()?;
             Jira::from_client(
@@ -79,7 +79,7 @@ pub fn create_support_ticket(
 pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> Result<bool, GojiError> {
     let jira: Jira = match settings.proxy {
         Some(ref url) => {
-            let client = reqwest::Client::builder()?
+            let client = reqwest::Client::builder()
                 .proxy(reqwest::Proxy::all(url)?)
                 .build()?;
             Jira::from_client(

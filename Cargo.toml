@@ -28,14 +28,14 @@ rand = "~0.5"
 api = { path = "api" }
 blkid = "~0.2"
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
-ceph = "~0.4"
+ceph = "~1.0"
 clap = "~2"
 client = { path = "client" }
 disk-manager = { path = "disk-manager" }
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
-gluster = "~0.6"
-goji = "~0.2"
+gluster = "~1.0"
+goji = { git = "https://github.com/cholcombe973/goji.git" }
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path = "helpers" }
 init-daemon = "~0.1"
@@ -46,15 +46,15 @@ log = "~0.4"
 petgraph = "~0.4"
 protobuf = "~2"
 rayon = "~1.0"
-reqwest = "~0.7"
-rusqlite = "~0.13"
+reqwest = "~0.8"
+rusqlite = "~0.14"
 serde = "~1"
 serde_derive = "~1"
 serde_json = "~1"
 simplelog = "~0.5"
-slack-hook = "~0.6"
+slack-hook = "~0.7"
 tempdir = "~0.3"
 time = "~0.1"
 uname = "~0.1"
-uuid = { version="~0.6", features = ["v4"]}
+uuid = { version="~0.7", features = ["v4"]}
 zmq = {version="~0.8"}
