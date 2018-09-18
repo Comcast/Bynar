@@ -10,6 +10,7 @@ bytes = "*"
 ceph = "*"
 ceph-safe-disk = "~0.1"
 clap = "*"
+dirs = "~1.0"
 fstab = "*"
 gpt = { git = "https://github.com/Quyzi/gpt"}
 gluster = "*"

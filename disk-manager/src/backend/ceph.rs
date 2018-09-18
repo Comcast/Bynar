@@ -1,6 +1,7 @@
 extern crate block_utils;
 extern crate ceph;
 extern crate ceph_safe_disk;
+extern crate dirs;
 extern crate fstab;
 extern crate helpers;
 extern crate init_daemon;
@@ -9,7 +10,6 @@ extern crate serde_json;
 extern crate tempdir;
 extern crate uuid;
 
-use std::env::home_dir;
 use std::fs::{create_dir, File};
 use std::io::Result as IOResult;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -22,6 +22,7 @@ use backend::Backend;
 use self::ceph::ceph::{connect_to_ceph, Rados};
 use self::ceph::cmd::*;
 use self::ceph_safe_disk::diag::{DiagMap, Format, Status};
+use self::dirs::home_dir;
 use self::fstab::FsTab;
 use self::helpers::host_information::Host;
 use self::init_daemon::{detect_daemon, Daemon};
@@ -293,7 +294,10 @@ fn add_osd_to_fstab(
 ) -> Result<(), String> {
     let fstab = FsTab::default();
     let fstab_entry = fstab::FsEntry {
-        fs_spec: format!("UUID={}", device_info.id.unwrap().to_hyphenated().to_string()),
+        fs_spec: format!(
+            "UUID={}",
+            device_info.id.unwrap().to_hyphenated().to_string()
+        ),
         mountpoint: PathBuf::from(&format!("/var/lib/ceph/osd/ceph-{}", osd_id)),
         vfs_type: device_info.fs_type.to_string(),
         mount_options: vec![

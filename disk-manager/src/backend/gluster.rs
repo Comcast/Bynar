@@ -6,8 +6,6 @@ use backend::Backend;
 use std::io::Result;
 use std::path::Path;
 
-use self::tempdir::TempDir;
-
 pub struct GlusterBackend;
 /*
     Add a disk
@@ -31,18 +29,18 @@ pub struct GlusterBackend;
 impl Backend for GlusterBackend {
     fn add_disk(
         &self,
-        device: &Path,
-        id: Option<u64>,
-        journal: Option<&str>,
-        journal_partition: Option<u32>,
-        simulate: bool,
+        _device: &Path,
+        _id: Option<u64>,
+        _journal: Option<&str>,
+        _journal_partition: Option<u32>,
+        _simulate: bool,
     ) -> Result<()> {
         Ok(())
     }
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, device: &Path, simulate: bool) -> Result<()> {
+    fn remove_disk(&self, _device: &Path, _simulate: bool) -> Result<()> {
         Ok(())
     }
 
@@ -50,7 +48,7 @@ impl Backend for GlusterBackend {
     /// If simulate is passed then this always returns true
     /// Take any actions needed with this call to figure out if a disk is safe
     /// to remove from the cluster.
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> Result<bool> {
+    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> Result<bool> {
         Ok(true)
     }
 }
