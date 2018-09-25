@@ -18,26 +18,27 @@ extern crate zmq;
 
 mod backend;
 
-use std::fs::File;
-use std::io::{Error, ErrorKind, Read, Result, Write};
+use std::fs::{create_dir, read_to_string, File};
+use std::io::{Error, ErrorKind, Result, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
-use api::service::{Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo,
-                   ResultType};
+use api::service::{
+    Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo, ResultType,
+};
 use backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
+use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
-use protobuf::parse_from_bytes;
-use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
-use zmq::{Message, Socket};
+use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use zmq::Result as ZmqResult;
+use zmq::{Message, Socket};
 
 #[derive(Clone, Debug, Deserialize)]
 struct DiskManagerConfig {
@@ -65,10 +66,14 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
     // The ubuntu package is linked so this shouldn't fail
     s.set_curve_server(true)?;
     let keypair = zmq::CurveKeyPair::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let hostname = {
+        let s = read_to_string("/etc/hostname")?;
+        s.trim().to_string()
+    };
+    let key_file = config_dir.join(format!("{}.pem", hostname));
     if vault {
         //Connect to vault
-        let config: DiskManagerConfig =
-            helpers::load_config(&config_dir.to_string_lossy(), "disk-manager.json")?;
+        let config: DiskManagerConfig = helpers::load_config(&config_dir, "disk-manager.json")?;
         if config.vault_token.is_none() || config.vault_endpoint.is_none() {
             error!("Vault support requested but vault_token or vault_endpoint aren't set");
             return Err(Error::new(
@@ -78,12 +83,6 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
         }
         let endpoint = config.vault_endpoint.unwrap();
         let token = config.vault_token.unwrap();
-        let hostname = {
-            let mut f = File::open("/etc/hostname")?;
-            let mut s = String::new();
-            f.read_to_string(&mut s)?;
-            s
-        };
         debug!(
             "Connecting to vault to save the public key to /bynar/{}.pem",
             hostname
@@ -91,15 +90,17 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
         let client = VaultClient::new(endpoint.as_str(), token)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
         client
-            .set_secret(format!("/bynar/{}.pem", hostname), keypair.public_key)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            .set_secret(
+                format!("{}/{}.pem", config_dir.display(), hostname),
+                keypair.public_key,
+            ).map_err(|e| Error::new(ErrorKind::Other, e))?;
         s.set_curve_secretkey(&keypair.secret_key)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
     } else {
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
-        let mut f = File::create(format!("{}/ecpubkey.pem", config_dir.display()))?;
+        let mut f = File::create(key_file)?;
         f.write(keypair.public_key.as_bytes())?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
@@ -319,8 +320,7 @@ fn get_partition_info(dev_path: &Path) -> Result<PartitionInfo> {
             p.set_flags(part.flags);
             p.set_name(part.name.clone());
             p
-        })
-        .collect();
+        }).collect();
     partition_info.set_partition(RepeatedField::from_vec(proto_parts));
     Ok(partition_info)
 }
@@ -405,32 +405,28 @@ fn main() {
                 .possible_values(&["ceph"])
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("listen")
                 .default_value("*")
                 .help("Address to listen on.  Default is all interfaces")
                 .long("listenaddress")
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("configdir")
                 .default_value("/etc/bynar")
                 .help("The directory where all config files can be found")
                 .long("configdir")
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("log")
                 .default_value("/var/log/bynar-disk-manager.log")
                 .help("Default log file location")
                 .long("logfile")
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("vault")
                 .default_value("false")
                 .help("Enable vault support. Remember to set the vault_token and vault_endpoint")
@@ -438,33 +434,51 @@ fn main() {
                 .possible_values(&["true", "false"])
                 .takes_value(true)
                 .required(false),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        )
-        .get_matches();
+        ).get_matches();
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
+    info!("Starting up");
+
+    //Sanity check
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
+    if !config_dir.exists() {
+        warn!(
+            "Config directory {} doesn't exist. Creating",
+            config_dir.display()
+        );
+        if let Err(e) = create_dir(config_dir) {
+            error!(
+                "Unable to create directory {}: {}",
+                config_dir.display(),
+                e.to_string()
+            );
+            return;
+        }
+    }
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let vault_support = {
         let b = bool::from_str(matches.value_of("vault").unwrap()).unwrap();
         b
     };
-    let _ = CombinedLogger::init(vec![
-        TermLogger::new(level, Config::default()).unwrap(),
-        WriteLogger::new(
-            level,
-            Config::default(),
-            File::create(matches.value_of("log").unwrap()).unwrap(),
-        ),
-    ]);
+    let mut loggers: Vec<Box<SharedLogger>> = vec![];
+    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
+        //systemd doesn't use a terminal
+        loggers.push(term_logger);
+    }
+    loggers.push(WriteLogger::new(
+        level,
+        Config::default(),
+        File::create("/var/log/bynar.log").unwrap(),
+    ));
+    let _ = CombinedLogger::init(loggers);
     match listen(
         backend,
         config_dir,

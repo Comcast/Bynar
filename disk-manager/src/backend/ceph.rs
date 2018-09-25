@@ -10,9 +10,9 @@ extern crate serde_json;
 extern crate tempdir;
 extern crate uuid;
 
-use std::fs::{create_dir, File};
+use std::fs::{create_dir, read_to_string, File};
 use std::io::Result as IOResult;
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Error, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
@@ -44,8 +44,7 @@ struct CephConfig {
 fn choose_ceph_config(config_dir: Option<&Path>) -> IOResult<PathBuf> {
     match config_dir {
         Some(config) => {
-            let mut json_path = config.to_path_buf();
-            json_path.push("ceph.json");
+            let json_path = config.join("ceph.json");
             if !json_path.exists() {
                 let err_msg = format!("{} does not exist.  Please create", json_path.display());
                 error!("{}", err_msg);
@@ -56,9 +55,7 @@ fn choose_ceph_config(config_dir: Option<&Path>) -> IOResult<PathBuf> {
         }
         None => {
             let home = home_dir().expect("HOME env variable not defined");
-            let mut json_path = PathBuf::from(home);
-            json_path.push(".config");
-            json_path.push("ceph.json");
+            let json_path = PathBuf::from(home).join(".config").join("ceph.json");
             if !json_path.exists() {
                 let err_msg = format!("{} does not exist.  Please create", json_path.display());
                 error!("{}", err_msg);
@@ -73,9 +70,10 @@ fn choose_ceph_config(config_dir: Option<&Path>) -> IOResult<PathBuf> {
 impl CephBackend {
     pub fn new(config_dir: Option<&Path>) -> IOResult<CephBackend> {
         let ceph_config = choose_ceph_config(config_dir)?;
-        let mut f = File::open(ceph_config)?;
-        let mut s = String::new();
-        f.read_to_string(&mut s)?;
+        if !ceph_config.exists() {
+            error!("ceph config {} does not exist", ceph_config.display());
+        }
+        let s = read_to_string(ceph_config)?;
         let deserialized: CephConfig = serde_json::from_str(&s)?;
 
         info!("Connecting to Ceph");
@@ -262,12 +260,9 @@ fn get_osd_id(path: &Path, simulate: bool) -> Result<u64, String> {
     if simulate {
         return Ok(0);
     }
-    let mut whoami_path = PathBuf::from(path);
-    whoami_path.push("whoami");
-    debug!("Discovering osd id number from: {:?}", whoami_path);
-    let mut f = File::open(&whoami_path).map_err(|e| e.to_string())?;
-    let mut buff = String::new();
-    f.read_to_string(&mut buff).map_err(|e| e.to_string())?;
+    let whoami_path = path.join("whoami");
+    debug!("Discovering osd id number from: {}", whoami_path.display());
+    let buff = read_to_string(&whoami_path).map_err(|e| e.to_string())?;
     u64::from_str(buff.trim()).map_err(|e| e.to_string())
 }
 

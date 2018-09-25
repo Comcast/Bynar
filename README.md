@@ -52,7 +52,6 @@ Fields for this file are:
  "jira_user": "test_user",
  "jira_password": "user_password",
  "jira_host": "https://tickets.jira.com",
- "jira_ticket_assignee": "username",
  "jira_issue_type": "3",
  "jira_priority": "4",
  "jira_project_id": "MyProject",
@@ -97,6 +96,7 @@ $ cargo build --release
 6. libblkid-dev
 7. libsqlite3-dev
 8. libudev # for building
+9. librados-dev # for building
 Installing Bynar under Ubuntu 18.04:
 1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
 2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`

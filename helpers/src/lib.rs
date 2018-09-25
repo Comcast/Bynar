@@ -11,26 +11,30 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate zmq;
 
-use std::io::{Error, ErrorKind, Read};
-use std::io::Result as IOResult;
 use std::fs::File;
+use std::io::Result as IOResult;
+use std::io::{Error, ErrorKind, Read};
 use std::path::Path;
 
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
 use hashicorp_vault::client::VaultClient;
-use protobuf::Message as ProtobufMsg;
 use protobuf::parse_from_bytes;
+use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
-use zmq::{Message, Socket};
 use zmq::Result as ZmqResult;
+use zmq::{Message, Socket};
 
 pub mod host_information;
 
-pub fn load_config<T>(config_dir: &str, name: &str) -> IOResult<T>
+pub fn load_config<T>(config_dir: &Path, name: &str) -> IOResult<T>
 where
     T: DeserializeOwned,
 {
-    let mut f = File::open(format!("{}/{}", config_dir, name))?;
+    let p = config_dir.join(name);
+    if !p.exists() {
+        error!("{} config file does not exist", p.display());
+    }
+    let mut f = File::open(p)?;
     let mut s = String::new();
     f.read_to_string(&mut s)?;
     let deserialized: T =

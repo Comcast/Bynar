@@ -8,12 +8,14 @@ readme = "README.md"
 
 [package.metadata.deb]
 maintainer = "Chris Holcombe <xfactor973@gmail.com>"
-depends = "$auto"
+depends = "$auto, systemd"
 section = "utility"
 assets = [
+	["etc/bynar/bynar.json", "/etc/bynar/bynar.json", "666"],
 	["target/release/bynar", "usr/sbin/", "755"],
 	["target/release/client", "usr/bin/", "755"],
 	["target/release/disk-manager", "usr/sbin/", "755"],
+	["systemd/disk-manager.service", "/lib/systemd/system/disk-manager.service", "644"],
     ["README.md", "usr/share/doc/bynar/README", "644"],
 ]
 
