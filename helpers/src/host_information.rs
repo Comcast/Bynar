@@ -1,6 +1,7 @@
 /// Gather information about the current host
 extern crate block_utils;
 extern crate dmi;
+extern crate hostname;
 extern crate uname;
 
 use std::fs::read_to_string;
@@ -8,6 +9,7 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::Path;
 
 //use self::block_utils::RaidType;
+use self::hostname::get_hostname;
 use self::uname::uname;
 
 /// All the host information we could gather
@@ -27,7 +29,8 @@ impl Host {
         debug!("Loading host information");
         debug!("Gathering uname info");
         let uname_info = uname()?;
-        let hostname = hostname()?;
+        let hostname =
+            get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
@@ -42,13 +45,6 @@ impl Host {
             raid_info,
         })
     }
-}
-
-/// Find the server hostname
-fn hostname() -> Result<String> {
-    debug!("Gathering hostname info");
-    let buff = read_to_string("/etc/hostname")?;
-    Ok(buff.trim().into())
 }
 
 /// Find the server type

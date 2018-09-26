@@ -10,6 +10,7 @@
 extern crate blkid;
 extern crate block_utils;
 extern crate fstab;
+extern crate gpt;
 extern crate libatasmart;
 extern crate log;
 #[cfg(test)]
@@ -27,6 +28,7 @@ use self::block_utils::{
     format_block_device, get_mountpoint, is_mounted, mount_device, unmount_device, Device,
     Filesystem, FilesystemType, MediaType,
 };
+use self::gpt::{disk, header::read_header, partition::read_partitions};
 use self::in_progress::*;
 #[cfg(test)]
 use self::mocktopus::macros::*;
@@ -1077,6 +1079,32 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
         .filter(|d| !(d.media_type == MediaType::LVM))
         // Get rid of ram devices
         .filter(|d| !(d.media_type == MediaType::Ram))
+        // Get rid of disks that aren't Ceph
+        .filter(|d| {
+            let dev_path = Path::new("/dev").join(&d.name);
+            debug!("inspecting disk: {}", dev_path.display());
+            let disk_header = match read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE){
+                Ok(h) => h,
+                Err(e) => {
+                    error!("Unable to read disk header: {}  Skipping", e);
+                    return false;
+                }
+            };
+            let partitions = match read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE){
+                Ok(p) => p,
+                Err(e) => {
+                    error!("Unable to read disk partitions: {}  Skipping", e);
+                    return false;
+                }
+            };
+            for p in partitions {
+                if p.part_type_guid.os != "Ceph" {
+                    debug!("Skipping non ceph disk: {}", dev_path.display());
+                    return false;
+                }
+            }
+            true
+        })
         .collect();
 
     // Gather info on all the currently mounted devices
@@ -1115,8 +1143,7 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
             // Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");
-                let tmp = format!("/dev/{}", s.disk.name);
-                let disk_path = Path::new(&tmp);
+                let disk_path = Path::new("/dev").join(&s.disk.name);
                 let conn =
                     connect_to_repair_database(db).map_err(|e| Error::new(ErrorKind::Other, e))?;
                 let in_progress = is_disk_in_progress(&conn, &disk_path)

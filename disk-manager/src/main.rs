@@ -6,6 +6,7 @@ extern crate clap;
 extern crate gpt;
 extern crate hashicorp_vault;
 extern crate helpers;
+extern crate hostname;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -18,7 +19,7 @@ extern crate zmq;
 
 mod backend;
 
-use std::fs::{create_dir, read_to_string, File};
+use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Result, Write};
 use std::path::Path;
 use std::str::FromStr;
@@ -33,6 +34,7 @@ use block_utils::{Device, MediaType};
 use clap::{App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
+use hostname::get_hostname;
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
@@ -66,10 +68,8 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
     // The ubuntu package is linked so this shouldn't fail
     s.set_curve_server(true)?;
     let keypair = zmq::CurveKeyPair::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
-    let hostname = {
-        let s = read_to_string("/etc/hostname")?;
-        s.trim().to_string()
-    };
+    let hostname =
+        get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
     let key_file = config_dir.join(format!("{}.pem", hostname));
     if vault {
         //Connect to vault
@@ -163,6 +163,12 @@ fn listen(
                 };
                 if !operation.has_disk() {
                     error!("Add operation must include disk field.  Ignoring request");
+                    // We still have to respond with an error message
+                    let mut result = OpResult::new();
+                    result.set_result(ResultType::ERR);
+                    result.set_error_msg("missing operation field in protocol. Ignoring request".to_string());
+
+                    let _ = respond_to_client(result, &mut responder);
                     continue;
                 }
                 match add_disk(
@@ -175,7 +181,7 @@ fn listen(
                     config_dir,
                 ) {
                     Ok(_) => {
-                        info!("Add disk successful");
+                        info!("Add disk finished");
                     }
                     Err(e) => {
                         error!("Add disk error: {:?}", e);
@@ -188,7 +194,7 @@ fn listen(
             Op::List => {
                 match list_disks(&mut responder) {
                     Ok(_) => {
-                        info!("List disks successful");
+                        info!("List disks finished");
                     }
                     Err(e) => {
                         error!("List disks error: {:?}", e);
@@ -207,7 +213,7 @@ fn listen(
                     config_dir,
                 ) {
                     Ok(_) => {
-                        info!("Remove disk successful");
+                        info!("Remove disk finished");
                     }
                     Err(e) => {
                         error!("Remove disk error: {:?}", e);
@@ -226,7 +232,7 @@ fn listen(
                     config_dir,
                 ) {
                     Ok(_) => {
-                        info!("Remove disk successful");
+                        info!("Remove disk finished");
                     }
                     Err(e) => {
                         error!("Remove disk error: {:?}", e);
@@ -238,6 +244,16 @@ fn listen(
     }
 }
 
+fn respond_to_client(result: OpResult, s: &mut Socket) -> Result<()> {
+    let encoded = result
+        .write_to_bytes()
+        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Responding to client with msg len: {}", msg.len());
+    s.send_msg(msg, 0)?;
+    Ok(())
+}
+
 fn add_disk(
     s: &mut Socket,
     d: &str,
@@ -247,9 +263,20 @@ fn add_disk(
     journal_partition: Option<u32>,
     config_dir: &Path,
 ) -> Result<()> {
-    let backend = backend::load_backend(backend, Some(config_dir))
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
     let mut result = OpResult::new();
+    let backend = match backend::load_backend(backend, Some(config_dir))
+        .map_err(|e| Error::new(ErrorKind::Other, e))
+    {
+        Ok(backend) => backend,
+        Err(e) => {
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            // Bail early.  We can't load the backend
+            let _ = respond_to_client(result, s);
+            return Ok(());
+        }
+    };
 
     //Send back OpResult
     match backend.add_disk(&Path::new(d), id, journal, journal_partition, false) {
@@ -260,13 +287,8 @@ fn add_disk(
             result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
         }
-    }
-    let encoded = result
-        .write_to_bytes()
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
-    let msg = Message::from_slice(&encoded)?;
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send_msg(msg, 0)?;
+    };
+    let _ = respond_to_client(result, s);
 
     Ok(())
 }
@@ -343,9 +365,20 @@ fn list_disks(s: &mut Socket) -> Result<()> {
 
 fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -> Result<()> {
     //Returns OpResult
-    let backend = backend::load_backend(backend, Some(config_dir))
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
     let mut result = OpResult::new();
+    let backend = match backend::load_backend(backend, Some(config_dir))
+        .map_err(|e| Error::new(ErrorKind::Other, e))
+    {
+        Ok(b) => b,
+        Err(e) => {
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            // Bail early.  We can't load the backend
+            let _ = respond_to_client(result, s);
+            return Ok(());
+        }
+    };
     match backend.remove_disk(&Path::new(d), false) {
         Ok(_) => {
             result.set_result(ResultType::OK);
@@ -355,12 +388,7 @@ fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path
             result.set_error_msg(e.to_string());
         }
     };
-    let encoded = result
-        .write_to_bytes()
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
-    let msg = Message::from_slice(&encoded)?;
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send_msg(msg, 0)?;
+    let _ = respond_to_client(result, s);
     Ok(())
 }
 
@@ -370,9 +398,24 @@ fn safe_to_remove_disk(
     backend: &BackendType,
     config_dir: &Path,
 ) -> Result<()> {
-    let backend = backend::load_backend(backend, Some(config_dir))
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
     let mut result = OpBoolResult::new();
+    let backend = match backend::load_backend(backend, Some(config_dir))
+        .map_err(|e| Error::new(ErrorKind::Other, e))
+    {
+        Ok(b) => b,
+        Err(e) => {
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            let encoded = result
+                .write_to_bytes()
+                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            let msg = Message::from_slice(&encoded)?;
+            debug!("Responding to client with msg len: {}", msg.len());
+            s.send_msg(msg, 0)?;
+            return Ok(());
+        }
+    };
     match backend.safe_to_remove(&Path::new(d), false) {
         Ok(val) => {
             result.set_result(ResultType::OK);
@@ -463,6 +506,7 @@ fn main() {
             return;
         }
     }
+    let log = Path::new(matches.value_of("log").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let vault_support = {
         let b = bool::from_str(matches.value_of("vault").unwrap()).unwrap();
@@ -476,7 +520,7 @@ fn main() {
     loggers.push(WriteLogger::new(
         level,
         Config::default(),
-        File::create("/var/log/bynar.log").unwrap(),
+        File::create(log).expect("log file creation failed"),
     ));
     let _ = CombinedLogger::init(loggers);
     match listen(

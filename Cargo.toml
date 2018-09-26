@@ -13,7 +13,7 @@ section = "utility"
 assets = [
 	["etc/bynar/bynar.json", "/etc/bynar/bynar.json", "666"],
 	["target/release/bynar", "usr/sbin/", "755"],
-	["target/release/client", "usr/bin/", "755"],
+	["target/release/client", "usr/bin/bynar-client", "755"],
 	["target/release/disk-manager", "usr/sbin/", "755"],
 	["systemd/disk-manager.service", "/lib/systemd/system/disk-manager.service", "644"],
     ["README.md", "usr/share/doc/bynar/README", "644"],
@@ -38,8 +38,10 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~1.0"
 goji = { git = "https://github.com/cholcombe973/goji.git" }
+gpt = { git = "https://github.com/Quyzi/gpt"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path = "helpers" }
+hostname = "~0.1"
 init-daemon = "~0.1"
 json = "~0.11"
 libatasmart = "~0.1"

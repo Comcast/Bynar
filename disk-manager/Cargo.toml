@@ -16,6 +16,7 @@ gpt = { git = "https://github.com/Quyzi/gpt"}
 gluster = "*"
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 helpers = { path="../helpers", version="*"}
+hostname = "~0.1"
 init-daemon = "~0.1"
 libc = "~0.2"
 log = "~0.4"

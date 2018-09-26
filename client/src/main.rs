@@ -2,6 +2,7 @@ extern crate api;
 #[macro_use]
 extern crate clap;
 extern crate helpers;
+extern crate hostname;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
@@ -14,6 +15,7 @@ use std::str::FromStr;
 
 use api::service::Disk;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use hostname::get_hostname;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
@@ -91,7 +93,7 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
     }
 }
 
-fn get_cli_args<'a>() -> ArgMatches<'a> {
+fn get_cli_args<'a>(default_server_key: &'a str) -> ArgMatches<'a> {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())
         .author(crate_authors!())
@@ -112,7 +114,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                 .takes_value(true),
         ).arg(
             Arg::with_name("server_key")
-                .default_value("/etc/bynar/ecpubkey.pem")
+                .default_value(default_server_key)
                 .help("The public key for the disk-manager service.")
                 .required(false)
                 .long("serverkey")
@@ -181,7 +183,11 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
 }
 
 fn main() {
-    let matches = get_cli_args();
+    let server_key = format!(
+        "/etc/bynar/{}.pem",
+        get_hostname().unwrap_or("ecpubkey".to_string())
+    );
+    let matches = get_cli_args(&server_key);
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
