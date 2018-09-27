@@ -28,16 +28,16 @@ mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 
-use std::fs::File;
+use std::fs::{create_dir, read_to_string, File};
 use std::io::Result as IOResult;
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::host_information::Host;
-use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
+use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -90,15 +90,20 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> IOResult<String>
         ).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
         Ok(key)
     } else {
-        let mut f = File::open(&format!("/etc/bynar/{}.pem", host_info.hostname))?;
-        let mut key_buff = String::new();
-        f.read_to_string(&mut key_buff)?;
-        Ok(key_buff)
+        let p = Path::new("/etc")
+            .join("bynar")
+            .join(format!("{}.pem", host_info.hostname));
+        if !p.exists() {
+            error!("{} does not exist", p.display());
+        }
+        let key = read_to_string(p)?;
+        Ok(key)
     }
 }
 
-fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
-    let config: ConfigSettings = helpers::load_config(config_dir, "").map_err(|e| e.to_string())?;
+fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), String> {
+    let config: ConfigSettings =
+        helpers::load_config(config_dir, "bynar.json").map_err(|e| e.to_string())?;
     let host_info = Host::new().map_err(|e| e.to_string())?;
     debug!("Gathered host info: {:?}", host_info);
     let public_key = get_public_key(&config, &host_info).map_err(|e| e.to_string())?;
@@ -226,7 +231,7 @@ fn check_for_failed_disks(config_dir: &str, simulate: bool) -> Result<(), String
     Ok(())
 }
 
-fn add_repaired_disks(config_dir: &str, simulate: bool) -> Result<(), String> {
+fn add_repaired_disks(config_dir: &Path, simulate: bool) -> Result<(), String> {
     let config: ConfigSettings =
         helpers::load_config(config_dir, "bynar.json").map_err(|e| e.to_string())?;
     let host_info = Host::new().map_err(|e| e.to_string())?;
@@ -321,23 +326,35 @@ fn main() {
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
-    let _ = CombinedLogger::init(vec![
-        TermLogger::new(level, Config::default()).unwrap(),
-        WriteLogger::new(
-            level,
-            Config::default(),
-            File::create("/var/log/bynar.log").unwrap(),
-        ),
-    ]);
+    let mut loggers: Vec<Box<SharedLogger>> = vec![];
+    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
+        //systemd doesn't use a terminal
+        loggers.push(term_logger);
+    }
+    loggers.push(WriteLogger::new(
+        level,
+        Config::default(),
+        File::create("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
+    ));
+    let _ = CombinedLogger::init(loggers);
     info!("Starting up");
 
-    //Sanity check
-    if !Path::new("/etc/bynar").exists() {
-        error!("Config directory doesn't exist. Please create it or use the --configdir option");
-        return;
+    let config_dir = Path::new(matches.value_of("configdir").unwrap());
+    if !config_dir.exists() {
+        warn!(
+            "Config directory {} doesn't exist. Creating",
+            config_dir.display()
+        );
+        if let Err(e) = create_dir(config_dir) {
+            error!(
+                "Unable to create directory {}: {}",
+                config_dir.display(),
+                e.to_string()
+            );
+            return;
+        }
     }
     let simulate = matches.is_present("simulate");
-    let config_dir = matches.value_of("configdir").unwrap();
 
     match check_for_failed_disks(config_dir, simulate) {
         Err(e) => {

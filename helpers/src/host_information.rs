@@ -1,13 +1,15 @@
 /// Gather information about the current host
 extern crate block_utils;
 extern crate dmi;
+extern crate hostname;
 extern crate uname;
 
-use std::fs::File;
-use std::io::{Error, ErrorKind, Read, Result};
+use std::fs::read_to_string;
+use std::io::{Error, ErrorKind, Result};
 use std::path::Path;
 
 //use self::block_utils::RaidType;
+use self::hostname::get_hostname;
 use self::uname::uname;
 
 /// All the host information we could gather
@@ -27,11 +29,13 @@ impl Host {
         debug!("Loading host information");
         debug!("Gathering uname info");
         let uname_info = uname()?;
-        let hostname = hostname()?;
+        let hostname =
+            get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
-        let raid_info = block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
+        let raid_info =
+            block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
         Ok(Host {
             hostname,
             kernel: uname_info.release,
@@ -43,24 +47,13 @@ impl Host {
     }
 }
 
-/// Find the server hostname
-fn hostname() -> Result<String> {
-    debug!("Gathering hostname info");
-    let mut buff = String::new();
-    let mut f = File::open("/etc/hostname")?;
-    f.read_to_string(&mut buff)?;
-    Ok(buff.trim().into())
-}
-
 /// Find the server type
 fn server_type() -> Result<String> {
     debug!("Gathering server type");
     let path = Path::new("/sys/class/dmi/id/product_name");
     if Path::exists(path) {
-        let mut f = File::open(path)?;
-        let mut buff = String::new();
-        f.read_to_string(&mut buff)?;
-        return Ok(buff);
+        let buff = read_to_string(path)?;
+        return Ok(buff.trim().into());
     }
     Err(Error::new(
         ErrorKind::Other,
@@ -74,10 +67,8 @@ fn server_serial() -> Result<String> {
     debug!("Checking for serial in /sys/class/dmi/id/product_serial");
     let path_1 = Path::new("/sys/class/dmi/id/product_serial");
     if Path::exists(path_1) {
-        let mut f = File::open(path_1)?;
-        let mut buff = String::new();
-        f.read_to_string(&mut buff)?;
-        return Ok(buff);
+        let buff = read_to_string(path_1)?;
+        return Ok(buff.trim().into());
     }
 
     // /sys/firmware/dmi/tables/DMI

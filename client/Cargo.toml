@@ -7,6 +7,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 api = { path = "../api", version = "*"}
 clap = "*"
 helpers = { path="../helpers", version="*"}
+hostname = "~0.1"
 log = "*"
 protobuf = "~2"
 simplelog = "*"

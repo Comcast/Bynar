@@ -45,8 +45,8 @@ pub struct DiskRepairTicket {
 }
 
 pub fn connect_to_repair_database(db_path: &Path) -> Result<Connection> {
-    let conn = Connection::open(db_path)?;
     debug!("Opening or creating repairs table if needed");
+    let conn = Connection::open(db_path)?;
     // TODO: should this be broken out into 2 tables,
     // 1 for repairs and 1 for state machine?
     conn.execute(
@@ -157,7 +157,7 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> Result<Option<test_disk:
         })?;
         debug!("Found state: {}", state);
 
-        return Ok(Some(test_disk::State::from_str(&state).unwrap()));
+        return Ok(Some(test_disk::State::from_str(&state).unwrap_or(test_disk::State::Unscanned)));
     }
 
     Ok(None)

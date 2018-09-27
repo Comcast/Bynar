@@ -8,6 +8,7 @@ api = { path = "../api", version = "*"}
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
+hostname = "~0.1"
 log = "~0.4"
 protobuf = "~2"
 serde = "~1"
