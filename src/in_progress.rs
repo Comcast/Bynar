@@ -157,7 +157,7 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> Result<Option<test_disk:
         })?;
         debug!("Found state: {}", state);
 
-        return Ok(Some(test_disk::State::from_str(&state).unwrap()));
+        return Ok(Some(test_disk::State::from_str(&state).unwrap_or(test_disk::State::Unscanned)));
     }
 
     Ok(None)

@@ -18,6 +18,9 @@ assets = [
 	["systemd/disk-manager.service", "/lib/systemd/system/disk-manager.service", "644"],
     ["README.md", "usr/share/doc/bynar/README", "644"],
 ]
+conf-files = [
+	"/etc/bynar/bynar.json"
+]
 
 [workspace]
 

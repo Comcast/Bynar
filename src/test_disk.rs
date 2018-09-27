@@ -25,8 +25,8 @@ use in_progress;
 
 use self::blkid::BlkId;
 use self::block_utils::{
-    format_block_device, get_mountpoint, is_mounted, mount_device, unmount_device, Device,
-    Filesystem, FilesystemType, MediaType,
+    format_block_device, get_mountpoint, mount_device, unmount_device, Device, Filesystem,
+    FilesystemType, MediaType,
 };
 use self::gpt::{disk, header::read_header, partition::read_partitions};
 use self::in_progress::*;
@@ -333,8 +333,7 @@ impl Transition for AttemptRepair {
     ) -> State {
         debug!("running AttemptRepair transition");
         // Disk filesystem is corrupted.  Attempt repairs.
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
+        let dev_path = Path::new("/dev").join(&device.name);
         if !simulate {
             match repair_filesystem(&device.fs_type, &dev_path) {
                 Ok(_) => *to_state,
@@ -358,8 +357,7 @@ impl Transition for CheckForCorruption {
     ) -> State {
         debug!("running CheckForCorruption transition");
         if !simulate {
-            let tmp = format!("/dev/{}", device.name);
-            let dev_path = Path::new(&tmp);
+            let dev_path = Path::new("/dev").join(&device.name);
             match check_filesystem(&device.fs_type, &dev_path) {
                 Ok(fsck) => match fsck {
                     // Writes are failing but fsck is ok?
@@ -388,8 +386,7 @@ impl Transition for CheckReadOnly {
         _simulate: bool,
     ) -> State {
         debug!("running CheckReadOnly transition");
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
+        let dev_path = Path::new("/dev").join(&device.name);
 
         // Try again
         State::Fail
@@ -419,11 +416,10 @@ impl Transition for Eval {
         _simulate: bool,
     ) -> State {
         debug!("running Eval transition");
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
+        let dev_path = Path::new("/dev").join(&device.name);
 
         let mnt_dir: TempDir;
-        if !is_mounted(&dev_path).unwrap_or(false) {
+        if !is_device_mounted(&dev_path) {
             debug!("Mounting device: {}", dev_path.display());
             mnt_dir = match TempDir::new("bynar") {
                 Ok(d) => d,
@@ -494,8 +490,7 @@ impl Transition for MarkForReplacement {
         _simulate: bool,
     ) -> State {
         debug!("running MarkForReplacement transition");
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
+        let dev_path = Path::new("/dev").join(&device.name);
         match is_disk_in_progress(&db_conn, &dev_path) {
             Ok(_in_progress) => {
                 //if in_progress {
@@ -527,8 +522,7 @@ impl Transition for Mount {
     ) -> State {
         debug!("running mount transition");
 
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
+        let dev_path = Path::new("/dev").join(&device.name);
         let mnt_dir: TempDir;
 
         debug!("Mounting device: {}", dev_path.display());
@@ -569,8 +563,7 @@ impl Transition for Reformat {
         _simulate: bool,
     ) -> State {
         debug!("running Reformat transition");
-        let tmp = format!("/dev/{}", device.name);
-        let dev_path = Path::new(&tmp);
+        let dev_path = Path::new("/dev").join(&device.name);
 
         // Ensure we're not mounted before this it run
         match get_mountpoint(&dev_path) {
@@ -660,7 +653,7 @@ impl Transition for Scan {
         debug!("running Scan transition");
 
         // TODO: Handle devices that live behind a raid controller
-        let dev_path = format!("/dev/{}", device.name);
+        let dev_path = Path::new("/dev").join(&device.name);
         // Run a smart check on the base device without partition
         match run_smart_checks(&Path::new(&dev_path)) {
             Ok(_) => match save_smart_results(&db_conn, &Path::new(&dev_path), true) {
@@ -796,6 +789,7 @@ impl StateMachine {
             if self.state == beginning_state {
                 // We're stuck in an infinite loop we can't advance further from
                 debug!("Breaking loop: {}=={}", self.state, beginning_state);
+                save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                 break 'outer;
             }
         }
@@ -1079,28 +1073,38 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
         .filter(|d| !(d.media_type == MediaType::LVM))
         // Get rid of ram devices
         .filter(|d| !(d.media_type == MediaType::Ram))
-        // Get rid of disks that aren't Ceph
+        // Get rid of root disk
         .filter(|d| {
             let dev_path = Path::new("/dev").join(&d.name);
             debug!("inspecting disk: {}", dev_path.display());
             let disk_header = match read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE){
                 Ok(h) => h,
                 Err(e) => {
-                    error!("Unable to read disk header: {}  Skipping", e);
-                    return false;
+                    warn!("Unable to read disk header: {}", e);
+                    // Keep the disk 
+                    return true;
                 }
             };
             let partitions = match read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE){
                 Ok(p) => p,
                 Err(e) => {
-                    error!("Unable to read disk partitions: {}  Skipping", e);
-                    return false;
+                    warn!("Unable to read disk partitions: {}", e);
+                    // Keep the disk 
+                    return true;
                 }
             };
-            for p in partitions {
-                if p.part_type_guid.os != "Ceph" {
-                    debug!("Skipping non ceph disk: {}", dev_path.display());
-                    return false;
+            for p in partitions.iter().enumerate() {
+                let partition_path = Path::new("/dev").join(format!("{name}{num}", name=d.name, num=p.0+1));
+                debug!("partition_path: {}", partition_path.display());
+                if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path){
+                    if let Some(mount) = mount_res {
+                        debug!("partition mount: {}", mount.display());
+                        // Found the root filesystem disk
+                        if mount == Path::new("/"){
+                            debug!("Found root disk. Skipping");
+                            return false;
+                        }
+                    }
                 }
             }
             true
@@ -1322,4 +1326,46 @@ fn format_device(device: &Device) -> ::std::result::Result<(), String> {
     format_block_device(&dev_path, &fs)?;
 
     Ok(())
+}
+
+fn is_device_mounted(dev_path: &Path) -> bool {
+    // First check if the device itself is mounted
+    if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
+        if let Some(mount) = mount_res {
+            debug!("device mount: {}", mount.display());
+            return true;
+        }
+    }
+
+    // Then check if any of the partitions it contains are mounted
+    let disk_header = match read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE) {
+        Ok(h) => h,
+        Err(e) => {
+            warn!("Unable to read disk header: {}", e);
+            return false;
+        }
+    };
+
+    let partitions = match read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("Unable to read disk partitions: {}", e);
+            return false;
+        }
+    };
+
+    for p in partitions.iter().enumerate() {
+        let tmp = format!("{name}{num}", name = dev_path.display(), num = p.0 + 1);
+        let partition_path = Path::new(&tmp);
+        debug!("partition_path: {}", partition_path.display());
+        if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path) {
+            if let Some(mount) = mount_res {
+                debug!("partition mount: {}", mount.display());
+                return true;
+            }
+        }
+    }
+
+    // Unable to tell if it's mounted
+    false
 }
