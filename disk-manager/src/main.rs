@@ -20,7 +20,7 @@ extern crate zmq;
 mod backend;
 
 use std::fs::{create_dir, File};
-use std::io::{Error, ErrorKind, Result, Write};
+use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::thread;
@@ -34,12 +34,12 @@ use block_utils::{Device, MediaType};
 use clap::{App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
+use helpers::error::*;
 use hostname::get_hostname;
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
-use zmq::Result as ZmqResult;
 use zmq::{Message, Socket};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -63,11 +63,11 @@ fn convert_media_to_disk_type(m: MediaType) -> DiskType {
     }
 }
 
-fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
+fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
     // will raise EINVAL if not linked against libsodium
     // The ubuntu package is linked so this shouldn't fail
     s.set_curve_server(true)?;
-    let keypair = zmq::CurveKeyPair::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let keypair = zmq::CurveKeyPair::new()?;
     let hostname =
         get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
     let key_file = config_dir.join(format!("{}.pem", hostname));
@@ -76,8 +76,7 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
         let config: DiskManagerConfig = helpers::load_config(&config_dir, "disk-manager.json")?;
         if config.vault_token.is_none() || config.vault_endpoint.is_none() {
             error!("Vault support requested but vault_token or vault_endpoint aren't set");
-            return Err(Error::new(
-                ErrorKind::Other,
+            return Err(BynarError::new(
                 "vault_token or vault_endpoint must be set for vault support".to_string(),
             ));
         }
@@ -87,19 +86,15 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> Result<()> {
             "Connecting to vault to save the public key to /bynar/{}.pem",
             hostname
         );
-        let client = VaultClient::new(endpoint.as_str(), token)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
-        client
-            .set_secret(
-                format!("{}/{}.pem", config_dir.display(), hostname),
-                keypair.public_key,
-            ).map_err(|e| Error::new(ErrorKind::Other, e))?;
-        s.set_curve_secretkey(&keypair.secret_key)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        let client = VaultClient::new(endpoint.as_str(), token)?;
+        client.set_secret(
+            format!("{}/{}.pem", config_dir.display(), hostname),
+            keypair.public_key,
+        )?;
+        s.set_curve_secretkey(&keypair.secret_key)?;
     } else {
         debug!("Creating new curve keypair");
-        s.set_curve_secretkey(&keypair.secret_key)
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
         f.write(keypair.public_key.as_bytes())?;
     }
@@ -117,7 +112,7 @@ fn listen(
     config_dir: &Path,
     listen_address: &str,
     vault: bool,
-) -> ZmqResult<()> {
+) -> BynarResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let mut responder = context.socket(zmq::REP)?;
@@ -166,7 +161,9 @@ fn listen(
                     // We still have to respond with an error message
                     let mut result = OpResult::new();
                     result.set_result(ResultType::ERR);
-                    result.set_error_msg("missing operation field in protocol. Ignoring request".to_string());
+                    result.set_error_msg(
+                        "missing operation field in protocol. Ignoring request".to_string(),
+                    );
 
                     let _ = respond_to_client(result, &mut responder);
                     continue;
@@ -244,10 +241,8 @@ fn listen(
     }
 }
 
-fn respond_to_client(result: OpResult, s: &mut Socket) -> Result<()> {
-    let encoded = result
-        .write_to_bytes()
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+fn respond_to_client(result: OpResult, s: &mut Socket) -> BynarResult<()> {
+    let encoded = result.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
     s.send_msg(msg, 0)?;
@@ -262,11 +257,9 @@ fn add_disk(
     journal: Option<&str>,
     journal_partition: Option<u32>,
     config_dir: &Path,
-) -> Result<()> {
+) -> BynarResult<()> {
     let mut result = OpResult::new();
-    let backend = match backend::load_backend(backend, Some(config_dir))
-        .map_err(|e| Error::new(ErrorKind::Other, e))
-    {
+    let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(backend) => backend,
         Err(e) => {
             result.set_result(ResultType::ERR);
@@ -293,15 +286,14 @@ fn add_disk(
     Ok(())
 }
 
-fn get_disks() -> Result<Vec<Disk>> {
+fn get_disks() -> BynarResult<Vec<Disk>> {
     let mut disks: Vec<Disk> = Vec::new();
     debug!("Searching for block devices");
-    let devices = block_utils::get_block_devices().map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let devices = block_utils::get_block_devices()?;
 
     debug!("Gathering udev info on block devices");
     // Gather info on all devices and skip Loopback devices
-    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
-        .map_err(|e| Error::new(ErrorKind::Other, e))?
+    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())?
         .into_iter()
         .collect();
     debug!("Device info found: {:?}", device_info);
@@ -326,7 +318,7 @@ fn get_disks() -> Result<Vec<Disk>> {
     Ok(disks)
 }
 
-fn get_partition_info(dev_path: &Path) -> Result<PartitionInfo> {
+fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
     let mut partition_info = PartitionInfo::new();
     let h = read_header(dev_path, disk::DEFAULT_SECTOR_SIZE)?;
     let partitions = read_partitions(dev_path, &h, disk::DEFAULT_SECTOR_SIZE)?;
@@ -347,15 +339,13 @@ fn get_partition_info(dev_path: &Path) -> Result<PartitionInfo> {
     Ok(partition_info)
 }
 
-fn list_disks(s: &mut Socket) -> Result<()> {
-    let disk_list: Vec<Disk> = get_disks().map_err(|e| Error::new(ErrorKind::Other, e))?;
+fn list_disks(s: &mut Socket) -> BynarResult<()> {
+    let disk_list: Vec<Disk> = get_disks()?;
 
     let mut disks = Disks::new();
     disks.set_disk(RepeatedField::from_vec(disk_list));
     debug!("Encoding disk list");
-    let encoded = disks
-        .write_to_bytes()
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let encoded = disks.write_to_bytes()?;
 
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
@@ -363,12 +353,15 @@ fn list_disks(s: &mut Socket) -> Result<()> {
     Ok(())
 }
 
-fn remove_disk(s: &mut Socket, d: &str, backend: &BackendType, config_dir: &Path) -> Result<()> {
+fn remove_disk(
+    s: &mut Socket,
+    d: &str,
+    backend: &BackendType,
+    config_dir: &Path,
+) -> BynarResult<()> {
     //Returns OpResult
     let mut result = OpResult::new();
-    let backend = match backend::load_backend(backend, Some(config_dir))
-        .map_err(|e| Error::new(ErrorKind::Other, e))
-    {
+    let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(b) => b,
         Err(e) => {
             result.set_result(ResultType::ERR);
@@ -397,19 +390,15 @@ fn safe_to_remove_disk(
     d: &str,
     backend: &BackendType,
     config_dir: &Path,
-) -> Result<()> {
+) -> BynarResult<()> {
     let mut result = OpBoolResult::new();
-    let backend = match backend::load_backend(backend, Some(config_dir))
-        .map_err(|e| Error::new(ErrorKind::Other, e))
-    {
+    let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(b) => b,
         Err(e) => {
             result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
 
-            let encoded = result
-                .write_to_bytes()
-                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            let encoded = result.write_to_bytes()?;
             let msg = Message::from_slice(&encoded)?;
             debug!("Responding to client with msg len: {}", msg.len());
             s.send_msg(msg, 0)?;
@@ -426,9 +415,7 @@ fn safe_to_remove_disk(
             result.set_error_msg(e.to_string());
         }
     };
-    let encoded = result
-        .write_to_bytes()
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let encoded = result.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
     s.send_msg(msg, 0)?;

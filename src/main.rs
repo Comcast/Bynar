@@ -29,14 +29,12 @@ mod in_progress;
 mod test_disk;
 
 use std::fs::{create_dir, read_to_string, File};
-use std::io::Result as IOResult;
-use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
-use helpers::host_information::Host;
+use helpers::{error::*, host_information::Host};
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 
@@ -60,7 +58,7 @@ pub struct ConfigSettings {
     pub proxy: Option<String>,
 }
 
-fn notify_slack(config: &ConfigSettings, msg: &str) -> Result<(), slack_hook::Error> {
+fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();
     let slack = Slack::new(c.slack_webhook.unwrap().as_ref())?;
     let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
@@ -79,7 +77,7 @@ fn notify_slack(config: &ConfigSettings, msg: &str) -> Result<(), slack_hook::Er
     Ok(())
 }
 
-fn get_public_key(config: &ConfigSettings, host_info: &Host) -> IOResult<String> {
+fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<String> {
     // If vault_endpoint and token are set we should get the key from vault
     // Otherwise we need to know where the public_key is located?
     if config.vault_endpoint.is_some() && config.vault_token.is_some() {
@@ -87,7 +85,7 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> IOResult<String>
             config.vault_endpoint.clone().unwrap().as_ref(),
             config.vault_token.clone().unwrap().as_ref(),
             &host_info.hostname,
-        ).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        )?;
         Ok(key)
     } else {
         let p = Path::new("/etc")
@@ -101,12 +99,12 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> IOResult<String>
     }
 }
 
-fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), String> {
+fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> {
     let config: ConfigSettings =
-        helpers::load_config(config_dir, "bynar.json").map_err(|e| e.to_string())?;
-    let host_info = Host::new().map_err(|e| e.to_string())?;
+        helpers::load_config(config_dir, "bynar.json")?;
+    let host_info = Host::new()?;
     debug!("Gathered host info: {:?}", host_info);
-    let public_key = get_public_key(&config, &host_info).map_err(|e| e.to_string())?;
+    let public_key = get_public_key(&config, &host_info)?;
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
@@ -121,8 +119,8 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), Strin
 
     info!("Checking all drives");
     let conn =
-        in_progress::connect_to_repair_database(&config_location).map_err(|e| e.to_string())?;
-    for result in test_disk::check_all_disks(&config_location).map_err(|e| e.to_string())? {
+        in_progress::connect_to_repair_database(&config_location)?;
+    for result in test_disk::check_all_disks(&config_location)? {
         match result {
             Ok(state) => {
                 info!("Disk status: {:?}", state);
@@ -135,8 +133,7 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), Strin
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
-                    let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)
-                        .map_err(|e| e.to_string())?;
+                    let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)?;
                     if !simulate {
                         if !in_progress {
                             debug!("Asking disk-manager if it's safe to remove disk");
@@ -145,7 +142,7 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), Strin
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
                                 &public_key,
-                            ).map_err(|e| e.to_string())?;
+                            )?;
                             match helpers::safe_to_remove_request(&mut socket, &dev_path) {
                                 Ok(result) => {
                                     //Ok to remove the disk
@@ -207,10 +204,9 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), Strin
                                 "Dead disk",
                                 &description,
                                 &environment,
-                            ).map_err(|e| format!("{:?}", e))?;
+                            )?;
                             debug!("Recording ticket id {} in database", ticket_id);
-                            in_progress::record_new_repair_ticket(&conn, &ticket_id, &dev_path)
-                                .map_err(|e| e.to_string())?;
+                            in_progress::record_new_repair_ticket(&conn, &ticket_id, &dev_path)?;
                         } else {
                             debug!("Device is already in the repair queue");
                         }
@@ -224,25 +220,25 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> Result<(), Strin
             }
             Err(e) => {
                 error!("check_all_disks failed with error: {:?}", e);
-                return Err(format!("check_all_disks failed with error: {:?}", e));
+                return Err(BynarError::new(format!("check_all_disks failed with error: {:?}", e)));
             }
         };
     }
     Ok(())
 }
 
-fn add_repaired_disks(config_dir: &Path, simulate: bool) -> Result<(), String> {
+fn add_repaired_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> {
     let config: ConfigSettings =
-        helpers::load_config(config_dir, "bynar.json").map_err(|e| e.to_string())?;
-    let host_info = Host::new().map_err(|e| e.to_string())?;
+        helpers::load_config(config_dir, "bynar.json")?;
+    let host_info = Host::new()?;
     let config_location = Path::new(&config.db_location);
-    let public_key = get_public_key(&config, &host_info).map_err(|e| e.to_string())?;
+    let public_key = get_public_key(&config, &host_info)?;
 
     info!("Connecting to database to find repaired drives");
     let conn =
-        in_progress::connect_to_repair_database(&config_location).map_err(|e| e.to_string())?;
+        in_progress::connect_to_repair_database(&config_location)?;
     info!("Getting outstanding repair tickets");
-    let tickets = in_progress::get_outstanding_repair_tickets(&conn).map_err(|e| e.to_string())?;
+    let tickets = in_progress::get_outstanding_repair_tickets(&conn)?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         match ticket_resolved(&config, &ticket.ticket_id.to_string()) {
@@ -254,7 +250,7 @@ fn add_repaired_disks(config_dir: &Path, simulate: bool) -> Result<(), String> {
                         &config.manager_host,
                         &config.manager_port.to_string(),
                         &public_key,
-                    ).map_err(|e| e.to_string())?;
+                    )?;
                     match helpers::add_disk_request(
                         &mut socket,
                         &Path::new(&ticket.disk_path),

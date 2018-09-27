@@ -11,6 +11,7 @@ extern crate blkid;
 extern crate block_utils;
 extern crate fstab;
 extern crate gpt;
+extern crate helpers;
 extern crate libatasmart;
 extern crate log;
 #[cfg(test)]
@@ -29,6 +30,7 @@ use self::block_utils::{
     FilesystemType, MediaType,
 };
 use self::gpt::{disk, header::read_header, partition::read_partitions};
+use self::helpers::error::*;
 use self::in_progress::*;
 #[cfg(test)]
 use self::mocktopus::macros::*;
@@ -42,8 +44,7 @@ use self::uuid::Uuid;
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io::{Error, ErrorKind};
-use std::io::{Result, Write};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
@@ -727,7 +728,7 @@ impl StateMachine {
 
     // Restore the state of this machine from the database if it was previously saved
     // otherwise do nothing and start over at Unscanned
-    fn restore_state(&mut self) -> ::std::result::Result<(), rusqlite::Error> {
+    fn restore_state(&mut self) -> BynarResult<()> {
         let tmp = format!("/dev/{}", self.disk.name);
         let dev_path = Path::new(&tmp);
         if let Some(s) = get_state(&self.db_conn, &dev_path)? {
@@ -966,9 +967,9 @@ pub enum State {
 }
 
 impl FromStr for State {
-    type Err = String;
+    type Err = BynarError;
 
-    fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> BynarResult<Self> {
         match s {
             "corrupt" => Ok(State::Corrupt),
             "fail" => Ok(State::Fail),
@@ -985,7 +986,7 @@ impl FromStr for State {
             "unscanned" => Ok(State::Unscanned),
             "waiting_for_replacement" => Ok(State::WaitingForReplacement),
             "worn_out" => Ok(State::WornOut),
-            _ => Err(format!("Unknown state: {}", s)),
+            _ => Err(BynarError::new(format!("Unknown state: {}", s))),
         }
     }
 }
@@ -1057,15 +1058,14 @@ enum Fsck {
     Corrupt,
 }
 
-pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
+pub fn check_all_disks(db: &Path) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
-    let devices = block_utils::get_block_devices().map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let devices = block_utils::get_block_devices()?;
 
     // Gather info on all devices and skip Loopback devices
-    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())
-        .map_err(|e| Error::new(ErrorKind::Other, e))?
+    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())?
         .into_iter()
         // Get rid of loopback devices
         .filter(|d| !(d.media_type == MediaType::Loopback))
@@ -1130,28 +1130,24 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
     //TODO: Add nvme devices to block-utils
 
     // Create 1 state machine per Device and evaulate all devices in parallel
-    let disk_states: Vec<Result<StateMachine>> = device_info
+    let disk_states: Vec<BynarResult<StateMachine>> = device_info
         .clone()
         .into_par_iter()
         .map(|device| {
             // Lookup the disk and see if it's in progress.  If so then
             // set the state to WaitingOnReplacement.
             // Resume where we left off
-            let conn =
-                connect_to_repair_database(db).map_err(|e| Error::new(ErrorKind::Other, e))?;
+            let conn = connect_to_repair_database(db)?;
             let mut s = StateMachine::new(device, conn, false);
             s.setup_state_machine();
-            s.restore_state()
-                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            s.restore_state()?;
             s.run();
             // Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");
                 let disk_path = Path::new("/dev").join(&s.disk.name);
-                let conn =
-                    connect_to_repair_database(db).map_err(|e| Error::new(ErrorKind::Other, e))?;
-                let in_progress = is_disk_in_progress(&conn, &disk_path)
-                    .map_err(|e| Error::new(ErrorKind::Other, e))?;
+                let conn = connect_to_repair_database(db)?;
+                let in_progress = is_disk_in_progress(&conn, &disk_path)?;
             }
             Ok(s)
         }).collect();
@@ -1160,18 +1156,18 @@ pub fn check_all_disks(db: &Path) -> Result<Vec<Result<StateMachine>>> {
 }
 
 #[cfg_attr(test, mockable)]
-fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<Fsck> {
+fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarResult<Fsck> {
     match *filesystem_type {
         FilesystemType::Ext2 => check_ext(device),
         FilesystemType::Ext3 => check_ext(device),
         FilesystemType::Ext4 => check_ext(device),
         FilesystemType::Xfs => check_xfs(device),
-        _ => Err(Error::new(ErrorKind::Other, "Unknown filesystem detected")),
+        _ => Err(BynarError::new("Unknown filesystem detected".to_string())),
     }
 }
 
 #[cfg_attr(test, mockable)]
-fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<()> {
+fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarResult<()> {
     match *filesystem_type {
         FilesystemType::Ext2 => {
             repair_ext(device)?;
@@ -1189,12 +1185,12 @@ fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> Result<
             repair_xfs(device)?;
             Ok(())
         }
-        _ => Err(Error::new(ErrorKind::Other, "Unknown filesystem detected")),
+        _ => Err(BynarError::new("Unknown filesystem detected".to_string())),
     }
 }
 
 #[cfg_attr(test, mockable)]
-fn check_writable(path: &Path) -> Result<()> {
+fn check_writable(path: &Path) -> BynarResult<()> {
     debug!("Checking if {:?} is writable", path);
     let temp_path = TempDir::new_in(path, "bynar")?;
     let file_path = temp_path.path().join("write_test");
@@ -1207,7 +1203,7 @@ fn check_writable(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn check_xfs(device: &Path) -> Result<Fsck> {
+fn check_xfs(device: &Path) -> BynarResult<Fsck> {
     //Any output that is produced when xfs_check is not run in verbose mode
     //indicates that the filesystem has an inconsistency.
     debug!("Running xfs_repair -n to check for corruption");
@@ -1218,36 +1214,31 @@ fn check_xfs(device: &Path) -> Result<Fsck> {
         Some(code) => match code {
             0 => Ok(Fsck::Ok),
             1 => Ok(Fsck::Corrupt),
-            _ => Err(Error::new(
-                ErrorKind::Other,
-                format!("xfs_repair failed with code: {}", code).as_ref(),
+            _ => Err(BynarError::new(
+                format!("xfs_repair failed with code: {}", code),
             )),
         },
         //Process terminated by signal
-        None => Err(Error::new(
-            ErrorKind::Interrupted,
-            "xfs_repair terminated by signal",
+        None => Err(BynarError::new(
+            "xfs_repair terminated by signal".to_string(),
         )),
     }
 }
 
-fn repair_xfs(device: &Path) -> Result<()> {
+fn repair_xfs(device: &Path) -> BynarResult<()> {
     debug!("Running xfs_repair");
     let status = Command::new("xfs_repair").arg(device).status()?;
     match status.code() {
         Some(code) => match code {
             0 => Ok(()),
-            _ => Err(Error::new(ErrorKind::Other, "xfs_repair failed")),
+            _ => Err(BynarError::new("xfs_repair failed".to_string())),
         },
         //Process terminated by signal
-        None => Err(Error::new(
-            ErrorKind::Interrupted,
-            "e2fsck terminated by signal",
-        )),
+        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
     }
 }
 
-fn check_ext(device: &Path) -> Result<Fsck> {
+fn check_ext(device: &Path) -> BynarResult<Fsck> {
     debug!("running e2fsck -n to check for errors");
     let status = Command::new("e2fsck")
         .args(&["-n", &device.to_string_lossy()])
@@ -1259,21 +1250,18 @@ fn check_ext(device: &Path) -> Result<Fsck> {
                 0 => Ok(Fsck::Ok),
                 //4 - File system errors left uncorrected.  This requires repair
                 4 => Ok(Fsck::Corrupt),
-                _ => Err(Error::new(
-                    ErrorKind::Other,
-                    format!("e2fsck returned error code: {}", code),
-                )),
+                _ => Err(BynarError::new(format!(
+                    "e2fsck returned error code: {}",
+                    code
+                ))),
             }
         }
         //Process terminated by signal
-        None => Err(Error::new(
-            ErrorKind::Interrupted,
-            "e2fsck terminated by signal",
-        )),
+        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
     }
 }
 
-fn repair_ext(device: &Path) -> Result<()> {
+fn repair_ext(device: &Path) -> BynarResult<()> {
     //Run a noninteractive fix.  This will exit with return code 4
     //if it needs human intervention.
     debug!("running e2fsck -p for noninteractive repair");
@@ -1290,32 +1278,27 @@ fn repair_ext(device: &Path) -> Result<()> {
                 //2 - File system errors corrected, system should
                 //be rebooted
                 2 => Ok(()),
-                _ => Err(Error::new(
-                    ErrorKind::Other,
-                    format!("e2fsck returned error code: {}", code),
-                )),
+                _ => Err(BynarError::new(format!(
+                    "e2fsck returned error code: {}",
+                    code
+                ))),
             }
         }
         //Process terminated by signal
-        None => Err(Error::new(
-            ErrorKind::Interrupted,
-            "e2fsck terminated by signal",
-        )),
+        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
     }
 }
 
 // Run smart checks against the disk
 #[cfg_attr(test, mockable)]
-fn run_smart_checks(device: &Path) -> Result<bool> {
-    let mut smart = libatasmart::Disk::new(device).map_err(|e| Error::new(ErrorKind::Other, e))?;
-    let status = smart
-        .get_smart_status()
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+fn run_smart_checks(device: &Path) -> BynarResult<bool> {
+    let mut smart = libatasmart::Disk::new(device)?;
+    let status = smart.get_smart_status()?;
     Ok(status)
 }
 
 #[cfg_attr(test, mockable)]
-fn format_device(device: &Device) -> ::std::result::Result<(), String> {
+fn format_device(device: &Device) -> BynarResult<()> {
     let tmp = format!("/dev/{}", device.name);
     let dev_path = Path::new(&tmp);
     let mut fs = Filesystem::new(device.fs_type.to_str());
