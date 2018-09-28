@@ -1,9 +1,11 @@
 extern crate gluster;
+extern crate helpers;
 extern crate tempdir;
 
 use backend::Backend;
 
-use std::io::Result;
+use self::helpers::error::*;
+
 use std::path::Path;
 
 pub struct GlusterBackend;
@@ -34,13 +36,13 @@ impl Backend for GlusterBackend {
         _journal: Option<&str>,
         _journal_partition: Option<u32>,
         _simulate: bool,
-    ) -> Result<()> {
+    ) -> BynarResult<()> {
         Ok(())
     }
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, _device: &Path, _simulate: bool) -> Result<()> {
+    fn remove_disk(&self, _device: &Path, _simulate: bool) -> BynarResult<()> {
         Ok(())
     }
 
@@ -48,7 +50,7 @@ impl Backend for GlusterBackend {
     /// If simulate is passed then this always returns true
     /// Take any actions needed with this call to figure out if a disk is safe
     /// to remove from the cluster.
-    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> Result<bool> {
+    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
         Ok(true)
     }
 }

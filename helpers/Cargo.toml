@@ -6,13 +6,19 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 [dependencies]
 api = { path = "../api", version = "*"}
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
+ceph = "*"
+ceph-safe-disk = "~0.1"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
+goji = { git = "https://github.com/cholcombe973/goji.git" }
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 hostname = "~0.1"
 log = "~0.4"
 protobuf = "~2"
+reqwest = "~0.8"
+rusqlite = "~0.14"
 serde = "~1"
 serde_derive = "~1"
 serde_json = "~1"
+slack-hook = "~0.7"
 uname = "~0.1"
 zmq = "*"

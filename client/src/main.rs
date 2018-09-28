@@ -15,6 +15,7 @@ use std::str::FromStr;
 
 use api::service::Disk;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use helpers::error::*;
 use hostname::get_hostname;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
@@ -22,19 +23,19 @@ use zmq::Socket;
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
+fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::add_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
-fn list_disks(s: &mut Socket) -> Result<Vec<Disk>, String> {
+fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let disks = helpers::list_disks_request(s)?;
     println!("disk list: {:?}", disks);
 
     Ok(disks)
 }
 
-fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
+fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::remove_disk_request(s, path, id, simulate)?;
     Ok(())
 }
