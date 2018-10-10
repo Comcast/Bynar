@@ -2,38 +2,40 @@ extern crate api;
 #[macro_use]
 extern crate clap;
 extern crate helpers;
+extern crate hostname;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
 extern crate simplelog;
 extern crate zmq;
 
-use std::fs::File;
-use std::io::Read;
+use std::fs::{read_to_string, File};
 use std::path::Path;
 use std::str::FromStr;
 
 use api::service::Disk;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use helpers::error::*;
+use hostname::get_hostname;
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
+fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::add_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
-fn list_disks(s: &mut Socket) -> Result<Vec<Disk>, String> {
+fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let disks = helpers::list_disks_request(s)?;
     println!("disk list: {:?}", disks);
 
     Ok(disks)
 }
 
-fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> Result<(), String> {
+fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::remove_disk_request(s, path, id, simulate)?;
     Ok(())
 }
@@ -92,7 +94,7 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
     }
 }
 
-fn get_cli_args<'a>() -> ArgMatches<'a> {
+fn get_cli_args<'a>(default_server_key: &'a str) -> ArgMatches<'a> {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())
         .author(crate_authors!())
@@ -104,24 +106,21 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                 .long("host")
                 .required(false)
                 .takes_value(true),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("port")
                 .default_value("5555")
                 .help("The port to call for service")
                 .required(false)
                 .short("p")
                 .takes_value(true),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("server_key")
-                .default_value("/etc/bynar/ecpubkey.pem")
+                .default_value(default_server_key)
                 .help("The public key for the disk-manager service.")
                 .required(false)
                 .long("serverkey")
                 .takes_value(true),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("add")
                 .about("Add a disk into the cluster")
                 .arg(
@@ -129,8 +128,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                         .help("The disk path to add: Ex: /dev/sda")
                         .required(true)
                         .takes_value(true),
-                )
-                .arg(
+                ).arg(
                     Arg::with_name("id")
                         .help("An optional id to set for the disk.  Used for ceph osds")
                         .long("id")
@@ -140,8 +138,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                             Ok(_) => Ok(()),
                             Err(_) => Err("id must be a valid u64".to_string()),
                         }),
-                )
-                .arg(
+                ).arg(
                     Arg::with_name("simulate")
                         .default_value("false")
                         .help("Simulate the operation")
@@ -150,8 +147,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                         .required(false)
                         .takes_value(true),
                 ),
-        )
-        .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
+        ).subcommand(SubCommand::with_name("list").about("List all disks on a server"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -160,8 +156,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                         .help("The disk path to add: Ex: /dev/sda")
                         .required(true)
                         .takes_value(true),
-                )
-                .arg(
+                ).arg(
                     Arg::with_name("id")
                         .help("An optional id to set for the disk.  Used for ceph osds")
                         .long("id")
@@ -171,8 +166,7 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                             Ok(_) => Ok(()),
                             Err(_) => Err("id must be a valid u64".to_string()),
                         }),
-                )
-                .arg(
+                ).arg(
                     Arg::with_name("simulate")
                         .default_value("false")
                         .help("Simulate the operation")
@@ -181,18 +175,20 @@ fn get_cli_args<'a>() -> ArgMatches<'a> {
                         .required(false)
                         .takes_value(true),
                 ),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        )
-        .get_matches()
+        ).get_matches()
 }
 
 fn main() {
-    let matches = get_cli_args();
+    let server_key = format!(
+        "/etc/bynar/{}.pem",
+        get_hostname().unwrap_or("ecpubkey".to_string())
+    );
+    let matches = get_cli_args(&server_key);
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
@@ -210,9 +206,7 @@ fn main() {
     ]);
     info!("Starting up");
     let server_pubkey = {
-        let mut f = File::open(matches.value_of("server_key").unwrap()).unwrap();
-        let mut buff = String::new();
-        f.read_to_string(&mut buff).unwrap();
+        let buff = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
         buff
     };
 

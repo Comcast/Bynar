@@ -1,14 +1,15 @@
+extern crate helpers;
+
 pub mod ceph;
 //#[cfg(feature = "gluster")]
 pub mod gluster;
 
-use std::io::Result;
 use std::path::Path;
-use std::result::Result as StdResult;
 use std::str::FromStr;
 
 use self::ceph::CephBackend;
 use self::gluster::GlusterBackend;
+use self::helpers::error::*;
 
 /// Different distributed storage clusters have different ways of adding and removing
 /// disks.  This will be consolidated here in trait impl's.
@@ -26,17 +27,17 @@ pub trait Backend {
         journal: Option<&str>,
         journal_partition: Option<u32>,
         simulate: bool,
-    ) -> Result<()>;
+    ) -> BynarResult<()>;
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, device: &Path, simulate: bool) -> Result<()>;
+    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<()>;
 
     /// Check if it's safe to remove a disk from a cluster
     /// If simulate is passed then this always returns true
     /// Take any actions needed with this call to figure out if a disk is safe
     /// to remove from the cluster.
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> Result<bool>;
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool>;
 }
 
 /// The supported backend types
@@ -47,14 +48,14 @@ pub enum BackendType {
 }
 
 impl FromStr for BackendType {
-    type Err = String;
+    type Err = BynarError;
 
-    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
+    fn from_str(s: &str) -> BynarResult<Self> {
         let match_str = s.to_lowercase();
         match match_str.as_ref() {
             "ceph" => Ok(BackendType::Ceph),
             "gluster" => Ok(BackendType::Gluster),
-            _ => Err(format!("Unknown backend type: {}", s)),
+            _ => Err(BynarError::new(format!("Unknown backend type: {}", s))),
         }
     }
 }
@@ -63,9 +64,9 @@ impl FromStr for BackendType {
 pub fn load_backend(
     backend_type: &BackendType,
     config_dir: Option<&Path>,
-) -> StdResult<Box<Backend>, String> {
+) -> BynarResult<Box<Backend>> {
     let backend: Box<Backend> = match backend_type {
-        &BackendType::Ceph => Box::new(CephBackend::new(config_dir).map_err(|e| e.to_string())?),
+        &BackendType::Ceph => Box::new(CephBackend::new(config_dir)?),
         //#[cfg(feature = "gluster")]
         &BackendType::Gluster => Box::new(GlusterBackend {}),
     };

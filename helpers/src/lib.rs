@@ -11,34 +11,37 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate zmq;
 
-use std::io::{Error, ErrorKind, Read};
-use std::io::Result as IOResult;
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
+use error::*;
 use hashicorp_vault::client::VaultClient;
-use protobuf::Message as ProtobufMsg;
 use protobuf::parse_from_bytes;
+use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
 use zmq::{Message, Socket};
-use zmq::Result as ZmqResult;
 
+pub mod error;
 pub mod host_information;
 
-pub fn load_config<T>(config_dir: &str, name: &str) -> IOResult<T>
+pub fn load_config<T>(config_dir: &Path, name: &str) -> BynarResult<T>
 where
     T: DeserializeOwned,
 {
-    let mut f = File::open(format!("{}/{}", config_dir, name))?;
+    let p = config_dir.join(name);
+    if !p.exists() {
+        error!("{} config file does not exist", p.display());
+    }
+    let mut f = File::open(p)?;
     let mut s = String::new();
     f.read_to_string(&mut s)?;
-    let deserialized: T =
-        serde_json::from_str(&s).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+    let deserialized: T = serde_json::from_str(&s)?;
     Ok(deserialized)
 }
 
-pub fn connect(host: &str, port: &str, server_publickey: &str) -> ZmqResult<Socket> {
+pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<Socket> {
     debug!("Starting zmq sender with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let requester = context.socket(zmq::REQ)?;
@@ -58,11 +61,7 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> ZmqResult<Sock
     Ok(requester)
 }
 
-pub fn get_vault_token(
-    endpoint: &str,
-    token: &str,
-    hostname: &str,
-) -> Result<String, ::hashicorp_vault::client::error::Error> {
+pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResult<String> {
     let client = VaultClient::new(endpoint, token)?;
     let res = client.get_secret(&format!("/{}", hostname))?;
     Ok(res)
@@ -73,7 +72,7 @@ pub fn add_disk_request(
     path: &Path,
     id: Option<u64>,
     simulate: bool,
-) -> Result<(), String> {
+) -> BynarResult<()> {
     let mut o = Operation::new();
     debug!("Creating add disk operation request");
     o.set_Op_type(Op::Add);
@@ -84,15 +83,14 @@ pub fn add_disk_request(
     }
 
     let encoded = o.write_to_bytes().unwrap();
-    let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
+    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0).map_err(|e| e.to_string())?;
+    s.send_msg(msg, 0)?;
 
     debug!("Waiting for response");
-    let add_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
+    let add_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", add_response.len());
-    let op_result =
-        parse_from_bytes::<api::service::OpResult>(&add_response).map_err(|e| e.to_string())?;
+    let op_result = parse_from_bytes::<api::service::OpResult>(&add_response)?;
     match op_result.get_result() {
         ResultType::OK => {
             debug!("Add disk successful");
@@ -102,10 +100,12 @@ pub fn add_disk_request(
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
                 error!("Add disk failed: {}", msg);
-                Err(op_result.get_error_msg().into())
+                Err(BynarError::new(op_result.get_error_msg().into()))
             } else {
                 error!("Add disk failed but error_msg not set");
-                Err("Add disk failed but error_msg not set".to_string())
+                Err(BynarError::new(
+                    "Add disk failed but error_msg not set".to_string(),
+                ))
             }
         }
     }
@@ -132,24 +132,23 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 }
 */
 
-pub fn list_disks_request(s: &mut Socket) -> Result<Vec<Disk>, String> {
+pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
     o.set_Op_type(Op::List);
 
     debug!("Encoding as hex");
-    let encoded = o.write_to_bytes().map_err(|e| e.to_string())?;
+    let encoded = o.write_to_bytes()?;
     debug!("{:?}", encoded);
 
-    let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
+    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0).map_err(|e| e.to_string())?;
+    s.send_msg(msg, 0)?;
 
     debug!("Waiting for response");
-    let disks_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
+    let disks_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", disks_response.len());
-    let disk_list =
-        parse_from_bytes::<api::service::Disks>(&disks_response).map_err(|e| e.to_string())?;
+    let disk_list = parse_from_bytes::<api::service::Disks>(&disks_response)?;
 
     let mut d: Vec<Disk> = Vec::new();
     for disk in disk_list.get_disk() {
@@ -159,23 +158,23 @@ pub fn list_disks_request(s: &mut Socket) -> Result<Vec<Disk>, String> {
     Ok(d)
 }
 
-pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> Result<bool, String> {
+pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> {
     let mut o = Operation::new();
     debug!("Creating safe to remove operation request");
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
-    let encoded = o.write_to_bytes().map_err(|e| e.to_string())?;
-    let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0).map_err(|e| e.to_string())?;
+    s.send_msg(msg, 0)?;
 
     debug!("Waiting for response");
-    let safe_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
+    let safe_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", safe_response.len());
-    let op_result = parse_from_bytes::<OpBoolResult>(&safe_response).map_err(|e| e.to_string())?;
+    let op_result = parse_from_bytes::<OpBoolResult>(&safe_response)?;
     match op_result.get_result() {
         ResultType::OK => Ok(op_result.get_value()),
-        ResultType::ERR => Err(op_result.get_error_msg().into()),
+        ResultType::ERR => Err(BynarError::new(op_result.get_error_msg().into())),
     }
 }
 
@@ -184,7 +183,7 @@ pub fn remove_disk_request(
     path: &Path,
     id: Option<u64>,
     simulate: bool,
-) -> Result<(), String> {
+) -> BynarResult<()> {
     let mut o = Operation::new();
     debug!("Creating remove operation request");
     o.set_Op_type(Op::Remove);
@@ -194,16 +193,15 @@ pub fn remove_disk_request(
         o.set_osd_id(id.unwrap());
     }
 
-    let encoded = o.write_to_bytes().map_err(|e| e.to_string())?;
-    let msg = Message::from_slice(&encoded).map_err(|e| e.to_string())?;
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0).map_err(|e| e.to_string())?;
+    s.send_msg(msg, 0)?;
 
     debug!("Waiting for response");
-    let remove_response = s.recv_bytes(0).map_err(|e| e.to_string())?;
+    let remove_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", remove_response.len());
-    let op_result =
-        parse_from_bytes::<api::service::OpResult>(&remove_response).map_err(|e| e.to_string())?;
+    let op_result = parse_from_bytes::<api::service::OpResult>(&remove_response)?;
     match op_result.get_result() {
         ResultType::OK => {
             debug!("Add disk successful");
@@ -213,10 +211,12 @@ pub fn remove_disk_request(
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
                 error!("Remove disk failed: {}", msg);
-                Err(op_result.get_error_msg().into())
+                Err(BynarError::new(op_result.get_error_msg().into()))
             } else {
                 error!("Remove disk failed but error_msg not set");
-                Err("Remove disk failed but error_msg not set".to_string())
+                Err(BynarError::new(
+                    "Remove disk failed but error_msg not set".to_string(),
+                ))
             }
         }
     }

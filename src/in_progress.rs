@@ -2,6 +2,7 @@
 extern crate chrono;
 extern crate postgres;
 extern crate postgres_shared;
+extern crate helpers;
 extern crate rusqlite;
 extern crate time;
 
@@ -20,6 +21,7 @@ use std::io::{Error as ioError, ErrorKind};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use self::helpers::error::*;
 
 use test_disk;
 
@@ -89,9 +91,9 @@ pub struct DiskRepairTicket {
     pub disk_path: String,
 }
 
-pub fn connect_to_repair_database(db_path: &Path) -> Result<Connection> {
-    let conn = Connection::open(db_path)?;
+pub fn connect_to_repair_database(db_path: &Path) -> BynarResult<Connection> {
     debug!("Opening or creating repairs table if needed");
+    let conn = Connection::open(db_path)?;
     // TODO: should this be broken out into 2 tables,
     // 1 for repairs and 1 for state machine?
     conn.execute(
@@ -113,7 +115,7 @@ pub fn record_new_repair_ticket(
     conn: &Connection,
     ticket_id: &str,
     disk_path: &Path,
-) -> Result<()> {
+) -> BynarResult<()> {
     debug!(
         "Recording new repair ticket: id: {}, disk_path: {}",
         ticket_id,
@@ -131,7 +133,7 @@ pub fn record_new_repair_ticket(
     Ok(())
 }
 
-pub fn resolve_ticket(conn: &Connection, ticket_id: &str) -> Result<()> {
+pub fn resolve_ticket(conn: &Connection, ticket_id: &str) -> BynarResult<()> {
     debug!("Resolving ticket: {}", ticket_id);
     conn.execute(
         "DELETE FROM repairs where ticket_id=?",
@@ -141,7 +143,7 @@ pub fn resolve_ticket(conn: &Connection, ticket_id: &str) -> Result<()> {
 }
 
 /// Check and return if a disk is in the database and awaiting repairs
-pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
+pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> BynarResult<bool> {
     debug!(
         "Searching for repair ticket for disk: {}",
         dev_path.display()
@@ -153,7 +155,7 @@ pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> Result<bool> {
 }
 
 /// Gather all the outstanding repair tickets
-pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<Vec<DiskRepairTicket>> {
+pub fn get_outstanding_repair_tickets(conn: &Connection) -> BynarResult<Vec<DiskRepairTicket>> {
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
     let mut stmt = conn.prepare(
         "SELECT id, ticket_id, time_created, disk_path FROM repairs where ticket_id IS NOT NULL",
@@ -171,7 +173,7 @@ pub fn get_outstanding_repair_tickets(conn: &Connection) -> Result<Vec<DiskRepai
     Ok(tickets)
 }
 
-pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> Result<PathBuf> {
+pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> BynarResult<PathBuf> {
     debug!("Searching smart results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT mount_path FROM repairs where disk_path=?")?;
     let mount_path = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| {
@@ -181,7 +183,7 @@ pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> Result<PathBuf>
     Ok(mount_path)
 }
 
-pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> Result<bool> {
+pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> BynarResult<bool> {
     debug!("Searching smart results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT smart_passed FROM repairs where disk_path=?")?;
     let passed = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| {
@@ -190,7 +192,7 @@ pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> Result<bool> {
     Ok(passed)
 }
 
-pub fn get_state(conn: &Connection, dev_path: &Path) -> Result<Option<test_disk::State>> {
+pub fn get_state(conn: &Connection, dev_path: &Path) -> BynarResult<Option<test_disk::State>> {
     debug!("Searching state results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT state FROM repairs where disk_path=?")?;
     let state_exists = stmt.exists(&[&dev_path.to_string_lossy().into_owned()])?;
@@ -202,13 +204,15 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> Result<Option<test_disk:
         })?;
         debug!("Found state: {}", state);
 
-        return Ok(Some(test_disk::State::from_str(&state).unwrap()));
+        return Ok(Some(
+            test_disk::State::from_str(&state).unwrap_or(test_disk::State::Unscanned),
+        ));
     }
 
     Ok(None)
 }
 
-pub fn save_mount_location(conn: &Connection, dev_path: &Path, mount_path: &Path) -> Result<()> {
+pub fn save_mount_location(conn: &Connection, dev_path: &Path, mount_path: &Path) -> BynarResult<()> {
     debug!(
         "Saving mount path for {}: {}",
         dev_path.display(),
@@ -216,32 +220,29 @@ pub fn save_mount_location(conn: &Connection, dev_path: &Path, mount_path: &Path
     );
     // First check if a row exists with this disk
     let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    match stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        true => {
-            // It exists so we update
-            let mut stmt = conn.prepare("Update repairs set mount_path=? where disk_path=?")?;
-            stmt.execute(&[
+    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
+        // It exists so we update
+        let mut stmt = conn.prepare("Update repairs set mount_path=? where disk_path=?")?;
+        stmt.execute(&[
+            &mount_path.to_string_lossy().into_owned(),
+            &dev_path.to_string_lossy().into_owned(),
+        ])?;
+    } else {
+        // It does not exist so we insert
+        conn.execute(
+            "INSERT INTO repairs (mount_path, disk_path)
+                  VALUES (?1, ?2)",
+            &[
                 &mount_path.to_string_lossy().into_owned(),
                 &dev_path.to_string_lossy().into_owned(),
-            ])?;
-        }
-        false => {
-            // It does not exist so we insert
-            conn.execute(
-                "INSERT INTO repairs (mount_path, disk_path)
-                  VALUES (?1, ?2)",
-                &[
-                    &mount_path.to_string_lossy().into_owned(),
-                    &dev_path.to_string_lossy().into_owned(),
-                ],
-            )?;
-        }
+            ],
+        )?;
     }
 
     Ok(())
 }
 
-pub fn save_smart_results(conn: &Connection, dev_path: &Path, smart_passed: bool) -> Result<()> {
+pub fn save_smart_results(conn: &Connection, dev_path: &Path, smart_passed: bool) -> BynarResult<()> {
     debug!(
         "Saving smart results for {} passed: {}",
         dev_path.display(),
@@ -249,43 +250,37 @@ pub fn save_smart_results(conn: &Connection, dev_path: &Path, smart_passed: bool
     );
     // First check if a row exists with this disk
     let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    match stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        true => {
-            // It exists so we update
-            let mut stmt = conn.prepare("Update repairs set smart_passed=? where disk_path=?")?;
-            stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
-        }
-        false => {
-            // It does not exist so we insert
-            let mut stmt =
-                conn.prepare("Insert INTO repairs (smart_passed, disk_path) VALUES (?1, ?2)")?;
-            stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
-        }
+    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
+        // It exists so we update
+        let mut stmt = conn.prepare("Update repairs set smart_passed=? where disk_path=?")?;
+        stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
+    } else {
+        // It does not exist so we insert
+        let mut stmt =
+            conn.prepare("Insert INTO repairs (smart_passed, disk_path) VALUES (?1, ?2)")?;
+        stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
     }
 
     Ok(())
 }
 
-pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -> Result<()> {
+pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -> BynarResult<()> {
     debug!("Saving state for {}: {}", dev_path.display(), state);
 
     // First check if a row exists with this disk
     let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    match stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        true => {
-            debug!("Updating state for {}", dev_path.display());
-            // It exists so we update
-            let mut stmt = conn.prepare("Update repairs set state=? where disk_path=?")?;
-            stmt.execute(&[&state.to_string(), &dev_path.to_string_lossy().into_owned()])?;
-        }
-        false => {
-            debug!("Inserting state for {}", dev_path.display());
-            // It does not exist so we insert
-            conn.execute(
-                "INSERT INTO repairs (state, disk_path) VALUES (?1, ?2)",
-                &[&state.to_string(), &dev_path.to_string_lossy().into_owned()],
-            )?;
-        }
+    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
+        debug!("Updating state for {}", dev_path.display());
+        // It exists so we update
+        let mut stmt = conn.prepare("Update repairs set state=? where disk_path=?")?;
+        stmt.execute(&[&state.to_string(), &dev_path.to_string_lossy().into_owned()])?;
+    } else {
+        debug!("Inserting state for {}", dev_path.display());
+        // It does not exist so we insert
+        conn.execute(
+            "INSERT INTO repairs (state, disk_path) VALUES (?1, ?2)",
+            &[&state.to_string(), &dev_path.to_string_lossy().into_owned()],
+        )?;
     }
     Ok(())
 }

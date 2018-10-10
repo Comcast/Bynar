@@ -1,0 +1,18 @@
+{
+    "db_location": "/etc/bynar/disks.sqlite3",
+    "proxy": "https://my.proxy",
+    "manager_host": "localhost",
+    "manager_port": 5555,
+    "slack_webhook": "https://hooks.slack.com/services/ID",
+    "slack_channel": "#my-channel",
+    "slack_botname": "my-bot",
+    "jira_user": "test_user",
+    "jira_password": "user_password",
+    "jira_host": "https://tickets.jira.com",
+    "jira_issue_type": "3",
+    "jira_priority": "4",
+    "jira_project_id": "MyProject",
+    "jira_ticket_assignee": "assignee_username",
+    "vault_endpoint": "https://my_vault.com",
+    "vault_token": "token_98706420"
+}
