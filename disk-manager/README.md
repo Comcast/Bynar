@@ -6,7 +6,8 @@ protobuf serialization to allow RPC usage. Please check the
 
 ## Configuration:
 1. Create your configuration file.  The utility takes json config
-`/etc/bynar/disk-manager.json` file.  The vault_* options are optional
+`/etc/bynar/disk-manager.json` file. This file should be deployed  
+when the Bynar package is installed. The vault_* options are optional
 but recommended.  When enabled the disk-manager upon starting will save
 the generated public key to vault under `/bynar/{hostname}.pem`.  Any clients
 wanting to connect to it will need to contact vault first.  If vault is
@@ -18,7 +19,8 @@ not enabled it will save the public key to /etc/bynar/.
   "vault_token": "token_98706420"
 }
 ```
-For the ceph backend create a ceph.json file to describe it:
+Bynar that runs on Ceph, should have a ceph.json file to describe it. This tells 
+where to look for ceph configuration, user details etc.
 `/etc/bynar/ceph.json` file:
 ```
 {
@@ -26,4 +28,3 @@ For the ceph backend create a ceph.json file to describe it:
   "user_id": "admin"
 }
 ```
-This tells the Ceph backend how to talk to Ceph.
