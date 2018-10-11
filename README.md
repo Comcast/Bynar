@@ -21,7 +21,7 @@ The project is divided into different binaries that all communicate over protobu
 2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket
 for a datacenter technician to replace the drive, waits for the resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
-3. client: Enables you to manually make API calls against `disk-manager`
+3. bynar-client: Enables you to manually make API calls against `disk-manager` and `dead-disk-detector`
 
 
 ----
@@ -64,8 +64,6 @@ Fields for this file are:
 1. Top level is the dead disk detector
 2. api is the protobuf api create
 3. disk-manager is the service that handles the adding and removal of disks
-4. client is the cli client to make RPC calls to disk manager or dead disk
-detector
 
 ### Launch the program
 1. After building Bynar from source or downloading prebuilt packages
@@ -123,6 +121,7 @@ While it is replacing your drives it can also inform you over slack or other cha
 to keep you in the loop.
 The time saved here multplies with each piece of hardware replaced and now you 
 can focus your time and energy on other things.  It's a positive snowball effect!
+
 
 ## Testing
 

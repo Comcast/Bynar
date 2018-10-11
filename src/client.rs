@@ -1,3 +1,4 @@
+/// This is built into a separate binary called bynar-client
 extern crate api;
 #[macro_use]
 extern crate clap;
