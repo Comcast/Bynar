@@ -206,11 +206,12 @@ dependencies = [
  "api 0.1.0",
  "blkid 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "block-utils 0.5.2 (git+https://github.com/cholcombe973/block-utils)",
+ "bytes 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "ceph 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ceph-safe-disk 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "client 0.1.0",
- "disk-manager 0.1.0",
+ "dirs 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "dmi 0.1.0 (git+https://github.com/cholcombe973/dmi)",
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gluster 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -348,20 +349,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "client"
-version = "0.1.0"
-dependencies = [
- "api 0.1.0",
- "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "helpers 0.1.0",
- "hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "protobuf 2.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "simplelog 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "zmq 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "cloudabi"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -482,36 +469,6 @@ dependencies = [
  "libc 0.2.43 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_users 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "disk-manager"
-version = "0.1.0"
-dependencies = [
- "api 0.1.0",
- "block-utils 0.5.2 (git+https://github.com/cholcombe973/block-utils)",
- "bytes 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "ceph 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "ceph-safe-disk 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "dirs 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "gluster 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "gpt 0.2.2 (git+https://github.com/Quyzi/gpt)",
- "hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)",
- "helpers 0.1.0",
- "hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "init-daemon 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.43 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "protobuf 2.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.79 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_json 1.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
- "simplelog 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "uuid 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "zmq 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
