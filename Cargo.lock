@@ -182,7 +182,7 @@ dependencies = [
 [[package]]
 name = "block-utils"
 version = "0.5.2"
-source = "git+https://github.com/cholcombe973/block-utils#baeef0cdcf295cfd6319644189f8fb223c166600"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libudev 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -205,7 +205,7 @@ version = "0.1.2"
 dependencies = [
  "api 0.1.0",
  "blkid 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "block-utils 0.5.2 (git+https://github.com/cholcombe973/block-utils)",
+ "block-utils 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "ceph 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ceph-safe-disk 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2437,7 +2437,7 @@ dependencies = [
 "checksum blkid 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d3b63ecf67f5fb70c931fcd915010acac8ea1770e3bd52422a8762b5bbb7099e"
 "checksum blkid-sys 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "087ef4e32044243ce0b523b4feebfa69bdccce71ab1f88ba702812c956cd7588"
 "checksum block-buffer 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a076c298b9ecdb530ed9d967e74a6027d6a7478924520acddcddc24c1c8ab3ab"
-"checksum block-utils 0.5.2 (git+https://github.com/cholcombe973/block-utils)" = "<none>"
+"checksum block-utils 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0b1ed1fd830f559c15d8be1f8897430891a19f8876306e873d624b4fe0b8e475"
 "checksum build_const 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "39092a32794787acd8525ee150305ff051b0aa6cc2abaf193924f5ab05425f39"
 "checksum byte-tools 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "560c32574a12a89ecd91f5e742165893f86e3ab98d21f8ea548658eb9eef5f40"
 "checksum byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "90492c5858dd7d2e78691cfb89f90d273a2800fc11d98f60786e5d87e2f83781"
