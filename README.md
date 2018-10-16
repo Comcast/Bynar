@@ -21,7 +21,7 @@ The project is divided into different binaries that all communicate over protobu
 2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket
 for a datacenter technician to replace the drive, waits for the resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
-3. client: Enables you to manually make API calls against `disk-manager`
+3. bynar-client: Enables you to manually make API calls against `disk-manager` and `dead-disk-detector`
 
 
 ----
@@ -60,12 +60,39 @@ Fields for this file are:
  "vault_token": "token_98706420"
 }
 ```
+## Disk Manager
+This binary handles adding and removing disks from a server.  It uses
+protobuf serialization to allow RPC usage. Please check the
+[api crate](https://github.com/Comcast/Bynar/tree/master/api) for more information or the [bynar-client](https://github.com/Comcast/Bynar/tree/master/src/client.rs).
+
+## Configuration:
+1. Create your configuration file.  The utility takes json config
+`/etc/bynar/disk-manager.json` file. This file should be deployed  
+when the Bynar package is installed. The vault_* options are optional
+but recommended.  When enabled the disk-manager upon starting will save
+the generated public key to vault under `/bynar/{hostname}.pem`.  Any clients
+wanting to connect to it will need to contact vault first.  If vault is
+not enabled it will save the public key to /etc/bynar/.
+```
+{
+  "backend": "ceph",
+  "vault_endpoint": "https://my_vault:8888",
+  "vault_token": "token_98706420"
+}
+```
+Bynar that runs on Ceph, should have a ceph.json file to describe it. This tells 
+where to look for ceph configuration, user details etc.
+`/etc/bynar/ceph.json` file:
+```
+{
+  "config_file": "/etc/ceph/ceph.conf",
+  "user_id": "admin"
+}
+```
 ### Directory layout:
 1. Top level is the dead disk detector
 2. api is the protobuf api create
 3. disk-manager is the service that handles the adding and removal of disks
-4. client is the cli client to make RPC calls to disk manager or dead disk
-detector
 
 ### Launch the program
 1. After building Bynar from source or downloading prebuilt packages
@@ -123,6 +150,7 @@ While it is replacing your drives it can also inform you over slack or other cha
 to keep you in the loop.
 The time saved here multplies with each piece of hardware replaced and now you 
 can focus your time and energy on other things.  It's a positive snowball effect!
+
 
 ## Testing
 
