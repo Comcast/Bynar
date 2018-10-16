@@ -290,7 +290,12 @@ impl CephBackend {
     }
 
     // Create the LVM device and return the path and size of it
-    fn create_lvm(&self, osd_fsid: &uuid::Uuid, new_osd_id: u64, dev_path: &Path) -> BynarResult<(PathBuf, u64)> {
+    fn create_lvm(
+        &self,
+        osd_fsid: &uuid::Uuid,
+        new_osd_id: u64,
+        dev_path: &Path,
+    ) -> BynarResult<(PathBuf, u64)> {
         debug!("udev Probing device {:?}", dev_path);
         let info = block_utils::get_device_info(dev_path)?;
         debug!("udev info {:?}", info);
@@ -498,6 +503,8 @@ impl CephBackend {
         Ok(())
     }
 
+    // lvm devices are symlinks.  They need to be resolved back into an
+    // absolute path to do anything useful with them.
     fn resolve_lvm_device(&self, lv_dev_name: &Path) -> BynarResult<PathBuf> {
         debug!("Resolving lvm {} device", lv_dev_name.display());
         let tmp = lv_dev_name.read_link()?;
@@ -744,61 +751,39 @@ fn ceph_mkfs(
     simulate: bool,
 ) -> BynarResult<()> {
     debug!("Running ceph-osd --mkfs");
-    let journal_str: String;
-    let monmap_str: String;
-    let osd_id_str = osd_id.to_string();
-    let osd_data_str: String;
-    let osd_uuid_str: String;
-    let user_id_str: String;
-    let group_id_str: String;
-
-    /*
-     ceph-osd, 
-        "--cluster", "ceph", 
-        "--osd-objectstore", "bluestore", 
-        "--mkfs",         
-        "-i", "2", 
-        "--monmap", "/var/lib/ceph/osd/ceph-2/activate.monmap", 
-        "--keyfile", "-", 
-        "--osd-data", "/var/lib/ceph/osd/ceph-2/", 
-        "--osd-uuid", "80053fdd-e40c-42ba-9741-fa916a701e32", 
-        "--setuser", "ceph", 
-        "--setgroup", "ceph"
-    */
-
-    let mut args: Vec<&str> = vec!["--cluster", "ceph", "-i", &osd_id_str, "--mkfs"];
+    let mut args: Vec<String> = vec![
+        "--cluster".to_string(),
+        "ceph".to_string(),
+        "-i".to_string(),
+        osd_id.to_string(),
+        "--mkfs".to_string(),
+    ];
     if let Some(journal_path) = journal {
-        journal_str = journal_path.to_string_lossy().into_owned();
-        args.push("--journal");
-        args.push(&journal_str);
+        args.push("--journal".to_string());
+        args.push(journal_path.to_string_lossy().into_owned());
     }
     if bluestore {
-        args.extend(&["--osd-objectstore", "bluestore"]);
+        args.extend_from_slice(&["--osd-objectstore".to_string(), "bluestore".to_string()]);
     }
     if let Some(monmap) = monmap {
-        monmap_str = monmap.to_string_lossy().into_owned();
-        args.push("--monmap");
-        args.push(&monmap_str);
+        args.push("--monmap".to_string());
+        args.push(monmap.to_string_lossy().into_owned());
     }
     if let Some(osd_data) = osd_data {
-        osd_data_str = osd_data.to_string_lossy().into_owned();
-        args.push("--osd-data");
-        args.push(&osd_data_str);
+        args.push("--osd-data".to_string());
+        args.push(osd_data.to_string_lossy().into_owned());
     }
     if let Some(osd_uuid) = osd_uuid {
-        osd_uuid_str = osd_uuid.to_hyphenated().to_string();
-        args.push("--osd-uuid");
-        args.push(&osd_uuid_str);
+        args.push("--osd-uuid".to_string());
+        args.push(osd_uuid.to_hyphenated().to_string());
     }
     if let Some(u_id) = user_id {
-        user_id_str = u_id.to_string();
-        args.push("--setuser");
-        args.push(&user_id_str);
+        args.push("--setuser".to_string());
+        args.push(u_id.to_string());
     }
     if let Some(g_id) = group_id {
-        group_id_str = g_id.to_string();
-        args.push("--setgroup");
-        args.push(&group_id_str);
+        args.push("--setgroup".to_string());
+        args.push(g_id.to_string());
     }
 
     debug!("cmd: ceph-osd {:?}", args);
