@@ -39,7 +39,7 @@ api = { path = "api" }
 blkid = "~0.2"
 block-utils = {git = "https://github.com/cholcombe973/block-utils"}
 bytes = "*"
-ceph = { git = "https://github.com/ceph/ceph-rust" } # "~1.0"
+ceph = "~2.0"
 ceph-safe-disk = "~0.1"
 chrono = "~0.4"
 clap = "~2"

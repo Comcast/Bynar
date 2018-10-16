@@ -207,7 +207,7 @@ dependencies = [
  "blkid 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "block-utils 0.5.2 (git+https://github.com/cholcombe973/block-utils)",
  "bytes 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "ceph 1.0.3 (git+https://github.com/ceph/ceph-rust)",
+ "ceph 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ceph-safe-disk 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -275,8 +275,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "ceph"
-version = "1.0.3"
-source = "git+https://github.com/ceph/ceph-rust#dc8010cf6c584d5e44e8d0ace99347c81ab72413"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bitflags 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -287,7 +287,7 @@ dependencies = [
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
- "uuid 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uuid 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2284,6 +2284,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "rand 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2442,7 +2443,7 @@ dependencies = [
 "checksum byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "90492c5858dd7d2e78691cfb89f90d273a2800fc11d98f60786e5d87e2f83781"
 "checksum bytes 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)" = "0ce55bd354b095246fc34caf4e9e242f5297a7fd938b090cadfea6eee614aa62"
 "checksum cc 1.0.25 (registry+https://github.com/rust-lang/crates.io-index)" = "f159dfd43363c4d08055a07703eb7a3406b0dac4d0584d96965a3262db3c9d16"
-"checksum ceph 1.0.3 (git+https://github.com/ceph/ceph-rust)" = "<none>"
+"checksum ceph 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a0244bc7800394abf50400908dd218eb7a44e867d087b88f7e822b943339f90f"
 "checksum ceph-safe-disk 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "7ac471f2d49705a107d42bc3dd378d3d2d2695938257f1f324361806ea04d31d"
 "checksum cexpr 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "42aac45e9567d97474a834efdee3081b3c942b2205be932092f53354ce503d6c"
 "checksum cfg-if 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "0c4e7bb64a8ebb0d856483e1e682ea3422f883c5f5615a90d51a2c82fe87fdd3"
