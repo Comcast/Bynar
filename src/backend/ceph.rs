@@ -153,7 +153,7 @@ impl CephBackend {
         let ceph_user = Passwd::from_name("ceph")?
             .ok_or_else(|| BynarError::new("ceph user id not found".to_string()))?;
         self.change_permissions(
-            &vec![&backer_device, &activate_path, &mount_point, &fsid_path],
+            &[&backer_device, &activate_path, &mount_point, &fsid_path],
             &ceph_user,
         )?;
         debug!("Creating ceph authorization entry");
@@ -277,7 +277,7 @@ impl CephBackend {
     }
 
     // Change permissions of many files at once
-    fn change_permissions(&self, paths: &Vec<&Path>, perms: &Passwd) -> BynarResult<()> {
+    fn change_permissions(&self, paths: &[&Path], perms: &Passwd) -> BynarResult<()> {
         for p in paths {
             debug!("chown {} with {}:{}", p.display(), perms.uid, perms.gid);
             chown(
@@ -313,7 +313,7 @@ impl CephBackend {
             vg.get_extent_size(),
         );
         // TODO: Why does this magic number work but using the entire size doesn't?
-        let lv = vg.create_lv_linear(&lv_name, vg.get_size() - 10485760)?;
+        let lv = vg.create_lv_linear(&lv_name, vg.get_size() - 10_485_760)?;
 
         self.create_lvm_tags(&lv, &lv_dev_name, &osd_fsid, new_osd_id, &info)?;
         Ok((lv_dev_name.to_path_buf(), vg.get_size()))
@@ -390,14 +390,14 @@ impl CephBackend {
             debug!("Found tags for logical volume: {:?}", tags);
             let id_tag = tags.iter().find(|t| t.starts_with("ceph.osd_id"));
             if let Some(tag) = id_tag {
-                let parts: Vec<String> = tag.split("=").map(|s| s.to_string()).collect();
+                let parts: Vec<String> = tag.split('=').map(|s| s.to_string()).collect();
                 if let Some(s) = parts.get(1) {
                     osd_id = Some(u64::from_str(s)?);
                 }
             }
             let fsid_tag = tags.iter().find(|t| t.starts_with("ceph.osd_fsid"));
             if let Some(tag) = fsid_tag {
-                let parts: Vec<String> = tag.split("=").map(|s| s.to_string()).collect();
+                let parts: Vec<String> = tag.split('=').map(|s| s.to_string()).collect();
                 if let Some(s) = parts.get(1) {
                     osd_fsid = Some(uuid::Uuid::parse_str(s)?);
                 }
@@ -582,7 +582,7 @@ fn get_osd_id(path: &Path, simulate: bool) -> BynarResult<u64> {
     let whoami_path = path.join("whoami");
     debug!("Discovering osd id number from: {}", whoami_path.display());
     let buff = read_to_string(&whoami_path)?;
-    u64::from_str(buff.trim()).map_err(|e| BynarError::ParseIntError(e))
+    Ok(u64::from_str(buff.trim())?)
 }
 
 fn save_keyring(
