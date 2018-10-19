@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS storage_details (
     name_key1 VARCHAR, -- name of storage array
     uuid VARCHAR,
     name_key2 VARCHAR,-- name of pool, switch etc
-    PRIMARY KEY (region_id, storage_id, hostname, name_key1, name_key2)
+    -- TODO: removing array name, pool from primary key
+    PRIMARY KEY (region_id, storage_id, hostname) 
     );
 
 CREATE TABLE IF NOT EXISTS disks (

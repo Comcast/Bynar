@@ -12,16 +12,16 @@ use self::postgres::{
     params::ConnectParams, params::Host, Connection as pConnection, Error as pError,
     Result as pResult, TlsMode,
 };
-use self::rusqlite::{Connection, Result};
+use self::rusqlite::{Connection};
 use self::time::Timespec;
 
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::File;
 use std::io::{Error as ioError, ErrorKind};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use self::helpers::error::*;
+use self::helpers::host_information::{Host as MyHost};
 
 use test_disk;
 
@@ -59,16 +59,8 @@ mod tests {
         let config_file = "/newDevice/tests/dbconfig.json".to_string();
         let conn: super::pConnection = super::connect_to_database(&config_file).unwrap();
 
-        //let pid = id();
-        let pid = 1234;
-        let info = super::HostDetails::new(
-            "10.1.1.1".to_string(),
-            "test-host".to_string(),
-            "test-region".to_string(),
-            super::StorageTypeEnum::Ceph,
-            "array-name".to_string(),
-            "unknown".to_string(),
-        );
+        let pid = id();
+        let info = super::MyHost::new().unwrap();
         let result = super::update_storage_info(&info, pid, &conn).expect(
             "Failed to update
                 storage details",
@@ -286,56 +278,6 @@ pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -
 }
 
 #[derive(Debug)]
-pub struct HostDetails {
-    pub ip: IpAddr,
-    pub hostname: String,
-    pub region: String,
-    pub storage_type: StorageTypeEnum,
-    pub array_name: String,
-    pub pool_name: String,
-}
-
-impl HostDetails {
-    fn new(
-        ip_addr: String,
-        hostname: String,
-        region: String,
-        storage_type: StorageTypeEnum,
-        array_name: String,
-        pool_name: String,
-    ) -> HostDetails {
-        HostDetails {
-            ip: ip_addr.parse().unwrap(),
-            hostname,
-            region,
-            storage_type,
-            array_name,
-            pool_name,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum StorageTypeEnum {
-    Ceph,
-    Scaleio,
-    Gluster,
-    Hitachi,
-}
-
-impl Display for StorageTypeEnum {
-    fn fmt(&self, f: &mut Formatter) -> fResult {
-        let message = match *self {
-            StorageTypeEnum::Ceph => "ceph",
-            StorageTypeEnum::Scaleio => "scaleio",
-            StorageTypeEnum::Hitachi => "hitachi",
-            StorageTypeEnum::Gluster => "gluster",
-        };
-        write!(f, "{}", message)
-    }
-}
-
-#[derive(Debug)]
 pub struct DiskInfo {
     pub disk_id: u32,
     pub storage_detail_id: u32,
@@ -514,7 +456,7 @@ pub fn disconnect_database(conn: pConnection) -> pResult<()> {
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
 /// TODO: return conn, entry_id, region_id, detail_id
-pub fn update_storage_info(s_info: &HostDetails, pid: u32, conn: &pConnection) -> pResult<bool> {
+pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> pResult<bool> {
     debug!("Adding datacenter and host information to database");
 
     // extract ip address to a &str
@@ -643,7 +585,7 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
 
 fn update_storage_details(
     conn: &pConnection,
-    s_info: &HostDetails,
+    s_info: &MyHost,
     region_id: u32,
 ) -> pResult<u32> {
     let stmt = format!(
@@ -673,7 +615,7 @@ fn update_storage_details(
             let details_query = format!(
                 "INSERT INTO storage_details
             (storage_id, region_id, hostname, name_key1, name_key2) 
-            VALUES ({}, {}, '{}', '{}', '{}') RETURNING detail_id",
+            VALUES ({}, {}, '{}', '{:?}', '{:?}') RETURNING detail_id",
                 storage_id, region_id, s_info.hostname, s_info.array_name, s_info.pool_name
             );
             let dqr = conn.query(&details_query, &[])?;
