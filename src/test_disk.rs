@@ -223,18 +223,19 @@ mod tests {
 
     #[test]
     fn test_state_machine_replace_disk() {
+        use helpers::error::*;
         // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
         TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
 
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
         super::check_writable
-            .mock_safe(|_| MockResult::Return(Err(Error::new(ErrorKind::Other, "Mock Error"))));
+            .mock_safe(|_| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
         super::check_filesystem.mock_safe(|_, _| MockResult::Return(Ok(super::Fsck::Corrupt)));
         super::repair_filesystem
-            .mock_safe(|_, _| MockResult::Return(Err(Error::new(ErrorKind::Other, "Mock Error"))));
+            .mock_safe(|_, _| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
 
         // TODO: Can't mock outside dependencies.  Need a wrapper function or something
-        super::format_device.mock_safe(|_| MockResult::Return(Err("error".to_string())));
+        super::format_device.mock_safe(|_| MockResult::Return(Err(BynarError::new("error".to_string()))));
         // That should leave the disk in WaitingForReplacement
 
         let dev = create_loop_device();

@@ -8,12 +8,14 @@ extern crate pnet;
 use std::net::{IpAddr, Ipv4Addr};
 use std::fs::read_to_string;
 use std::io::{Error, ErrorKind, Result};
+use std::fs::File;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::Path;
 use self::pnet::datalink::{self, NetworkInterface};
 //use self::block_utils::RaidType;
 use self::hostname::get_hostname;
 use self::uname::uname;
+use std::io::{BufRead, BufReader};
 
 /// All the host information we could gather
 #[derive(Debug)]
@@ -36,16 +38,20 @@ impl Host {
         //
         debug!("Loading host information");
         let uname_info = uname()?;
+        debug!("{:#?}", uname_info);
         let hostname =
             get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
-        let server_type = server_type()?;
-        let serial_number = server_serial()?;
-        debug!("Gathering raid info");
-        let raid_info =
-            block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
+        debug!("{:#?}", hostname);
         let ip = get_ip()?;
         let region = get_region_from_hostname(&hostname)?;
         let storage_type = get_storage_type()?;
+       
+        debug!("ip {}, region {}, storage_type {}", ip, region, storage_type);
+        let server_type = server_type()?;
+        let serial_number = server_serial()?;
+        println!("Gathering raid info");
+        let raid_info =
+            block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
 
         Ok(Host {
             ip,
@@ -81,11 +87,27 @@ impl Display for StorageTypeEnum {
         write!(f, "{}", message)
     }
 }
+/// Get the default interface
+fn get_default_iface() -> Result<String> {
+    let p = Path::new("/proc/net/route");
+    let proc_route = File::open(p)?;
+    let reader = BufReader::new(proc_route);
+    for line in reader.lines() {
+        let l = line?;
+        let parts: Vec<&str> = l.split_whitespace().collect();
+        if parts.len() > 2 && parts[1] == "00000000" {
+            //Default gateway found
+            return Ok(parts[0].to_string());
+        }
+    }
+
+    Err(Error::new(ErrorKind::Other, "No default interface found"))
+}
 
 /// Find the IP on default interface
 fn get_ip() -> Result<IpAddr> {
     let mut all_interfaces = datalink::interfaces();
-    let default_iface = "hello";
+    let default_iface = get_default_iface()?;
     if all_interfaces.is_empty() {
         Err(Error::new(ErrorKind::Other, "No network interface found"))
     } else {

@@ -53,6 +53,12 @@ mod tests {
         assert!(result);
     }
 
+    #[test] 
+    fn test_new_host() {
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        let info = super::MyHost::new().unwrap();
+        println!("{:#?}", info);
+    }
     #[test]
     fn test_update_storage_info() {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();

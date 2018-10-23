@@ -8,6 +8,7 @@ extern crate rusqlite;
 extern crate serde_json;
 extern crate slack_hook;
 extern crate zmq;
+extern crate block_utils;
 
 use self::ceph::error::RadosError;
 use self::goji::Error as GojiError;
@@ -18,6 +19,7 @@ use self::rusqlite::Error as SqliteError;
 use self::serde_json::Error as SerdeJsonError;
 use self::slack_hook::Error as SlackError;
 use self::zmq::Error as ZmqError;
+use self::block_utils::BlockUtilsError;
 
 use std::error::Error as err;
 use std::fmt;
@@ -41,6 +43,7 @@ pub enum BynarError {
     SqliteError(SqliteError),
     VaultError(VaultError),
     ZmqError(ZmqError),
+    BlockUtilsError(BlockUtilsError),
 }
 
 impl fmt::Display for BynarError {
@@ -64,6 +67,7 @@ impl err for BynarError {
             BynarError::SqliteError(ref e) => e.description(),
             BynarError::VaultError(ref e) => e.description(),
             BynarError::ZmqError(ref e) => e.description(),
+            BynarError::BlockUtilsError(ref e) => e.description(),
         }
     }
     fn cause(&self) -> Option<&err> {
@@ -80,6 +84,7 @@ impl err for BynarError {
             BynarError::SqliteError(ref e) => e.cause(),
             BynarError::VaultError(ref e) => e.cause(),
             BynarError::ZmqError(ref e) => e.cause(),
+            BynarError::BlockUtilsError(ref e) => e.cause(),
         }
     }
 }
@@ -105,6 +110,7 @@ impl BynarError {
             BynarError::SqliteError(ref err) => err.to_string(),
             BynarError::VaultError(ref err) => err.to_string(),
             BynarError::ZmqError(ref err) => err.to_string(),
+            BynarError::BlockUtilsError(ref err) => err.to_string(),
         }
     }
 }
@@ -178,5 +184,10 @@ impl From<VaultError> for BynarError {
 impl From<ZmqError> for BynarError {
     fn from(err: ZmqError) -> BynarError {
         BynarError::ZmqError(err)
+    }
+}
+impl From<BlockUtilsError> for BynarError {
+    fn from(err: BlockUtilsError) -> BynarError {
+        BynarError::BlockUtilsError(err)
     }
 }

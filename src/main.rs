@@ -1,4 +1,4 @@
-#![cfg_attr(test, feature(test, proc_macro_mod))]
+///#![cfg_attr(test, feature(test, proc_macro_mod))]
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
 /// 2. Report dead disk to JIRA for repairs
