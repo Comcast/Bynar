@@ -665,6 +665,8 @@ impl Transition for Scan {
                 }
             },
             Err(e) => {
+                // Disks that live behind HP smartarray controllers will fail this test
+
                 error!("Smart test failed: {:?}", e);
                 match save_smart_results(&db_conn, &Path::new(&dev_path), false) {
                     Ok(_) => State::Fail,
