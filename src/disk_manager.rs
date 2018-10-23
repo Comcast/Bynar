@@ -49,8 +49,8 @@ struct DiskManagerConfig {
     vault_endpoint: Option<String>,
 }
 
-fn convert_media_to_disk_type(m: MediaType) -> DiskType {
-    match m {
+fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
+    match *m {
         MediaType::Loopback => DiskType::LOOPBACK,
         MediaType::LVM => DiskType::LVM,
         MediaType::MdRaid => DiskType::MDRAID,
@@ -96,7 +96,7 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
-        f.write(keypair.public_key.as_bytes())?;
+        f.write_all(keypair.public_key.as_bytes())?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
     debug!("Curve server: {:?}", s.is_curve_server());
@@ -108,7 +108,7 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()
  Server that manages disks
  */
 fn listen(
-    backend_type: backend::BackendType,
+    backend_type: &backend::BackendType,
     config_dir: &Path,
     listen_address: &str,
     vault: bool,
@@ -165,7 +165,7 @@ fn listen(
                         "missing operation field in protocol. Ignoring request".to_string(),
                     );
 
-                    let _ = respond_to_client(result, &mut responder);
+                    let _ = respond_to_client(&result, &mut responder);
                     continue;
                 }
                 match add_disk(
@@ -241,7 +241,7 @@ fn listen(
     }
 }
 
-fn respond_to_client(result: OpResult, s: &mut Socket) -> BynarResult<()> {
+fn respond_to_client(result: &OpResult, s: &mut Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
@@ -266,7 +266,7 @@ fn add_disk(
             result.set_error_msg(e.to_string());
 
             // Bail early.  We can't load the backend
-            let _ = respond_to_client(result, s);
+            let _ = respond_to_client(&result, s);
             return Ok(());
         }
     };
@@ -281,7 +281,7 @@ fn add_disk(
             result.set_error_msg(e.to_string());
         }
     };
-    let _ = respond_to_client(result, s);
+    let _ = respond_to_client(&result, s);
 
     Ok(())
 }
@@ -304,9 +304,9 @@ fn get_disks() -> BynarResult<Vec<Disk>> {
         let mut d = Disk::new();
         let dev_path = Path::new("/dev/").join(device.name);
         // This will skip partition_info if it fails to gather.  Blank disks will fail
-        let p = get_partition_info(&dev_path).unwrap_or(PartitionInfo::new());
+        let p = get_partition_info(&dev_path).unwrap_or_else(|_| PartitionInfo::new());
         //Translate block_utils MediaType -> Protobuf DiskType
-        d.set_field_type(convert_media_to_disk_type(device.media_type));
+        d.set_field_type(convert_media_to_disk_type(&device.media_type));
         d.set_dev_path(dev_path.to_string_lossy().into_owned());
         d.set_partitions(p);
         if let Some(serial) = device.serial_number {
@@ -368,7 +368,7 @@ fn remove_disk(
             result.set_error_msg(e.to_string());
 
             // Bail early.  We can't load the backend
-            let _ = respond_to_client(result, s);
+            let _ = respond_to_client(&result, s);
             return Ok(());
         }
     };
@@ -381,7 +381,7 @@ fn remove_disk(
             result.set_error_msg(e.to_string());
         }
     };
-    let _ = respond_to_client(result, s);
+    let _ = respond_to_client(&result, s);
     Ok(())
 }
 
@@ -496,8 +496,7 @@ fn main() {
     let log = Path::new(matches.value_of("log").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let vault_support = {
-        let b = bool::from_str(matches.value_of("vault").unwrap()).unwrap();
-        b
+        bool::from_str(matches.value_of("vault").unwrap()).unwrap()
     };
     let mut loggers: Vec<Box<SharedLogger>> = vec![];
     if let Some(term_logger) = TermLogger::new(level, Config::default()) {
@@ -511,7 +510,7 @@ fn main() {
     ));
     let _ = CombinedLogger::init(loggers);
     match listen(
-        backend,
+        &backend,
         config_dir,
         matches.value_of("listen").unwrap(),
         vault_support,

@@ -1,0 +1,4 @@
+{
+	"config_file": "/etc/ceph/ceph.conf",
+	"user_id": "admin"
+}
