@@ -49,7 +49,7 @@ impl Host {
         debug!("ip {}, region {}, storage_type {}", ip, region, storage_type);
         let server_type = server_type()?;
         let serial_number = server_serial()?;
-        println!("Gathering raid info");
+        debug!("Gathering raid info");
         let raid_info =
             block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
 

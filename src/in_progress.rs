@@ -1,4 +1,4 @@
-// Monitor in progress disk repairs
+/// Monitor in progress disk repairs
 extern crate chrono;
 extern crate postgres;
 extern crate postgres_shared;
@@ -59,6 +59,7 @@ mod tests {
         let info = super::MyHost::new().unwrap();
         println!("{:#?}", info);
     }
+
     #[test]
     fn test_update_storage_info() {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();

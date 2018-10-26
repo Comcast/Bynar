@@ -28,9 +28,10 @@ mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 
+use in_progress::{update_storage_info, connect_to_database};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
-
+use std::process::id;
 use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
@@ -99,11 +100,9 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     }
 }
 
-fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> {
+fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> BynarResult<()> {
     let config: ConfigSettings =
         helpers::load_config(config_dir, "bynar.json")?;
-    let host_info = Host::new()?;
-    debug!("Gathered host info: {:?}", host_info);
     let public_key = get_public_key(&config, &host_info)?;
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
@@ -227,10 +226,9 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> 
     Ok(())
 }
 
-fn add_repaired_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> {
+fn add_repaired_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> BynarResult<()> {
     let config: ConfigSettings =
         helpers::load_config(config_dir, "bynar.json")?;
-    let host_info = Host::new()?;
     let config_location = Path::new(&config.db_location);
     let public_key = get_public_key(&config, &host_info)?;
 
@@ -351,8 +349,32 @@ fn main() {
         }
     }
     let simulate = matches.is_present("simulate");
+    
+    let host_info =  Host::new().unwrap(); // Want to fail if this returns an error
+    debug!("Gathered host info: {:?}", host_info);
+     
+     let config_file = "/newDevice/tests/dbconfig.json".to_string();
+     match connect_to_database(&config_file) {
+         Err(e) => {
+             error!("Failed to connect to database {}", e);
+         }
+         Ok(conn) => {
+             // successfully connected to DB to track operations, update information
+             // TODO: When merged with sqllite3, program stops is connect_to_database() fails
+             let pid = id();
+            match update_storage_info(&host_info, pid, &conn) {
+                 Err(e) => {
+                     error!("Failed to update information in tracking database {}", e);
+                 }
+                 _ => {
+                     info!("Host information added to database");
+                 }
+             }
 
-    match check_for_failed_disks(config_dir, simulate) {
+         }
+     }
+
+    match check_for_failed_disks(config_dir, &host_info, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
@@ -360,7 +382,7 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    match add_repaired_disks(config_dir, simulate) {
+    match add_repaired_disks(config_dir, &host_info, simulate) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
         }
