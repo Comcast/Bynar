@@ -9,7 +9,7 @@ extern crate time;
 use self::chrono::offset::Utc;
 use self::chrono::DateTime;
 use self::postgres::{
-    params::ConnectParams, params::Host, Connection as pConnection, Error as pError,
+    params::ConnectParams, params::Host, Connection as pConnection,
     Result as pResult, TlsMode,
 };
 use self::rusqlite::{Connection};
@@ -446,11 +446,11 @@ impl OperationDetail {
 }
 
 /// Reads the config file to establish a database connection
-pub fn connect_to_database(config: &str) -> pResult<pConnection> {
+pub fn connect_to_database(config: &str) -> BynarResult<pConnection> {
     debug!("Establishing a database connection");
-    let connection_params = read_db_config(&config).map_err(|e| pError::from(e))?;
+    let connection_params = read_db_config(&config)?;//.map_err(|e| pError::from(e))?;
     let conn =
-        pConnection::connect(connection_params, TlsMode::None).expect("Database connection failed");
+        pConnection::connect(connection_params, TlsMode::None)?;
     Ok(conn)
 }
 
@@ -463,7 +463,7 @@ pub fn disconnect_database(conn: pConnection) -> pResult<()> {
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
 /// TODO: return conn, entry_id, region_id, detail_id
-pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> pResult<bool> {
+pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> BynarResult<bool> {
     debug!("Adding datacenter and host information to database");
 
     // extract ip address to a &str
