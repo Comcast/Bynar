@@ -1,4 +1,4 @@
-#![cfg_attr(test, feature(test, proc_macro_mod))]
+///#![cfg_attr(test, feature(test, proc_macro_mod))]
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
 /// 2. Report dead disk to JIRA for repairs
@@ -28,15 +28,16 @@ mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 
-use std::fs::{create_dir, read_to_string, File};
-use std::path::{Path, PathBuf};
-
 use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
+use in_progress::{connect_to_database, update_storage_info};
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
+use std::fs::{create_dir, read_to_string, File};
+use std::path::{Path, PathBuf};
+use std::process::id;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -99,11 +100,8 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     }
 }
 
-fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> {
-    let config: ConfigSettings =
-        helpers::load_config(config_dir, "bynar.json")?;
-    let host_info = Host::new()?;
-    debug!("Gathered host info: {:?}", host_info);
+fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> BynarResult<()> {
+    let config: ConfigSettings = helpers::load_config(config_dir, "bynar.json")?;
     let public_key = get_public_key(&config, &host_info)?;
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
@@ -118,8 +116,7 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> 
     );
 
     info!("Checking all drives");
-    let conn =
-        in_progress::connect_to_repair_database(&config_location)?;
+    let conn = in_progress::connect_to_repair_database(&config_location)?;
     for result in test_disk::check_all_disks(&config_location)? {
         match result {
             Ok(state) => {
@@ -220,23 +217,23 @@ fn check_for_failed_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> 
             }
             Err(e) => {
                 error!("check_all_disks failed with error: {:?}", e);
-                return Err(BynarError::new(format!("check_all_disks failed with error: {:?}", e)));
+                return Err(BynarError::new(format!(
+                    "check_all_disks failed with error: {:?}",
+                    e
+                )));
             }
         };
     }
     Ok(())
 }
 
-fn add_repaired_disks(config_dir: &Path, simulate: bool) -> BynarResult<()> {
-    let config: ConfigSettings =
-        helpers::load_config(config_dir, "bynar.json")?;
-    let host_info = Host::new()?;
+fn add_repaired_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> BynarResult<()> {
+    let config: ConfigSettings = helpers::load_config(config_dir, "bynar.json")?;
     let config_location = Path::new(&config.db_location);
     let public_key = get_public_key(&config, &host_info)?;
 
     info!("Connecting to database to find repaired drives");
-    let conn =
-        in_progress::connect_to_repair_database(&config_location)?;
+    let conn = in_progress::connect_to_repair_database(&config_location)?;
     info!("Getting outstanding repair tickets");
     let tickets = in_progress::get_outstanding_repair_tickets(&conn)?;
     info!("Checking for resolved repair tickets");
@@ -351,8 +348,36 @@ fn main() {
         }
     }
     let simulate = matches.is_present("simulate");
+    let h_info = Host::new();
+    if h_info.is_err() {
+        error!("Failed to gather host information");
+        //gracefully exit
+        return;
+    }
+    let host_info = h_info.expect("Failed to gather host information");
+    debug!("Gathered host info: {:?}", host_info);
 
-    match check_for_failed_disks(config_dir, simulate) {
+    let config_file = "/newDevice/tests/dbconfig.json".to_string();
+    match connect_to_database(&config_file) {
+        Err(e) => {
+            error!("Failed to connect to database {}", e);
+        }
+        Ok(conn) => {
+            // successfully connected to DB to track operations, update information
+            // TODO: When merged with sqllite3, program stops is connect_to_database() fails
+            let pid = id();
+            match update_storage_info(&host_info, pid, &conn) {
+                Err(e) => {
+                    error!("Failed to update information in tracking database {}", e);
+                }
+                _ => {
+                    info!("Host information added to database");
+                }
+            }
+        }
+    }
+
+    match check_for_failed_disks(config_dir, &host_info, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
@@ -360,7 +385,7 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    match add_repaired_disks(config_dir, simulate) {
+    match add_repaired_disks(config_dir, &host_info, simulate) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
         }

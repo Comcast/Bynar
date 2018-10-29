@@ -1,9 +1,11 @@
+extern crate block_utils;
 extern crate ceph;
 extern crate ceph_safe_disk;
 extern crate goji;
 extern crate hashicorp_vault;
 extern crate lvm;
 extern crate nix;
+extern crate postgres;
 extern crate protobuf;
 extern crate pwd;
 extern crate reqwest;
@@ -13,11 +15,13 @@ extern crate slack_hook;
 extern crate uuid;
 extern crate zmq;
 
+use self::block_utils::BlockUtilsError;
 use self::ceph::error::RadosError;
 use self::goji::Error as GojiError;
 use self::hashicorp_vault::client::error::Error as VaultError;
 use self::lvm::LvmError;
 use self::nix::Error as NixError;
+use self::postgres::Error as PostgresError;
 use self::protobuf::ProtobufError;
 use self::pwd::PwdError;
 use self::reqwest::Error as ReqwestError;
@@ -26,7 +30,6 @@ use self::serde_json::Error as SerdeJsonError;
 use self::slack_hook::Error as SlackError;
 use self::uuid::parser::ParseError as UuidError;
 use self::zmq::Error as ZmqError;
-
 use std::error::Error as err;
 use std::fmt;
 use std::io::Error as IOError;
@@ -53,6 +56,8 @@ pub enum BynarError {
     UuidError(UuidError),
     VaultError(VaultError),
     ZmqError(ZmqError),
+    BlockUtilsError(BlockUtilsError),
+    PostgresError(PostgresError),
 }
 
 impl fmt::Display for BynarError {
@@ -83,6 +88,8 @@ impl err for BynarError {
             BynarError::UuidError(ref e) => e.description(),
             BynarError::VaultError(ref e) => e.description(),
             BynarError::ZmqError(ref e) => e.description(),
+            BynarError::BlockUtilsError(ref e) => e.description(),
+            BynarError::PostgresError(ref e) => e.description(),
         }
     }
     fn cause(&self) -> Option<&err> {
@@ -103,6 +110,8 @@ impl err for BynarError {
             BynarError::UuidError(ref e) => e.cause(),
             BynarError::VaultError(ref e) => e.cause(),
             BynarError::ZmqError(ref e) => e.cause(),
+            BynarError::BlockUtilsError(ref e) => e.cause(),
+            BynarError::PostgresError(ref e) => e.cause(),
         }
     }
 }
@@ -132,6 +141,8 @@ impl BynarError {
             BynarError::UuidError(ref err) => err.to_string(),
             BynarError::VaultError(ref err) => err.to_string(),
             BynarError::ZmqError(ref err) => err.to_string(),
+            BynarError::BlockUtilsError(ref err) => err.to_string(),
+            BynarError::PostgresError(ref err) => err.to_string(),
         }
     }
 }
@@ -229,5 +240,15 @@ impl From<VaultError> for BynarError {
 impl From<ZmqError> for BynarError {
     fn from(err: ZmqError) -> BynarError {
         BynarError::ZmqError(err)
+    }
+}
+impl From<BlockUtilsError> for BynarError {
+    fn from(err: BlockUtilsError) -> BynarError {
+        BynarError::BlockUtilsError(err)
+    }
+}
+impl From<PostgresError> for BynarError {
+    fn from(err: PostgresError) -> BynarError {
+        BynarError::PostgresError(err)
     }
 }
