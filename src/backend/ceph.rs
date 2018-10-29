@@ -13,7 +13,7 @@ extern crate serde_json;
 extern crate tempdir;
 extern crate uuid;
 
-use std::fs::{create_dir, read_to_string, File};
+use std::fs::{create_dir, read_to_string, remove_dir_all, File};
 use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
@@ -448,7 +448,10 @@ impl CephBackend {
                     error!("{} failed to erase: {:?}", dev_path.display(), e);
                 }
             };
+            debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
+            remove_dir_all(Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id)))?;
         }
+
         systemctl_disable(osd_id, &osd_fsid.unwrap(), simulate)?;
 
         Ok(())
