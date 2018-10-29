@@ -2,49 +2,176 @@
 extern crate block_utils;
 extern crate dmi;
 extern crate hostname;
+extern crate pnet;
 extern crate uname;
 
-use std::fs::read_to_string;
-use std::io::{Error, ErrorKind, Result};
-use std::path::Path;
-
-//use self::block_utils::RaidType;
 use self::hostname::get_hostname;
+use self::pnet::datalink::{self, NetworkInterface};
 use self::uname::uname;
+use std::fmt::{Display, Formatter, Result as fResult};
+use std::fs::{read_to_string, File};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 
 /// All the host information we could gather
 #[derive(Debug)]
 pub struct Host {
     pub hostname: String,
+    pub ip: IpAddr,
+    pub region: String,
     pub kernel: String,
     pub server_type: String,
     pub serial_number: String,
     pub machine_architecture: String,
     pub raid_info: Vec<block_utils::ScsiInfo>,
+    pub storage_type: StorageTypeEnum,
+    pub array_name: Option<String>,
+    pub pool_name: Option<String>,
 }
 
 impl Host {
     pub fn new() -> Result<Self> {
         //
         debug!("Loading host information");
-        debug!("Gathering uname info");
         let uname_info = uname()?;
+        debug!("{:#?}", uname_info);
         let hostname =
             get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
+        debug!("{:#?}", hostname);
+        let ip = get_ip()?;
+        let region = get_region_from_hostname(&hostname)?;
+        let storage_type = get_storage_type()?;
+
+        debug!(
+            "ip {}, region {}, storage_type {}",
+            ip, region, storage_type
+        );
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
         let raid_info =
             block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
+
         Ok(Host {
+            ip,
             hostname,
             kernel: uname_info.release,
+            region,
+            storage_type,
             machine_architecture: uname_info.machine,
             server_type,
             serial_number,
             raid_info,
+            array_name: None,
+            pool_name: None,
         })
     }
+}
+#[derive(Debug)]
+pub enum StorageTypeEnum {
+    Ceph,
+    Scaleio,
+    Gluster,
+    Hitachi,
+}
+
+impl Display for StorageTypeEnum {
+    fn fmt(&self, f: &mut Formatter) -> fResult {
+        let message = match *self {
+            StorageTypeEnum::Ceph => "ceph",
+            StorageTypeEnum::Scaleio => "scaleio",
+            StorageTypeEnum::Hitachi => "hitachi",
+            StorageTypeEnum::Gluster => "gluster",
+        };
+        write!(f, "{}", message)
+    }
+}
+/// Get the default interface
+fn get_default_iface() -> Result<String> {
+    let p = Path::new("/proc/net/route");
+    let proc_route = File::open(p)?;
+    let reader = BufReader::new(proc_route);
+    for line in reader.lines() {
+        let l = line?;
+        let parts: Vec<&str> = l.split_whitespace().collect();
+        if parts.len() > 2 && parts[1] == "00000000" {
+            //Default gateway found
+            return Ok(parts[0].to_string());
+        }
+    }
+
+    Err(Error::new(ErrorKind::Other, "No default interface found"))
+}
+
+/// Find the IP on default interface
+fn get_ip() -> Result<IpAddr> {
+    let mut all_interfaces = datalink::interfaces();
+    let default_iface = get_default_iface()?;
+    if all_interfaces.is_empty() {
+        Err(Error::new(ErrorKind::Other, "No network interface found"))
+    } else {
+        all_interfaces.retain(|iface: &NetworkInterface| iface.name == default_iface);
+        if all_interfaces.is_empty() {
+            Err(Error::new(ErrorKind::Other, "No network interface found"))
+        } else {
+            if all_interfaces.len() > 1 {
+                debug!("More than one default network interface found");
+            }
+            match all_interfaces.get(0) {
+                Some(iface) => {
+                    let mut my_ip = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+                    let mut found: bool = false;
+                    for ip in &iface.ips {
+                        if ip.is_ipv4() {
+                            my_ip = ip.ip();
+                            found = true;
+                            break;
+                        }
+                    }
+                    if found {
+                        Ok(my_ip)
+                    } else {
+                        Err(Error::new(ErrorKind::Other, "IPv4 Address not found"))
+                    }
+                }
+                None => Err(Error::new(
+                    ErrorKind::Other,
+                    "Default network interface does not exist",
+                )),
+            }
+        }
+    }
+}
+
+/// Get region from hostname
+fn get_region_from_hostname(hostname: &str) -> Result<String> {
+    // Production hostnames are usually <name>-<region_part-1>-<region_part2><*>
+    if hostname.contains('-') {
+        let splitter: Vec<&str> = hostname.split('-').collect();
+        let mut region = String::new();
+        let mut index = 0;
+        for v in splitter {
+            // skip the first sub string
+            if index == 1 {
+                region.push_str(v);
+                region.push_str("-");
+            }
+            if index == 2 {
+                region.push_str(&v[0..1]);
+            }
+            index = index + 1;
+        }
+        Ok(region)
+    } else {
+        Ok("test-region".to_string())
+    }
+}
+
+/// Get storage type used on this system
+fn get_storage_type() -> Result<StorageTypeEnum> {
+    // TODO: Change this later for other types
+    Ok(StorageTypeEnum::Ceph)
 }
 
 /// Find the server type
