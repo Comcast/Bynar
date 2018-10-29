@@ -2,20 +2,17 @@
 extern crate block_utils;
 extern crate dmi;
 extern crate hostname;
-extern crate uname;
 extern crate pnet;
+extern crate uname;
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::fs::read_to_string;
-use std::io::{Error, ErrorKind, Result};
-use std::fs::File;
-use std::fmt::{Display, Formatter, Result as fResult};
-use std::path::Path;
-use self::pnet::datalink::{self, NetworkInterface};
-//use self::block_utils::RaidType;
 use self::hostname::get_hostname;
+use self::pnet::datalink::{self, NetworkInterface};
 use self::uname::uname;
-use std::io::{BufRead, BufReader};
+use std::fmt::{Display, Formatter, Result as fResult};
+use std::fs::{read_to_string, File};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 
 /// All the host information we could gather
 #[derive(Debug)]
@@ -45,8 +42,11 @@ impl Host {
         let ip = get_ip()?;
         let region = get_region_from_hostname(&hostname)?;
         let storage_type = get_storage_type()?;
-       
-        debug!("ip {}, region {}, storage_type {}", ip, region, storage_type);
+
+        debug!(
+            "ip {}, region {}, storage_type {}",
+            ip, region, storage_type
+        );
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
@@ -111,32 +111,34 @@ fn get_ip() -> Result<IpAddr> {
     if all_interfaces.is_empty() {
         Err(Error::new(ErrorKind::Other, "No network interface found"))
     } else {
-        all_interfaces.retain(| iface: &NetworkInterface| iface.name == default_iface);
-        if all_interfaces.len() != 1 {
-            Err(Error::new(ErrorKind::Other, "More than one default network interface found"))
+        all_interfaces.retain(|iface: &NetworkInterface| iface.name == default_iface);
+        if all_interfaces.is_empty() {
+            Err(Error::new(ErrorKind::Other, "No network interface found"))
         } else {
+            if all_interfaces.len() > 1 {
+                debug!("More than one default network interface found");
+            }
             match all_interfaces.get(0) {
                 Some(iface) => {
-                let mut my_ip = IpAddr::V4(Ipv4Addr::new(0,0,0,0));
-                let mut found: bool = false;
-                let ips= &iface.ips;
-                for ip in ips {
-                    if ip.is_ipv4() {
-                        my_ip = ip.ip();
-                        found = true;
-                        break;
-                    } 
+                    let mut my_ip = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+                    let mut found: bool = false;
+                    for ip in &iface.ips {
+                        if ip.is_ipv4() {
+                            my_ip = ip.ip();
+                            found = true;
+                            break;
+                        }
+                    }
+                    if found {
+                        Ok(my_ip)
+                    } else {
+                        Err(Error::new(ErrorKind::Other, "IPv4 Address not found"))
+                    }
                 }
-                if found {
-                    Ok(my_ip)
-                } else {
-                    Err(Error::new(ErrorKind::Other, "IPv4 Address not found"))
-                }
-                }
-                None => {
-                    Err(Error::new(ErrorKind::Other, "Default network interface does not exist"))
-
-                }
+                None => Err(Error::new(
+                    ErrorKind::Other,
+                    "Default network interface does not exist",
+                )),
             }
         }
     }
@@ -144,17 +146,23 @@ fn get_ip() -> Result<IpAddr> {
 
 /// Get region from hostname
 fn get_region_from_hostname(hostname: &str) -> Result<String> {
-    // Production hostnames are usually <name>-<region><*>
+    // Production hostnames are usually <name>-<region_part-1>-<region_part2><*>
     if hostname.contains('-') {
-        let splitter: Vec<&str> = hostname.splitn(2, '-').collect();
-        match splitter.get(1) {
-            Some(region) => {
-                Ok(region[0..4].to_owned())
+        let splitter: Vec<&str> = hostname.split('-').collect();
+        let mut region = String::new();
+        let mut index = 0;
+        for v in splitter {
+            // skip the first sub string
+            if index == 1 {
+                region.push_str(v);
+                region.push_str("-");
             }
-            None => {
-                Err(Error::new(ErrorKind::Other, "Cannot deduce region from hostname"))
+            if index == 2 {
+                region.push_str(&v[0..1]);
             }
+            index = index + 1;
         }
+        Ok(region)
     } else {
         Ok("test-region".to_string())
     }

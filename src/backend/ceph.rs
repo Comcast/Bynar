@@ -245,7 +245,10 @@ fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
             let id = u64::from_str(parts[1])?;
             Ok(id)
         }
-        None => Err(BynarError::new(format!("Unable to get filename from {}", path.display()))),
+        None => Err(BynarError::new(format!(
+            "Unable to get filename from {}",
+            path.display()
+        ))),
     }
 }
 
@@ -263,9 +266,10 @@ fn get_osd_id(path: &Path, simulate: bool) -> BynarResult<u64> {
 fn save_keyring(osd_id: u64, key: &str, simulate: bool) -> BynarResult<()> {
     let base_dir = format!("/var/lib/ceph/osd/ceph-{}", osd_id);
     if !Path::new(&base_dir).exists() {
-        return Err(BynarError::new(
-            format!("{} directory doesn't exist", base_dir),
-        ));
+        return Err(BynarError::new(format!(
+            "{} directory doesn't exist",
+            base_dir
+        )));
     }
     debug!("Creating {}/keyring", base_dir);
     if !simulate {
@@ -322,7 +326,9 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> BynarResult<()> {
             if !simulate {
                 let output = cmd.output()?;
                 if !output.status.success() {
-                    return Err(BynarError::new(String::from_utf8_lossy(&output.stderr).into_owned()));
+                    return Err(BynarError::new(
+                        String::from_utf8_lossy(&output.stderr).into_owned(),
+                    ));
                 }
             }
             return Ok(());
@@ -336,7 +342,9 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> BynarResult<()> {
             if !simulate {
                 let output = cmd.output()?;
                 if !output.status.success() {
-                    return Err(BynarError::new(String::from_utf8_lossy(&output.stderr).into_owned()));
+                    return Err(BynarError::new(
+                        String::from_utf8_lossy(&output.stderr).into_owned(),
+                    ));
                 }
             }
             return Ok(());

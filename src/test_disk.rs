@@ -235,7 +235,8 @@ mod tests {
             .mock_safe(|_, _| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
 
         // TODO: Can't mock outside dependencies.  Need a wrapper function or something
-        super::format_device.mock_safe(|_| MockResult::Return(Err(BynarError::new("error".to_string()))));
+        super::format_device
+            .mock_safe(|_| MockResult::Return(Err(BynarError::new("error".to_string()))));
         // That should leave the disk in WaitingForReplacement
 
         let dev = create_loop_device();
@@ -1215,9 +1216,10 @@ fn check_xfs(device: &Path) -> BynarResult<Fsck> {
         Some(code) => match code {
             0 => Ok(Fsck::Ok),
             1 => Ok(Fsck::Corrupt),
-            _ => Err(BynarError::new(
-                format!("xfs_repair failed with code: {}", code),
-            )),
+            _ => Err(BynarError::new(format!(
+                "xfs_repair failed with code: {}",
+                code
+            ))),
         },
         //Process terminated by signal
         None => Err(BynarError::new(

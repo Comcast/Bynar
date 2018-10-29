@@ -1,27 +1,26 @@
 /// Monitor in progress disk repairs
 extern crate chrono;
+extern crate helpers;
 extern crate postgres;
 extern crate postgres_shared;
-extern crate helpers;
 extern crate rusqlite;
 extern crate time;
 
 use self::chrono::offset::Utc;
 use self::chrono::DateTime;
 use self::postgres::{
-    params::ConnectParams, params::Host, Connection as pConnection,
-    Result as pResult, TlsMode,
+    params::ConnectParams, params::Host, Connection as pConnection, Result as pResult, TlsMode,
 };
-use self::rusqlite::{Connection};
+use self::rusqlite::Connection;
 use self::time::Timespec;
 
+use self::helpers::error::*;
+use self::helpers::host_information::Host as MyHost;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::File;
 use std::io::{Error as ioError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use self::helpers::error::*;
-use self::helpers::host_information::{Host as MyHost};
 
 use test_disk;
 
@@ -53,7 +52,7 @@ mod tests {
         assert!(result);
     }
 
-    #[test] 
+    #[test]
     fn test_new_host() {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
         let info = super::MyHost::new().unwrap();
@@ -211,7 +210,11 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> BynarResult<Option<test_
     Ok(None)
 }
 
-pub fn save_mount_location(conn: &Connection, dev_path: &Path, mount_path: &Path) -> BynarResult<()> {
+pub fn save_mount_location(
+    conn: &Connection,
+    dev_path: &Path,
+    mount_path: &Path,
+) -> BynarResult<()> {
     debug!(
         "Saving mount path for {}: {}",
         dev_path.display(),
@@ -241,7 +244,11 @@ pub fn save_mount_location(conn: &Connection, dev_path: &Path, mount_path: &Path
     Ok(())
 }
 
-pub fn save_smart_results(conn: &Connection, dev_path: &Path, smart_passed: bool) -> BynarResult<()> {
+pub fn save_smart_results(
+    conn: &Connection,
+    dev_path: &Path,
+    smart_passed: bool,
+) -> BynarResult<()> {
     debug!(
         "Saving smart results for {} passed: {}",
         dev_path.display(),
@@ -448,9 +455,8 @@ impl OperationDetail {
 /// Reads the config file to establish a database connection
 pub fn connect_to_database(config: &str) -> BynarResult<pConnection> {
     debug!("Establishing a database connection");
-    let connection_params = read_db_config(&config)?;//.map_err(|e| pError::from(e))?;
-    let conn =
-        pConnection::connect(connection_params, TlsMode::None)?;
+    let connection_params = read_db_config(&config)?; //.map_err(|e| pError::from(e))?;
+    let conn = pConnection::connect(connection_params, TlsMode::None)?;
     Ok(conn)
 }
 
@@ -590,11 +596,7 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
     Ok(region_id)
 }
 
-fn update_storage_details(
-    conn: &pConnection,
-    s_info: &MyHost,
-    region_id: u32,
-) -> pResult<u32> {
+fn update_storage_details(conn: &pConnection, s_info: &MyHost, region_id: u32) -> pResult<u32> {
     let stmt = format!(
         "SELECT storage_id FROM storage_types WHERE storage_type='{}'",
         s_info.storage_type
@@ -641,8 +643,7 @@ fn update_storage_details(
 }
 
 // Inserts disk informatation record into bynar.disks and adds the disk_id to struct
-pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) ->
-pResult<bool> {
+pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<bool> {
     let mut stmt = String::new();
 
     match disk_info.disk_id {
@@ -771,7 +772,7 @@ pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> p
     Ok(op_id)
 }
 
-pub fn add_or_update_operation_detail (
+pub fn add_or_update_operation_detail(
     conn: &pConnection,
     operation_detail: &mut OperationDetail,
 ) -> pResult<bool> {
