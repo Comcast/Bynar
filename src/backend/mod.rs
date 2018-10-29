@@ -65,10 +65,10 @@ pub fn load_backend(
     backend_type: &BackendType,
     config_dir: Option<&Path>,
 ) -> BynarResult<Box<Backend>> {
-    let backend: Box<Backend> = match backend_type {
-        &BackendType::Ceph => Box::new(CephBackend::new(config_dir)?),
+    let backend: Box<Backend> = match *backend_type {
+        BackendType::Ceph => Box::new(CephBackend::new(config_dir)?),
         //#[cfg(feature = "gluster")]
-        &BackendType::Gluster => Box::new(GlusterBackend {}),
+        BackendType::Gluster => Box::new(GlusterBackend {}),
     };
 
     Ok(backend)

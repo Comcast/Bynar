@@ -198,7 +198,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
                             debug!("Creating support ticket");
                             let ticket_id = create_support_ticket(
                                 &config,
-                                "Dead disk",
+                                "Bynar: Dead disk",
                                 &description,
                                 &environment,
                             )?;

@@ -11,7 +11,7 @@ a row and a server cannot issue 2 replies in a row.  It is request then reply, r
 enforces that. 
 
 The protocol works like this:
-1. Client opens an optionally curve encrypted ZeroMQ socket to Bynar
+1. Client opens an optionally curve encrypted ZeroMQ socket to Bynar port 5555
 2. Client makes a Request [operation](https://github.com/Comcast/Bynar/blob/master/api/protos/service.proto#L130) from the API
    1. Currently a minimal set of operations can be performed but that will expand in the future.
    2. Please create a pull request if you'd like to Bynar to perform other operations.
