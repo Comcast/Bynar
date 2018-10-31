@@ -14,5 +14,12 @@
     "jira_project_id": "MyProject",
     "jira_ticket_assignee": "assignee_username",
     "vault_endpoint": "https://my_vault.com",
-    "vault_token": "token_98706420"
+    "vault_token": "token_98706420",
+    "database": {
+        "username": "postgres",
+        "password": "",
+        "port": 5432,
+        "dbname":"bynar",
+        "endpoint":"some.endpoint"
+    }
 }
