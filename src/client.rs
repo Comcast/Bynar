@@ -95,7 +95,7 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
     }
 }
 
-fn get_cli_args<'a>(default_server_key: &'a str) -> ArgMatches<'a> {
+fn get_cli_args(default_server_key: &str) -> ArgMatches {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())
         .author(crate_authors!())
@@ -187,7 +187,7 @@ fn get_cli_args<'a>(default_server_key: &'a str) -> ArgMatches<'a> {
 fn main() {
     let server_key = format!(
         "/etc/bynar/{}.pem",
-        get_hostname().unwrap_or("ecpubkey".to_string())
+        get_hostname().unwrap_or_else(|| "ecpubkey".to_string())
     );
     let matches = get_cli_args(&server_key);
     let level = match matches.occurrences_of("v") {
@@ -206,10 +206,7 @@ fn main() {
         ),
     ]);
     info!("Starting up");
-    let server_pubkey = {
-        let buff = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
-        buff
-    };
+    let server_pubkey = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
 
     let mut s = match helpers::connect(host, port, &server_pubkey) {
         Ok(s) => s,

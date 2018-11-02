@@ -18,7 +18,6 @@ use self::helpers::error::*;
 use self::helpers::host_information::Host as MyHost;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::File;
-use std::io::{Error as ioError, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -455,7 +454,7 @@ impl OperationDetail {
 /// Reads the config file to establish a database connection
 pub fn connect_to_database(config: &str) -> BynarResult<pConnection> {
     debug!("Establishing a database connection");
-    let connection_params = read_db_config(&config)?; //.map_err(|e| pError::from(e))?;
+    let connection_params = read_db_config(&config)?;
     let conn = pConnection::connect(connection_params, TlsMode::None)?;
     Ok(conn)
 }
@@ -488,8 +487,7 @@ pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> Byn
 
 fn read_db_config(config_file: &str) -> ::std::io::Result<ConnectParams> {
     let config_file_fd = File::open(&config_file)?;
-    let config: super::serde_json::Value = super::serde_json::from_reader(config_file_fd)
-        .map_err(|e| ioError::new(ErrorKind::InvalidData, e.to_string()))?;
+    let config: super::serde_json::Value = super::serde_json::from_reader(config_file_fd)?;
 
     let mut connection_string = "postgresql://".to_string();
     let username = config["username"].as_str().expect("User name is missing");

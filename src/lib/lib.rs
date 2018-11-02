@@ -6,7 +6,6 @@ extern crate hashicorp_vault;
 extern crate log;
 extern crate protobuf;
 extern crate serde;
-extern crate serde_derive;
 extern crate serde_json;
 extern crate zmq;
 

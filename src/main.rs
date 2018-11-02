@@ -117,7 +117,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
 
     info!("Checking all drives");
     let conn = in_progress::connect_to_repair_database(&config_location)?;
-    for result in test_disk::check_all_disks(&config_location)? {
+    for result in test_disk::check_all_disks(&config_location, &host_info)? {
         match result {
             Ok(state) => {
                 info!("Disk status: {:?}", state);

@@ -40,12 +40,14 @@ pub type BynarResult<T> = Result<T, BynarError>;
 /// Custom error handling
 #[derive(Debug)]
 pub enum BynarError {
+    BlockUtilsError(BlockUtilsError),
     Error(String),
     GojiError(GojiError),
     IoError(IOError),
     LvmError(LvmError),
     NixError(NixError),
     ParseIntError(ParseIntError),
+    PostgresError(PostgresError),
     ProtobufError(ProtobufError),
     PwdError(PwdError),
     RadosError(RadosError),
@@ -56,8 +58,6 @@ pub enum BynarError {
     UuidError(UuidError),
     VaultError(VaultError),
     ZmqError(ZmqError),
-    BlockUtilsError(BlockUtilsError),
-    PostgresError(PostgresError),
 }
 
 impl fmt::Display for BynarError {
@@ -69,12 +69,14 @@ impl fmt::Display for BynarError {
 impl err for BynarError {
     fn description(&self) -> &str {
         match *self {
+            BynarError::BlockUtilsError(ref e) => e.description(),
             BynarError::Error(ref e) => &e,
             BynarError::GojiError(ref e) => e.description(),
             BynarError::IoError(ref e) => e.description(),
             BynarError::LvmError(ref e) => e.description(),
             BynarError::NixError(ref e) => e.description(),
             BynarError::ParseIntError(ref e) => e.description(),
+            BynarError::PostgresError(ref e) => e.description(),
             BynarError::ProtobufError(ref e) => e.description(),
             BynarError::PwdError(ref e) => match e {
                 PwdError::StringConvError(s) => &s,
@@ -88,18 +90,18 @@ impl err for BynarError {
             BynarError::UuidError(ref e) => e.description(),
             BynarError::VaultError(ref e) => e.description(),
             BynarError::ZmqError(ref e) => e.description(),
-            BynarError::BlockUtilsError(ref e) => e.description(),
-            BynarError::PostgresError(ref e) => e.description(),
         }
     }
     fn cause(&self) -> Option<&err> {
         match *self {
+            BynarError::BlockUtilsError(ref e) => e.cause(),
             BynarError::Error(_) => None,
             BynarError::GojiError(ref e) => e.cause(),
             BynarError::IoError(ref e) => e.cause(),
             BynarError::LvmError(ref e) => e.cause(),
             BynarError::NixError(ref e) => e.cause(),
             BynarError::ParseIntError(ref e) => e.cause(),
+            BynarError::PostgresError(ref e) => e.cause(),
             BynarError::ProtobufError(ref e) => e.cause(),
             BynarError::PwdError(_) => None,
             BynarError::RadosError(ref e) => e.cause(),
@@ -110,8 +112,6 @@ impl err for BynarError {
             BynarError::UuidError(ref e) => e.cause(),
             BynarError::VaultError(ref e) => e.cause(),
             BynarError::ZmqError(ref e) => e.cause(),
-            BynarError::BlockUtilsError(ref e) => e.cause(),
-            BynarError::PostgresError(ref e) => e.cause(),
         }
     }
 }
@@ -125,12 +125,14 @@ impl BynarError {
     /// Convert a BynarError into a String representation.
     pub fn to_string(&self) -> String {
         match *self {
+            BynarError::BlockUtilsError(ref err) => err.to_string(),
             BynarError::Error(ref err) => err.to_string(),
             BynarError::GojiError(ref err) => err.to_string(),
             BynarError::IoError(ref err) => err.to_string(),
             BynarError::LvmError(ref err) => err.to_string(),
             BynarError::NixError(ref err) => err.to_string(),
             BynarError::ParseIntError(ref err) => err.to_string(),
+            BynarError::PostgresError(ref err) => err.to_string(),
             BynarError::ProtobufError(ref err) => err.to_string(),
             BynarError::PwdError(ref err) => err.to_string(),
             BynarError::RadosError(ref err) => err.to_string(),
@@ -141,9 +143,13 @@ impl BynarError {
             BynarError::UuidError(ref err) => err.to_string(),
             BynarError::VaultError(ref err) => err.to_string(),
             BynarError::ZmqError(ref err) => err.to_string(),
-            BynarError::BlockUtilsError(ref err) => err.to_string(),
-            BynarError::PostgresError(ref err) => err.to_string(),
         }
+    }
+}
+
+impl From<BlockUtilsError> for BynarError {
+    fn from(err: BlockUtilsError) -> BynarError {
+        BynarError::BlockUtilsError(err)
     }
 }
 
@@ -174,6 +180,12 @@ impl From<NixError> for BynarError {
 impl From<ParseIntError> for BynarError {
     fn from(err: ParseIntError) -> BynarError {
         BynarError::ParseIntError(err)
+    }
+}
+
+impl From<PostgresError> for BynarError {
+    fn from(err: PostgresError) -> BynarError {
+        BynarError::PostgresError(err)
     }
 }
 
@@ -240,15 +252,5 @@ impl From<VaultError> for BynarError {
 impl From<ZmqError> for BynarError {
     fn from(err: ZmqError) -> BynarError {
         BynarError::ZmqError(err)
-    }
-}
-impl From<BlockUtilsError> for BynarError {
-    fn from(err: BlockUtilsError) -> BynarError {
-        BynarError::BlockUtilsError(err)
-    }
-}
-impl From<PostgresError> for BynarError {
-    fn from(err: PostgresError) -> BynarError {
-        BynarError::PostgresError(err)
     }
 }

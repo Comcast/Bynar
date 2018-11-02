@@ -238,10 +238,13 @@ impl CephBackend {
         debug!("New osd id created: {:?}", new_osd_id);
 
         // Mount the drive
-        let mount_point = format!("/var/lib/ceph/osd/ceph-{}", new_osd_id);
+        let mount_point = Path::new("/var/lib/ceph/osd/").join(format!("ceph-{}", new_osd_id));
         if !simulate {
-            if !Path::new(&mount_point).exists() {
-                debug!("Mount point {} doesn't exist.  Creating.", mount_point);
+            if !mount_point.exists() {
+                debug!(
+                    "Mount point {} doesn't exist.  Creating.",
+                    mount_point.display()
+                );
                 create_dir(&mount_point)?;
             }
             block_utils::mount_device(&info, &mount_point)?;
@@ -375,14 +378,25 @@ impl CephBackend {
         let lvm = Lvm::new(None)?;
         lvm.scan()?;
         // Get the volume group that this device is associated with
-        let vol_group_name = lvm
+        let vol_group_name = match lvm
             .vg_name_from_device(&dev_path.to_string_lossy())?
             .ok_or_else(|| {
                 BynarError::new(format!(
                     "No volume group associated with block device: {}",
                     dev_path.display()
                 ))
-            })?;
+            }) {
+            Ok(vg_group) => vg_group,
+            Err(e) => {
+                // This might be a filestore osd.  Fall back possibly
+                if is_filestore(&dev_path)? {
+                    self.remove_filestore_osd(dev_path, simulate)?;
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         debug!("Found volume group: {}", vol_group_name);
         let vg = lvm.vg_open(&vol_group_name, &OpenMode::Write)?;
         // Find the logical volume in that vol group
@@ -533,8 +547,8 @@ impl Backend for CephBackend {
         &self,
         device: &Path,
         id: Option<u64>,
-        journal: Option<&str>,
-        journal_partition: Option<u32>,
+        _journal: Option<&str>,
+        _journal_partition: Option<u32>,
         simulate: bool,
     ) -> BynarResult<()> {
         debug!("ceph version: {:?}", self.version,);
@@ -548,6 +562,7 @@ impl Backend for CephBackend {
 
     fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<()> {
         if self.version >= CephVersion::Luminous {
+            // Check if the type file exists
             self.remove_bluestore_osd(device, simulate)?;
         } else {
             self.remove_filestore_osd(device, simulate)?;
@@ -555,7 +570,7 @@ impl Backend for CephBackend {
         Ok(())
     }
 
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
         let diag_map = DiagMap::new().map_err(|e| BynarError::new(e.to_string()))?;
         debug!("Checking if a disk is safe to remove from ceph");
         match diag_map.exhaustive_diag(Format::Json) {
@@ -832,4 +847,27 @@ fn ceph_bluestore_tool(device: &Path, mount_path: &Path, simulate: bool) -> Byna
         return Err(BynarError::new(stderr));
     }
     Ok(())
+}
+
+fn is_filestore(dev_path: &Path) -> BynarResult<bool> {
+    let mount_point = match block_utils::get_mountpoint(&dev_path)? {
+        Some(osd_path) => osd_path,
+        None => {
+            let tmp_dir = TempDir::new("osd")?;
+            let tmp_path = tmp_dir.into_path();
+            let dev_info = block_utils::get_device_info(&dev_path)?;
+            block_utils::mount_device(&dev_info, &tmp_path)?;
+            tmp_path
+        }
+    };
+    debug!("OSD mounted at: {:?}", mount_point);
+    let type_path = mount_point.join("type");
+    if type_path.exists() {
+        let osd_type_contents = read_to_string(&type_path)?;
+        if osd_type_contents.trim() == "filestore" {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
