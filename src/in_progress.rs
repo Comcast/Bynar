@@ -14,9 +14,9 @@ use self::postgres::{
 use self::rusqlite::Connection;
 use self::time::Timespec;
 
-use super::DBConfig;
 use self::helpers::error::*;
 use self::helpers::host_information::Host as MyHost;
+use super::DBConfig;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -27,11 +27,11 @@ use test_disk;
 mod tests {
     extern crate log;
     extern crate tempdir;
-    use ConfigSettings;
     use self::tempdir::TempDir;
     use simplelog::{Config, TermLogger};
     use std::path::Path;
     use std::process::id;
+    use ConfigSettings;
 
     #[test]
     fn test_in_progress() {
@@ -62,7 +62,8 @@ mod tests {
     fn test_update_storage_info() {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
         let config_dir = Path::new("/newDevice/tests/");
-        let config: ConfigSettings = super::helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
+        let config: ConfigSettings =
+            super::helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
         let db_config = config.database;
         let conn: super::pConnection = super::connect_to_database(&db_config).unwrap();
 
@@ -455,8 +456,10 @@ impl OperationDetail {
 
 /// Reads the config file to establish a database connection
 pub fn connect_to_database(db_config: &DBConfig) -> BynarResult<pConnection> {
-    debug!("Establishing a connection to database {} at {}:{} using {}",
-            db_config.dbname, db_config.endpoint, db_config.port, db_config.username);
+    debug!(
+        "Establishing a connection to database {} at {}:{} using {}",
+        db_config.dbname, db_config.endpoint, db_config.port, db_config.username
+    );
     let connection_params = ConnectParams::builder()
         .user(&db_config.username, Some(&db_config.password))
         .port(db_config.port)
@@ -496,7 +499,7 @@ pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> Byn
 fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResult<u32> {
     debug!("Adding daemon details with pid {} to process manager", pid);
     let mut entry_id: u32 = 0;
-     let stmt = format!(
+    let stmt = format!(
         "SELECT entry_id FROM process_manager WHERE
     pid={} AND ip='{}'",
         pid, &ip
@@ -600,17 +603,18 @@ fn update_storage_details(conn: &pConnection, s_info: &MyHost, region_id: u32) -
         } else {
             // TODO: modify when exact storage details are added
 
-            let mut details_query = format!(
-                "INSERT INTO storage_details
-            (storage_id, region_id, hostname");
-            if let Some(_) = s_info.array_name {
+            let mut details_query = "INSERT INTO storage_details
+            (storage_id, region_id, hostname".to_string();
+            if s_info.array_name.is_some() {
                 details_query.push_str(", name_key1");
             }
-            if let Some(_) = s_info.pool_name {
+            if s_info.pool_name.is_some() {
                 details_query.push_str(", name_key2");
             }
-            details_query.push_str(&format!(") VALUES ({}, {}, '{}'", 
-                                    storage_id, region_id, s_info.hostname));
+            details_query.push_str(&format!(
+                ") VALUES ({}, {}, '{}'",
+                storage_id, region_id, s_info.hostname
+            ));
             if let Some(ref array_name) = s_info.array_name {
                 details_query.push_str(&format!(", '{}'", array_name));
             }
