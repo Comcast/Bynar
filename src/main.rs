@@ -120,7 +120,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
     for result in test_disk::check_all_disks(&config_location, &host_info)? {
         match result {
             Ok(state) => {
-                info!("Disk status: {:?}", state);
+                info!("Disk status: /dev/{} {:?}", state.disk.name, state);
                 let mut dev_path = PathBuf::from("/dev");
                 dev_path.push(state.disk.name);
 
