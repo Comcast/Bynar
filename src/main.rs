@@ -32,7 +32,7 @@ use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
-use in_progress::{connect_to_database, update_storage_info};
+use in_progress::{connect_to_database, update_storage_info, disconnect_database};
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
@@ -57,6 +57,16 @@ pub struct ConfigSettings {
     pub jira_project_id: String,
     pub jira_ticket_assignee: String,
     pub proxy: Option<String>,
+    pub database: DBConfig,
+}
+
+#[derive (Clone, Debug, Deserialize)]
+pub struct DBConfig {
+    pub username: String,
+    pub password: String,
+    pub port: u16,
+    pub endpoint: String,
+    pub dbname: String,
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
@@ -100,9 +110,8 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     }
 }
 
-fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> BynarResult<()> {
-    let config: ConfigSettings = helpers::load_config(config_dir, "bynar.json")?;
-    let public_key = get_public_key(&config, &host_info)?;
+fn check_for_failed_disks(config: &ConfigSettings, host_info: &Host, simulate: bool) -> BynarResult<()> {
+    let public_key = get_public_key(config, &host_info)?;
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
@@ -146,7 +155,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
                                     if result {
                                         if config.slack_webhook.is_some() {
                                             let _ = notify_slack(
-                                                &config,
+                                                config,
                                                 &format!(
                                                     "Removing disk: {} on host: {}",
                                                     dev_path.display(),
@@ -169,7 +178,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
                                         };
                                     } else if config.slack_webhook.is_some() {
                                         let _ = notify_slack(
-                                            &config,
+                                            config,
                                             &format!(
                                                 "Need to remove disk {} but it's not safe \
                                                  on host: {}. I need a human.  Filing a ticket",
@@ -197,7 +206,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
                             };
                             debug!("Creating support ticket");
                             let ticket_id = create_support_ticket(
-                                &config,
+                                config,
                                 "Bynar: Dead disk",
                                 &description,
                                 &environment,
@@ -227,8 +236,7 @@ fn check_for_failed_disks(config_dir: &Path, host_info: &Host, simulate: bool) -
     Ok(())
 }
 
-fn add_repaired_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> BynarResult<()> {
-    let config: ConfigSettings = helpers::load_config(config_dir, "bynar.json")?;
+fn add_repaired_disks(config: &ConfigSettings, host_info: &Host, simulate: bool) -> BynarResult<()> {
     let config_location = Path::new(&config.db_location);
     let public_key = get_public_key(&config, &host_info)?;
 
@@ -238,7 +246,7 @@ fn add_repaired_disks(config_dir: &Path, host_info: &Host, simulate: bool) -> By
     let tickets = in_progress::get_outstanding_repair_tickets(&conn)?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
-        match ticket_resolved(&config, &ticket.ticket_id.to_string()) {
+        match ticket_resolved(config, &ticket.ticket_id.to_string()) {
             Ok(resolved) => {
                 if resolved {
                     //CALL RPC
@@ -356,15 +364,20 @@ fn main() {
     }
     let host_info = h_info.expect("Failed to gather host information");
     debug!("Gathered host info: {:?}", host_info);
-
-    let config_file = "/newDevice/tests/dbconfig.json".to_string();
-    match connect_to_database(&config_file) {
+    //TODO: create constant for bynar.json
+    let config = helpers::load_config(config_dir, "bynar.json");
+    if config.is_err() {
+        error!("Failed to load config file {:?}/bynar.json", config_dir);
+        return;
+    }
+    let config: ConfigSettings = config.expect("Failed to load config");
+    match connect_to_database(&config.database) {
         Err(e) => {
             error!("Failed to connect to database {}", e);
         }
         Ok(conn) => {
             // successfully connected to DB to track operations, update information
-            // TODO: When merged with sqllite3, program stops is connect_to_database() fails
+            // TODO: When merged with sqllite3, program stops if connect_to_database() fails
             let pid = id();
             match update_storage_info(&host_info, pid, &conn) {
                 Err(e) => {
@@ -374,10 +387,11 @@ fn main() {
                     info!("Host information added to database");
                 }
             }
+            let _ = disconnect_database(conn);
         }
     }
 
-    match check_for_failed_disks(config_dir, &host_info, simulate) {
+    match check_for_failed_disks(&config, &host_info, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
@@ -385,7 +399,7 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    match add_repaired_disks(config_dir, &host_info, simulate) {
+    match add_repaired_disks(&config, &host_info, simulate) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
         }

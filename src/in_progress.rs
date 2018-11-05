@@ -14,10 +14,10 @@ use self::postgres::{
 use self::rusqlite::Connection;
 use self::time::Timespec;
 
+use super::DBConfig;
 use self::helpers::error::*;
 use self::helpers::host_information::Host as MyHost;
 use std::fmt::{Display, Formatter, Result as fResult};
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -27,7 +27,7 @@ use test_disk;
 mod tests {
     extern crate log;
     extern crate tempdir;
-
+    use ConfigSettings;
     use self::tempdir::TempDir;
     use simplelog::{Config, TermLogger};
     use std::path::Path;
@@ -61,8 +61,10 @@ mod tests {
     #[test]
     fn test_update_storage_info() {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
-        let config_file = "/newDevice/tests/dbconfig.json".to_string();
-        let conn: super::pConnection = super::connect_to_database(&config_file).unwrap();
+        let config_dir = Path::new("/newDevice/tests/");
+        let config: ConfigSettings = super::helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
+        let db_config = config.database;
+        let conn: super::pConnection = super::connect_to_database(&db_config).unwrap();
 
         let pid = id();
         let info = super::MyHost::new().unwrap();
@@ -75,7 +77,7 @@ mod tests {
         assert!(result);
 
         // close database connection
-        super::disconnect_database(conn).unwrap();
+        super::disconnect_database(conn).expect("failed to close DB connection");
     }
 
 }
@@ -452,9 +454,14 @@ impl OperationDetail {
 }
 
 /// Reads the config file to establish a database connection
-pub fn connect_to_database(config: &str) -> BynarResult<pConnection> {
-    debug!("Establishing a database connection");
-    let connection_params = read_db_config(&config)?;
+pub fn connect_to_database(db_config: &DBConfig) -> BynarResult<pConnection> {
+    debug!("Establishing a connection to database {} at {}:{} using {}",
+            db_config.dbname, db_config.endpoint, db_config.port, db_config.username);
+    let connection_params = ConnectParams::builder()
+        .user(&db_config.username, Some(&db_config.password))
+        .port(db_config.port)
+        .database(&db_config.dbname)
+        .build(Host::Tcp(db_config.endpoint.to_string()));
     let conn = pConnection::connect(connection_params, TlsMode::None)?;
     Ok(conn)
 }
@@ -485,41 +492,17 @@ pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> Byn
     Ok(true)
 }
 
-fn read_db_config(config_file: &str) -> ::std::io::Result<ConnectParams> {
-    let config_file_fd = File::open(&config_file)?;
-    let config: super::serde_json::Value = super::serde_json::from_reader(config_file_fd)?;
-
-    let mut connection_string = "postgresql://".to_string();
-    let username = config["username"].as_str().expect("User name is missing");
-    let password = config["password"]
-        .as_str()
-        .expect("database password is missing");
-    let dbname = config["database"]
-        .as_str()
-        .expect("database name is missing");
-    let port = config["port"].as_u64().expect("port number is missing") as u16;
-    let endpoint = config["endpoint"].as_str().expect("port number is missing");
-
-    let connection_params = ConnectParams::builder()
-        .user(username, Some(password))
-        .port(port)
-        .database(dbname)
-        .build(Host::Tcp(endpoint.to_string()));
-
-    Ok(connection_params)
-}
-
 /// responsible to store the pid, ip of the system on which bynar is running
 fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResult<u32> {
     debug!("Adding daemon details with pid {} to process manager", pid);
     let mut entry_id: u32 = 0;
-    let stmt = format!(
+     let stmt = format!(
         "SELECT entry_id FROM process_manager WHERE
     pid={} AND ip='{}'",
         pid, &ip
     );
     let stmt_query = conn.query(&stmt, &[])?;
-    if let Some(r) = stmt_query.into_iter().next() {
+    if let Some(_r) = stmt_query.into_iter().next() {
         // entry exists for this ip with this pid. Update status
         let update_stmt = format!(
             "UPDATE process_manager SET status='idle'
@@ -537,9 +520,6 @@ fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResul
             let e: i32 = r.get("entry_id");
             entry_id = e as u32;
         }
-    //if let Some(r) = select_stmt_query.into_iter().next() {
-    //  entry_id = r.get("entry_id");
-    // }
     } else {
         // does not exist, insert
         let insert_stmt = format!(
@@ -619,12 +599,26 @@ fn update_storage_details(conn: &pConnection, s_info: &MyHost, region_id: u32) -
             storage_detail_id = sdi as u32;
         } else {
             // TODO: modify when exact storage details are added
-            let details_query = format!(
+
+            let mut details_query = format!(
                 "INSERT INTO storage_details
-            (storage_id, region_id, hostname, name_key1, name_key2) 
-            VALUES ({}, {}, '{}', '{:?}', '{:?}') RETURNING detail_id",
-                storage_id, region_id, s_info.hostname, s_info.array_name, s_info.pool_name
-            );
+            (storage_id, region_id, hostname");
+            if let Some(_) = s_info.array_name {
+                details_query.push_str(", name_key1");
+            }
+            if let Some(_) = s_info.pool_name {
+                details_query.push_str(", name_key2");
+            }
+            details_query.push_str(&format!(") VALUES ({}, {}, '{}'", 
+                                    storage_id, region_id, s_info.hostname));
+            if let Some(ref array_name) = s_info.array_name {
+                details_query.push_str(&format!(", '{}'", array_name));
+            }
+            if let Some(ref pool_name) = s_info.pool_name {
+                details_query.push_str(&format!(", '{}'", pool_name));
+            }
+            details_query.push_str(") RETURNING detail_id");
+
             let dqr = conn.query(&details_query, &[])?;
             if let Some(res) = dqr.into_iter().next() {
                 let sdi: i32 = res.get("detail_id");
@@ -785,7 +779,7 @@ pub fn add_or_update_operation_detail(
                                 op_name={}",
                 operation_detail.op_type
             );
-            let stmt_query = conn.query(&stmt, &[])?;
+            let stmt_query = conn.query(&stmt2, &[])?;
             if let Some(result) = stmt_query.into_iter().next() {
                 type_id = result.get("type_id")
             }
