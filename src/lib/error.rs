@@ -231,6 +231,12 @@ impl From<SqliteError> for BynarError {
     }
 }
 
+impl<'a> From<&'a str> for BynarError {
+    fn from(err: &str) -> BynarError {
+        BynarError::new(err.to_string())
+    }
+}
+
 impl From<String> for BynarError {
     fn from(err: String) -> BynarError {
         BynarError::new(err)

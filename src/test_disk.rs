@@ -232,14 +232,13 @@ mod tests {
 
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
         super::check_writable
-            .mock_safe(|_| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
+            .mock_safe(|_| MockResult::Return(Err(BynarError::from("Mock Error"))));
         super::check_filesystem.mock_safe(|_, _| MockResult::Return(Ok(super::Fsck::Corrupt)));
         super::repair_filesystem
-            .mock_safe(|_, _| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
+            .mock_safe(|_, _| MockResult::Return(Err(BynarError::from("Mock Error"))));
 
         // TODO: Can't mock outside dependencies.  Need a wrapper function or something
-        super::format_device
-            .mock_safe(|_| MockResult::Return(Err(BynarError::new("error".to_string()))));
+        super::format_device.mock_safe(|_| MockResult::Return(Err(BynarError::from("error"))));
         // That should leave the disk in WaitingForReplacement
 
         let dev = create_loop_device();
@@ -1324,7 +1323,7 @@ fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRes
         FilesystemType::Ext4 => check_ext(device),
         FilesystemType::Lvm => check_lvm(device),
         FilesystemType::Xfs => check_xfs(device),
-        _ => Err(BynarError::new("Unknown filesystem detected".to_string())),
+        _ => Err(BynarError::from("Unknown filesystem detected")),
     }
 }
 
@@ -1347,7 +1346,7 @@ fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRe
             repair_xfs(device)?;
             Ok(())
         }
-        _ => Err(BynarError::new("Unknown filesystem detected".to_string())),
+        _ => Err(BynarError::from("Unknown filesystem detected")),
     }
 }
 
@@ -1418,9 +1417,7 @@ fn check_xfs(device: &Path) -> BynarResult<Fsck> {
             ))),
         },
         //Process terminated by signal
-        None => Err(BynarError::new(
-            "xfs_repair terminated by signal".to_string(),
-        )),
+        None => Err(BynarError::from("xfs_repair terminated by signal")),
     }
 }
 
@@ -1430,10 +1427,10 @@ fn repair_xfs(device: &Path) -> BynarResult<()> {
     match status.code() {
         Some(code) => match code {
             0 => Ok(()),
-            _ => Err(BynarError::new("xfs_repair failed".to_string())),
+            _ => Err(BynarError::from("xfs_repair failed")),
         },
         //Process terminated by signal
-        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
+        None => Err(BynarError::from("e2fsck terminated by signal")),
     }
 }
 
@@ -1459,7 +1456,7 @@ fn check_ext(device: &Path) -> BynarResult<Fsck> {
             }
         }
         //Process terminated by signal
-        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
+        None => Err(BynarError::from("e2fsck terminated by signal")),
     }
 }
 
@@ -1487,7 +1484,7 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
             }
         }
         //Process terminated by signal
-        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
+        None => Err(BynarError::from("e2fsck terminated by signal")),
     }
 }
 

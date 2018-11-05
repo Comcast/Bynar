@@ -12,7 +12,7 @@ use error::{BynarError, BynarResult};
 
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::{read_to_string, File};
-use std::io::{BufRead, BufReader, Error, ErrorKind};
+use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
@@ -38,8 +38,7 @@ impl Host {
         debug!("Loading host information");
         let uname_info = uname()?;
         debug!("{:#?}", uname_info);
-        let hostname =
-            get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
+        let hostname = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
         debug!("{:#?}", hostname);
         let ip = get_ip()?;
         let region = get_region_from_hostname(&hostname)?;
@@ -102,7 +101,7 @@ fn get_default_iface() -> BynarResult<String> {
         }
     }
 
-    Err(BynarError::new("No default interface found".to_string()))
+    Err(BynarError::from("No default interface found"))
 }
 
 /// Find the IP on default interface
@@ -110,11 +109,11 @@ fn get_ip() -> BynarResult<IpAddr> {
     let mut all_interfaces = datalink::interfaces();
     let default_iface = get_default_iface()?;
     if all_interfaces.is_empty() {
-        Err(BynarError::new("No network interface found".to_string()))
+        Err(BynarError::from("No network interface found"))
     } else {
         all_interfaces.retain(|iface: &NetworkInterface| iface.name == default_iface);
         if all_interfaces.is_empty() {
-            Err(BynarError::new("No network interface found".to_string()))
+            Err(BynarError::from("No network interface found"))
         } else {
             if all_interfaces.len() > 1 {
                 debug!("More than one default network interface found");
@@ -133,12 +132,10 @@ fn get_ip() -> BynarResult<IpAddr> {
                     if found {
                         Ok(my_ip)
                     } else {
-                        Err(BynarError::new("IPv4 Address not found".to_string()))
+                        Err(BynarError::from("IPv4 Address not found"))
                     }
                 }
-                None => Err(BynarError::new(
-                    "Default network interface does not exist".to_string(),
-                )),
+                None => Err(BynarError::from("Default network interface does not exist")),
             }
         }
     }
@@ -180,8 +177,8 @@ fn server_type() -> BynarResult<String> {
         let buff = read_to_string(path)?;
         return Ok(buff.trim().into());
     }
-    Err(BynarError::new(
-        "/sys/class/dmi/id/product_name does not exist".to_string(),
+    Err(BynarError::from(
+        "/sys/class/dmi/id/product_name does not exist",
     ))
 }
 
@@ -227,9 +224,7 @@ fn server_serial() -> BynarResult<String> {
     */
     // /sys/firmware/efi/systab
     // /proc/efi/systab
-    Err(BynarError::new(
-        "Unable to discover system serial".to_string(),
-    ))
+    Err(BynarError::from("Unable to discover system serial"))
 }
 
 //TODO: smp-utils has a lot of use information about how to interface with sas enclosures

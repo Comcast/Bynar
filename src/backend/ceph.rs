@@ -150,8 +150,8 @@ impl CephBackend {
         activate_file.write_all(&activate_monmap)?;
 
         debug!("Looking up ceph user id");
-        let ceph_user = Passwd::from_name("ceph")?
-            .ok_or_else(|| BynarError::new("ceph user id not found".to_string()))?;
+        let ceph_user =
+            Passwd::from_name("ceph")?.ok_or_else(|| BynarError::from("ceph user id not found"))?;
         self.change_permissions(
             &[&backer_device, &activate_path, &mount_point, &fsid_path],
             &ceph_user,
@@ -740,8 +740,8 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> BynarResult<()> {
             }
             Ok(())
         }
-        Daemon::Unknown => Err(BynarError::new(
-            "Unknown init system.  Cannot start osd service".to_string(),
+        Daemon::Unknown => Err(BynarError::from(
+            "Unknown init system.  Cannot start osd service",
         )),
     }
 }

@@ -75,7 +75,7 @@ mod tests {
         assert!(result);
 
         // close database connection
-        super::disconnect_database(conn);
+        super::disconnect_database(conn).unwrap();
     }
 
 }
