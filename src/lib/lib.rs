@@ -9,8 +9,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate zmq;
 
-use std::fs::File;
-use std::io::Read;
+use std::fs::read_to_string;
 use std::path::Path;
 
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
@@ -32,9 +31,7 @@ where
     if !p.exists() {
         error!("{} config file does not exist", p.display());
     }
-    let mut f = File::open(p)?;
-    let mut s = String::new();
-    f.read_to_string(&mut s)?;
+    let s = read_to_string(p)?;
     let deserialized: T = serde_json::from_str(&s)?;
     Ok(deserialized)
 }
