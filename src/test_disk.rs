@@ -18,6 +18,7 @@ extern crate lvm;
 #[cfg(test)]
 extern crate mocktopus;
 extern crate petgraph;
+extern crate postgres;
 extern crate rayon;
 extern crate rusqlite;
 extern crate tempdir;
@@ -30,7 +31,7 @@ use self::block_utils::{
     format_block_device, get_device_info, get_mountpoint, mount_device, unmount_device, Device,
     DeviceState, Filesystem, FilesystemType, MediaType, ScsiDeviceType, ScsiInfo, Vendor,
 };
-use self::gpt::{disk, header::read_header, partition::read_partitions};
+use self::gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
 use self::helpers::{error::*, host_information::Host};
 use self::in_progress::*;
 use self::lvm::*;
@@ -38,10 +39,11 @@ use self::lvm::*;
 use self::mocktopus::macros::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
+use self::postgres::Connection;
 use self::rayon::prelude::*;
-use self::rusqlite::Connection;
 use self::tempdir::TempDir;
 use self::uuid::Uuid;
+use super::DBConfig;
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -51,6 +53,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::str::FromStr;
+
+#[derive(Clone, Debug)]
+struct BlockDevice {
+    device: Device,
+    // None means disk is not in the database
+    device_database_id: Option<u32>,
+    mount_point: Option<PathBuf>,
+    partitions: Vec<Partition>,
+    scsi_info: ScsiInfo,
+    state: State,
+    storage_detail_id: u32,
+}
 
 #[cfg(test)]
 mod tests {
@@ -151,7 +165,7 @@ mod tests {
         let db_path = sql_dir.path().join("base.sqlite3");
         //cleanup old
         let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
+        let conn = super::connect_to_database(&db_path).unwrap();
 
         let d = super::Device {
             id: Some(drive_id),
@@ -204,7 +218,7 @@ mod tests {
         let db_path = sql_dir.path().join("bad_fs.sqlite3");
         //cleanup old
         let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
+        let conn = super::connect_to_database(&db_path).unwrap();
         let d = super::Device {
             id: Some(drive_id),
             name: dev.file_name().unwrap().to_str().unwrap().to_string(),
@@ -253,7 +267,7 @@ mod tests {
         let db_path = sql_dir.path().join("replace_disk.sqlite3");
         //cleanup old
         let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
+        let conn = super::connect_to_database(&db_path).unwrap();
 
         let d = super::Device {
             id: Some(drive_id),
@@ -292,7 +306,7 @@ mod tests {
         let db_path = sql_dir.path().join("replaced_disk.sqlite3");
         //cleanup old
         let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
+        let conn = super::connect_to_database(&db_path).unwrap();
 
         // Set the previous state to something other than Unscanned
         in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
@@ -462,6 +476,7 @@ impl Transition for Eval {
             };
         }
 
+        //NOTE: We can skip this after we fill out the BlockDevice struct
         let mnt_dir: TempDir;
         if !is_device_mounted(&dev_path) {
             debug!(
@@ -890,7 +905,10 @@ impl StateMachine {
                 );
                 if state == State::Fail {
                     // Try the next transition if there is one
-                    debug!("thread {} Fail. Trying next transition", process::id());
+                    debug!(
+                        "thread {} Transition failed. Trying next transition",
+                        process::id()
+                    );
                     continue;
                 }
                 if state == State::WaitingForReplacement {
@@ -900,12 +918,18 @@ impl StateMachine {
                         process::id()
                     );
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    let mut od = OperationDetail::new(0, OperationType::WaitForReplacement);
+                    od.set_operation_status(OperationStatus::Pending);
+                    add_or_update_operation_detail(&self.db_conn, &mut od)
+                        .expect("add_or_update_operation_detail failed");
                     break 'outer;
                 } else if state == State::Good {
                     debug!("thread {} state==State::Good", process::id());
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    let mut od = OperationDetail::new(0, OperationType::Evaluation);
+                    od.set_operation_status(OperationStatus::Complete);
+                    add_or_update_operation_detail(&self.db_conn, &mut od)
+                        .expect("add_or_update_operation_detail failed");
                     break 'outer;
                 }
                 // transition succeeded.  Save state and go around the loop again
@@ -913,7 +937,9 @@ impl StateMachine {
                 if state == e.1 {
                     debug!("thread {} state==e.1 {}=={}", process::id(), state, e.1);
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    let mut od = OperationDetail::new(0, OperationType::WaitForReplacement);
+                    add_or_update_operation_detail(&self.db_conn, &mut od)
+                        .expect("add_or_update_operation_detail failed");
                     break;
                 }
             }
@@ -928,7 +954,10 @@ impl StateMachine {
                     self.state,
                     beginning_state
                 );
-                save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                let mut od = OperationDetail::new(0, OperationType::Evaluation);
+                od.set_operation_status(OperationStatus::InProgress);
+                add_or_update_operation_detail(&self.db_conn, &mut od)
+                    .expect("add_or_update_operation_detail failed");
                 break 'outer;
             }
         }
@@ -1197,42 +1226,58 @@ enum Fsck {
     Corrupt,
 }
 
-fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<Device>> {
+fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
     // Gather info on all devices and skip Loopback devices
-    let device_info = block_utils::get_all_device_info(&devices)?
+    let devices = block_utils::get_all_device_info(&devices)?;
+    let block_devices: Vec<BlockDevice> = devices
         .into_iter()
-        // Get rid of loopback devices
-        .filter(|d| !(d.media_type == MediaType::Loopback))
-        // Get rid of lvm devices
-        .filter(|d| !(d.media_type == MediaType::LVM))
-        // Get rid of cd/dvd rom devices
-        .filter(|d| !(d.name.starts_with("sr")))
-        // Get rid of ram devices
-        .filter(|d| !(d.media_type == MediaType::Ram))
-        // Get rid of root disk
-        .filter(|d| {
+        .map(|d| {
             let dev_path = Path::new("/dev").join(&d.name);
             debug!("inspecting disk: {}", dev_path.display());
-            let disk_header = match read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE) {
-                Ok(h) => h,
-                Err(e) => {
-                    warn!("Unable to read disk header: {}", e);
-                    // Keep the disk
-                    return true;
-                }
-            };
+            let mount_point: Option<PathBuf>;
             let partitions =
-                match read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        warn!("Unable to read disk partitions: {}", e);
-                        // Keep the disk
-                        return true;
-                    }
+                if let Ok(disk_header) = read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE) {
+                    read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE)
+                        .unwrap_or_else(|_| vec![])
+                } else {
+                    vec![]
                 };
-            for p in partitions.iter().enumerate() {
-                let partition_path =
-                    Path::new("/dev").join(format!("{name}{num}", name = d.name, num = p.0 + 1));
+            if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
+                if let Some(mount) = mount_res {
+                    debug!("device mount: {}", mount.display());
+                    mount_point = Some(mount);
+                }
+            }
+
+            BlockDevice {
+                device: d.clone(),
+                // None means disk is not in the database
+                device_database_id: None,
+                mount_point,
+                partitions,
+                scsi_info: ScsiInfo::default(),
+                state: State::Unscanned,
+                storage_detail_id: 0,
+            }
+        }).collect();
+    let filtered_devices: Vec<BlockDevice> = block_devices
+        .into_iter()
+        // Get rid of loopback devices
+        .filter(|b| !(b.device.media_type == MediaType::Loopback))
+        // Get rid of lvm devices
+        .filter(|b| !(b.device.media_type == MediaType::LVM))
+        // Get rid of cd/dvd rom devices
+        .filter(|b| !(b.device.name.starts_with("sr")))
+        // Get rid of ram devices
+        .filter(|b| !(b.device.media_type == MediaType::Ram))
+        // Get rid of root disk
+        .filter(|b| {
+            for p in b.partitions.iter().enumerate() {
+                let partition_path = Path::new("/dev").join(format!(
+                    "{name}{num}",
+                    name = b.device.name,
+                    num = p.0 + 1
+                ));
                 debug!("partition_path: {}", partition_path.display());
                 if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path) {
                     if let Some(mount) = mount_res {
@@ -1247,10 +1292,13 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<Device>> {
             }
             true
         }).collect();
-    Ok(device_info)
+    Ok(block_devices)
 }
 
-pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResult<StateMachine>>> {
+pub fn check_all_disks(
+    db: &DBConfig,
+    host_info: &Host,
+) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
@@ -1297,7 +1345,7 @@ pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResu
                 }).and_then(|r| Some(r.clone()));
             debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
             debug!("thread {} device: {:?}", process::id(), device);
-            let conn = connect_to_repair_database(db)?;
+            let conn = connect_to_database(db)?;
             let mut s = StateMachine::new(device, scsi_info, conn, false);
             s.setup_state_machine();
             s.restore_state()?;
@@ -1306,7 +1354,7 @@ pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResu
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");
                 let disk_path = Path::new("/dev").join(&s.disk.name);
-                let conn = connect_to_repair_database(db)?;
+                let conn = connect_to_database(db)?;
                 let in_progress = is_disk_in_progress(&conn, &disk_path)?;
             }
             Ok(s)
