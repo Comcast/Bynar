@@ -133,13 +133,13 @@ fn check_for_failed_disks(
     for result in test_disk::check_all_disks(&config_location, &host_info)? {
         match result {
             Ok(state) => {
-                info!("Disk status: /dev/{} {:?}", state.disk.name, state);
+                info!("Disk status: /dev/{} {:?}", state.disk.device.name, state);
                 let mut dev_path = PathBuf::from("/dev");
-                dev_path.push(state.disk.name);
+                dev_path.push(state.disk.device.name);
 
                 if state.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = state.disk.serial_number {
+                    if let Some(serial) = state.disk.device.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
