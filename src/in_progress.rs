@@ -6,22 +6,21 @@ extern crate postgres_shared;
 extern crate rusqlite;
 extern crate time;
 
+use test_disk;
+
 use self::chrono::offset::Utc;
 use self::chrono::DateTime;
+use self::helpers::{error::*, host_information::Host as MyHost};
 use self::postgres::{
     params::ConnectParams, params::Host, Connection as pConnection, Result as pResult, TlsMode,
 };
 use self::rusqlite::Connection;
+use self::test_disk::{BlockDevice, State};
 use self::time::Timespec;
-
-use self::helpers::error::*;
-use self::helpers::host_information::Host as MyHost;
 use super::DBConfig;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-use test_disk;
 
 #[cfg(test)]
 mod tests {
@@ -182,7 +181,7 @@ pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> BynarResult<Pat
     })?;
     Ok(mount_path)
 }
-
+/*
 pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> BynarResult<bool> {
     debug!("Searching smart results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT smart_passed FROM repairs where disk_path=?")?;
@@ -211,7 +210,7 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> BynarResult<Option<test_
 
     Ok(None)
 }
-
+*/
 pub fn save_mount_location(
     conn: &Connection,
     dev_path: &Path,
@@ -246,6 +245,7 @@ pub fn save_mount_location(
     Ok(())
 }
 
+/*
 pub fn save_smart_results(
     conn: &Connection,
     dev_path: &Path,
@@ -271,7 +271,6 @@ pub fn save_smart_results(
 
     Ok(())
 }
-
 pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -> BynarResult<()> {
     debug!("Saving state for {}: {}", dev_path.display(), state);
 
@@ -292,7 +291,7 @@ pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -
     }
     Ok(())
 }
-
+*/
 #[derive(Debug)]
 pub struct DiskInfo {
     pub disk_id: u32,
@@ -604,7 +603,8 @@ fn update_storage_details(conn: &pConnection, s_info: &MyHost, region_id: u32) -
             // TODO: modify when exact storage details are added
 
             let mut details_query = "INSERT INTO storage_details
-            (storage_id, region_id, hostname".to_string();
+            (storage_id, region_id, hostname"
+                .to_string();
             if s_info.array_name.is_some() {
                 details_query.push_str(", name_key1");
             }
@@ -855,5 +855,152 @@ pub fn add_or_update_operation_detail(
         }
     } else {
         Ok(true)
+    }
+}
+
+pub fn save_state(
+    conn: &pConnection,
+    device_detail: &BlockDevice,
+    state: State,
+) -> BynarResult<()> {
+    debug!(
+        "Saving state as {} for device {}",
+        state, device_detail.device.name
+    );
+
+    if let Some(dev_id) = device_detail.device_database_id {
+        // Device is in database, update the state. Start a transaction to roll back if needed.
+        // transaction rolls back by default.
+        let transaction = conn.transaction()?;
+        let stmt = format!(
+            "UPDATE disks SET state = {} WHERE disk_id={}",
+            state, dev_id
+        );
+        let stmt_query = transaction.execute(&stmt, &[])?;
+        info!(
+            "Updated {} rows in database with state information",
+            stmt_query
+        );
+        if stmt_query != 1 {
+            // Only one device should  be updated. Rollback
+            transaction.set_rollback();
+            transaction.finish();
+            Err(BynarError::new(
+                "Attempt to update more than one device in database. Rolling back.".to_string(),
+            ))
+        } else {
+            transaction.set_commit();
+            transaction.finish();
+            Ok(())
+        }
+    } else {
+        // device is not in database. It should have been.
+        Err(BynarError::new(format!(
+            "Device {} for storage detail with id {} is not in database",
+            device_detail.device.name, device_detail.storage_detail_id
+        )))
+    }
+}
+
+pub fn save_smart_result(
+    conn: &pConnection,
+    device_detail: &BlockDevice,
+    smart_passed: bool,
+) -> BynarResult<()> {
+    debug!(
+        "Saving smart check result as {} for device {}",
+        smart_passed, device_detail.device.name
+    );
+
+    if let Some(dev_id) = device_detail.device_database_id {
+        // Device is in database, update smart_passed. Start a transaction to roll back if needed.
+        // transaction rolls back by default.
+        let transaction = conn.transaction()?;
+        let stmt = format!(
+            "UPDATE disks SET smart_passed = {} WHERE disk_id={}",
+            smart_passed, dev_id
+        );
+        let stmt_query = transaction.execute(&stmt, &[])?;
+        info!(
+            "Updated {} rows in database with smart check result",
+            stmt_query
+        );
+        if stmt_query != 1 {
+            // Only one device should  be updated. Rollback
+            transaction.set_rollback();
+            transaction.finish();
+            Err(BynarError::new(
+                "Attempt to update more than one device in database. Rolling back.".to_string(),
+            ))
+        } else {
+            transaction.set_commit();
+            transaction.finish();
+            Ok(())
+        }
+    } else {
+        // device is not in database. It should have been.
+        Err(BynarError::new(format!(
+            "Device {} for storage detail with id {} is not in database",
+            device_detail.device.name, device_detail.storage_detail_id
+        )))
+    }
+}
+
+/// Returns the state information from the database.
+/// Returns error if no record of device is found in the database.
+/// Returns the default state if state was not previously saved.
+pub fn get_state(conn: &pConnection, device_detail: &BlockDevice) -> BynarResult<State> {
+    debug!(
+        "Retrieving state for device {} with storage detail id {} from DB",
+        device_detail.device.name, device_detail.storage_detail_id
+    );
+    if let Some(dev_id) = device_detail.device_database_id {
+        let stmt = format!("SELECT state FROM devices WHERE device_id = {}", dev_id);
+        let stmt_query = conn.query(&stmt, &[])?;
+        if stmt_query.len() != 1 || stmt_query.is_empty() {
+            Ok(State::Unscanned)
+        } else {
+            let row = stmt_query.get(0);
+            let retrieved_state: String = row.get("state");
+            Ok(State::from_str(&retrieved_state).unwrap_or(State::Unscanned))
+        }
+    } else {
+        // No entry of this device in database table. Cannot get state information
+        Err(BynarError::new(format!(
+            "Device {} for storage detail {} is not in DB",
+            device_detail.device.name, device_detail.storage_detail_id
+        )))
+    }
+}
+
+/// Returns whether smart checks have passed information from the database.
+/// Returns error if no record of device is found in the database.
+/// Returns false if not previously saved.
+pub fn get_smart_result(conn: &pConnection, device_detail: &BlockDevice) -> BynarResult<bool> {
+    debug!(
+        "Retrieving smart check result for device {} with storage detail id {} from DB",
+        device_detail.device.name, device_detail.storage_detail_id
+    );
+    if let Some(dev_id) = device_detail.device_database_id {
+        let stmt = format!(
+            "SELECT smart_passed FROM devices WHERE device_id = {}",
+            dev_id
+        );
+        let stmt_query = conn.query(&stmt, &[])?;
+        if stmt_query.len() != 1 || stmt_query.is_empty() {
+            // Query didn't return anything. Assume smart checks have not been done/passed
+            Ok(false)
+        } else {
+            // got something from the database
+            let row = stmt_query.get(0);
+            let smart_passed = row.get("smart_passed");
+            Ok(smart_passed)
+        }
+    } else {
+        // No entry of this device in database table. Cannot get smart_cheks info
+        Err(BynarError::new(format!(
+            "Device {} for storage detail {} is not in DB",
+            device_detail.device.name, device_detail.storage_detail_id
+        )))
     }
 }

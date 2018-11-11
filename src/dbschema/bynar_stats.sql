@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS process_manager (
         pid INTEGER NOT NULL, -- pid of daemon
         ip VARCHAR NOT NULL, -- ip where daemon is running
         status VARCHAR(20), -- status of the daemon
-        start_time TIMESTAMPTZ NOT NULL DEFAULT now(),-- epoch when it started
+        start_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,-- epoch when it started
         PRIMARY KEY (ip,pid)
         );
 
@@ -35,14 +35,16 @@ CREATE TABLE IF NOT EXISTS storage_details (
     PRIMARY KEY (region_id, storage_id, hostname) 
     );
 
-CREATE TABLE IF NOT EXISTS disks (
-    disk_id SERIAL NOT NULL UNIQUE,
-    disk_uuid VARCHAR,
+CREATE TABLE IF NOT EXISTS devices (
+    device_id SERIAL NOT NULL UNIQUE,
+    device_uuid VARCHAR,
     detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
-    disk_name VARCHAR,
-    disk_path VARCHAR NOT NULL,
-    mount_path VARCHAR NOT NULL,
-    UNIQUE (disk_path, detail_id)
+    device_name VARCHAR NOT NULL,
+    device_path VARCHAR NOT NULL,
+    mount_path VARCHAR, -- can be null if device not mounted
+    state VARCHAR, -- refers to device state in the state machine
+    smart_passed boolean, -- refers to whether smart checks passed
+    UNIQUE (device_path, detail_id)
     );
 
 CREATE TABLE IF NOT EXISTS operation_types (
@@ -65,7 +67,7 @@ CREATE TABLE IF NOT EXISTS operations (
     operation_id SERIAL NOT NULL UNIQUE,
     region_id INTEGER REFERENCES regions(region_id) ON DELETE CASCADE,
     storage_detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
-    disk_id INTEGER REFERENCES disks(disk_id) ON DELETE CASCADE,
+    device_id INTEGER REFERENCES devices(device_id) ON DELETE CASCADE,
     entry_id INTEGER REFERENCES process_manager(entry_id), -- do not delete cascade
     -- this record is still needed after bynar stops running on a system
     start_time TIMESTAMPTZ NOT NULL,-- when operation started
@@ -75,6 +77,8 @@ CREATE TABLE IF NOT EXISTS operations (
     reason VARCHAR
     );
 
+-- Captures the detail of each sub operation for an operation on a device
+-- (tracked by operations table above.)
 CREATE TABLE IF NOT EXISTS operation_details (
     operation_detail_id SERIAL NOT NULL UNIQUE,
     operation_id INTEGER REFERENCES operations(operation_id) ON DELETE CASCADE,

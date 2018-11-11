@@ -18,6 +18,7 @@ extern crate lvm;
 #[cfg(test)]
 extern crate mocktopus;
 extern crate petgraph;
+extern crate postgres;
 extern crate rayon;
 extern crate rusqlite;
 extern crate tempdir;
@@ -38,11 +39,11 @@ use self::lvm::*;
 use self::mocktopus::macros::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
-use self::rusqlite::Connection;
+use self::postgres::Connection as pConnection;
+//use self::rusqlite::Connection;
 use self::rayon::prelude::*;
 use self::tempdir::TempDir;
 use self::uuid::Uuid;
-
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
@@ -173,11 +174,13 @@ mod tests {
             fs_type: super::FilesystemType::Xfs,
             serial_number: Some("123456".into()),
         };
-        let mut s = super::StateMachine::new(d, None, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
+        // TODO [SD]: fix this
         s.restore_state().unwrap();
         s.run();
+        // TODO [SD]: save_state();
         println!("final state: {}", s.state);
 
         cleanup_loop_device(&dev);
@@ -225,7 +228,7 @@ mod tests {
             fs_type: super::FilesystemType::Xfs,
             serial_number: Some("123456".into()),
         };
-        let mut s = super::StateMachine::new(d, None, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.restore_state().unwrap();
@@ -275,7 +278,7 @@ mod tests {
             fs_type: super::FilesystemType::Xfs,
             serial_number: Some("123456".into()),
         };
-        let mut s = super::StateMachine::new(d, None, conn, false);
+        let mut s = super::StateMachine::new(d, None, false);
         s.setup_state_machine();
         s.print_graph();
         s.restore_state().unwrap();
@@ -318,7 +321,7 @@ mod tests {
             serial_number: Some("123456".into()),
         };
 
-        let mut s = super::StateMachine::new(d, None, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.restore_state().unwrap();
@@ -335,7 +338,7 @@ trait Transition {
         to_state: &State,
         device: &mut BlockDevice,
         scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        db_conn: &Connection,
+        db_conn: &pConnection,
         simulate: bool, // Pretend to transition and skip any side effects
     ) -> State;
 }
@@ -346,7 +349,7 @@ impl Transition for AttemptRepair {
         to_state: &State,
         device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         simulate: bool,
     ) -> State {
         debug!("thread {} running AttemptRepair transition", process::id());
@@ -371,7 +374,7 @@ impl Transition for CheckForCorruption {
         to_state: &State,
         device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         simulate: bool,
     ) -> State {
         debug!(
@@ -403,9 +406,9 @@ impl Transition for CheckForCorruption {
 impl Transition for CheckReadOnly {
     fn transition(
         _to_state: &State,
-        device:&mut BlockDevice,
+        device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running CheckReadOnly transition", process::id());
@@ -421,7 +424,7 @@ impl Transition for CheckWearLeveling {
         to_state: &State,
         _device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!(
@@ -440,7 +443,7 @@ impl Transition for Eval {
         to_state: &State,
         device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        db_conn: &Connection,
+        db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running Eval transition", process::id());
@@ -557,7 +560,7 @@ impl Transition for MarkForReplacement {
         to_state: &State,
         device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        db_conn: &Connection,
+        db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!(
@@ -588,7 +591,7 @@ impl Transition for Mount {
         to_state: &State,
         device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running mount transition", process::id());
@@ -621,7 +624,7 @@ impl Transition for NoOp {
         to_state: &State,
         _device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running NoOp transition", process::id());
@@ -635,7 +638,7 @@ impl Transition for Reformat {
         to_state: &State,
         device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running Reformat transition", process::id());
@@ -686,7 +689,7 @@ impl Transition for Remount {
         to_state: &State,
         _device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running Remount transition", process::id());
@@ -714,7 +717,7 @@ impl Transition for Replace {
         to_state: &State,
         _device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        _db_conn: &Connection,
+        _db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running Replace transition", process::id());
@@ -730,7 +733,7 @@ impl Transition for Scan {
         to_state: &State,
         device: &mut BlockDevice,
         scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-        db_conn: &Connection,
+        db_conn: &pConnection,
         _simulate: bool,
     ) -> State {
         debug!("thread {} running Scan transition", process::id());
@@ -765,7 +768,7 @@ impl Transition for Scan {
             let dev_path = Path::new("/dev").join(&device.device.name);
             // Run a smart check on the base device without partition
             match run_smart_checks(&Path::new(&dev_path)) {
-                Ok(_) => match save_smart_results(&db_conn, &Path::new(&dev_path), true) {
+                Ok(_) => match save_smart_result(&db_conn, &device, true) {
                     Ok(_) => *to_state,
                     Err(e) => {
                         error!("Save smart results failed {:?}", e);
@@ -774,7 +777,7 @@ impl Transition for Scan {
                 },
                 Err(e) => {
                     error!("Smart test failed: {:?}", e);
-                    match save_smart_results(&db_conn, &Path::new(&dev_path), false) {
+                    match save_smart_result(&db_conn, &device, false) {
                         Ok(_) => State::Fail,
                         Err(e) => {
                             error!("Save smart results failed {:?}", e);
@@ -798,7 +801,7 @@ pub struct StateMachine {
             to_state: &State,
             device: &mut BlockDevice,
             scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-            db_conn: &Connection,
+            db_conn: &pConnection,
             simulate: bool,
         ) -> State,
         Directed,
@@ -808,7 +811,6 @@ pub struct StateMachine {
     // optional info of this device and optional scsi host information
     // used to determine whether this device is behind a raid controller
     pub scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
-    pub db_conn: Connection,
     simulate: bool,
 }
 
@@ -822,7 +824,6 @@ impl StateMachine {
     fn new(
         disk: BlockDevice,
         scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
-        db_conn: Connection,
         simulate: bool,
     ) -> Self {
         StateMachine {
@@ -831,7 +832,6 @@ impl StateMachine {
             state: State::Unscanned,
             disk,
             scsi_info,
-            db_conn,
             simulate,
         }
     }
@@ -844,7 +844,7 @@ impl StateMachine {
             to_state: &State,
             device: &mut BlockDevice,
             scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-            db_conn: &Connection,
+            db_conn: &pConnection,
             simulate: bool,
         ) -> State,
         // Just for debugging dot graph creation
@@ -854,18 +854,15 @@ impl StateMachine {
             .push((from_state, to_state, transition_label.to_string()));
         self.graph.add_edge(from_state, to_state, callback);
     }
-
-    // Restore the state of this machine from the database if it was previously saved
-    // otherwise do nothing and start over at Unscanned
+    /*
+    // Restore the state of this devices' machine from the database.
+    // The called function returns appropriate state if it was previously saved,
+    // or returns UnScanned otherwise.
+    // Returns error if device is not in the database
     fn restore_state(&mut self) -> BynarResult<()> {
-        let dev_path = Path::new("/dev/").join(self.disk.device.name.clone());
-        if let Some(s) = get_state(&self.db_conn, &dev_path)? {
-            self.state = s;
-        }
-
-        Ok(())
+        self.state = get_state(&self.db_conn, &self.disk.device)?;
     }
-
+*/
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
@@ -880,7 +877,7 @@ impl StateMachine {
                     to_state: &State,
                     device: &mut BlockDevice,
                     scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
-                    db_conn: &Connection,
+                    db_conn: &pConnection,
                     simulate: bool,
                 ) -> State,
             )> = self.graph.edges(self.state).collect();
@@ -894,13 +891,7 @@ impl StateMachine {
                     &e.0,
                     &e.1
                 );
-                let state = e.2(
-                    &e.1,
-                    &mut self.disk,
-                    &self.scsi_info,
-                    &self.db_conn,
-                    self.simulate,
-                );
+                let state = e.2(&e.1, &mut self.disk, &self.scsi_info, self.simulate);
                 if state == State::Fail {
                     // Try the next transition if there is one
                     debug!(
@@ -916,12 +907,10 @@ impl StateMachine {
                         process::id()
                     );
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break 'outer;
                 } else if state == State::Good {
                     debug!("thread {} state==State::Good", process::id());
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break 'outer;
                 }
                 // transition succeeded.  Save state and go around the loop again
@@ -929,7 +918,6 @@ impl StateMachine {
                 if state == e.1 {
                     debug!("thread {} state==e.1 {}=={}", process::id(), state, e.1);
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break;
                 }
             }
@@ -944,7 +932,6 @@ impl StateMachine {
                     self.state,
                     beginning_state
                 );
-                save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                 break 'outer;
             }
         }
@@ -1285,6 +1272,7 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
 pub fn check_all_disks(
     db: &Path,
     host_info: &Host,
+    pconn: &pConnection,
 ) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
@@ -1333,17 +1321,20 @@ pub fn check_all_disks(
             debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
             debug!("thread {} device: {:?}", process::id(), device);
             let conn = connect_to_repair_database(db)?;
-            let mut s = StateMachine::new(device, scsi_info, conn, false);
+            let mut s = StateMachine::new(device, scsi_info, false);
             s.setup_state_machine();
-            s.restore_state()?;
+            s.state = get_state(pconn, &device)?;
+            //s.restore_state()?;
             s.run();
-            // Possibly serialize the state here to the database to resume later
+            // Save the state after state machine finishes its run
+            save_state(pconn, &device, s.state)?;
+            /* TODO [SD]: Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");
                 let disk_path = Path::new("/dev").join(&s.disk.device.name);
                 let conn = connect_to_repair_database(db)?;
                 let in_progress = is_disk_in_progress(&conn, &disk_path)?;
-            }
+            } */
             Ok(s)
         }).collect();
 

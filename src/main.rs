@@ -16,6 +16,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
+extern crate postgres;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -33,6 +34,7 @@ use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
 use in_progress::{connect_to_database, disconnect_database, update_storage_info};
+use postgres::Connection;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
@@ -113,6 +115,7 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
+    pconn: &Connection,
     simulate: bool,
 ) -> BynarResult<()> {
     let public_key = get_public_key(config, &host_info)?;
@@ -130,7 +133,7 @@ fn check_for_failed_disks(
 
     info!("Checking all drives");
     let conn = in_progress::connect_to_repair_database(&config_location)?;
-    for result in test_disk::check_all_disks(&config_location, &host_info)? {
+    for result in test_disk::check_all_disks(&config_location, &host_info, pconn)? {
         match result {
             Ok(state) => {
                 info!("Disk status: /dev/{} {:?}", state.disk.device.name, state);
@@ -398,12 +401,9 @@ fn main() {
                 _ => {
                     info!("Host information added to database");
                 }
-            }
-            let _ = disconnect_database(conn);
-        }
-    }
+            };
 
-    match check_for_failed_disks(&config, &host_info, simulate) {
+    match check_for_failed_disks(&config, &host_info, &conn, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
@@ -419,4 +419,9 @@ fn main() {
             info!("Add repaired disks completed");
         }
     };
+
+    // disconnect from database
+            let _ = disconnect_database(conn);
+        }
+    }
 }
