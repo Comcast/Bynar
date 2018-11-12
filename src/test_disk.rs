@@ -165,15 +165,24 @@ mod tests {
         let _ = remove_file(&db_path);
         let conn = super::connect_to_repair_database(&db_path).unwrap();
 
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
-        let mut s = super::StateMachine::new(d, None, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
@@ -229,11 +238,11 @@ mod tests {
             device_database_id: None,
             mount_point: None,
             partitions: vec![],
-            scsi_info: ScsiInfo::default(),
-            state: State::Unscanned,
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
             storage_detail_id: 0,
         };
-        let mut s = super::StateMachine::new(d, None, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
@@ -274,15 +283,24 @@ mod tests {
         let _ = remove_file(&db_path);
         let conn = super::connect_to_repair_database(&db_path).unwrap();
 
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
-        let mut s = super::StateMachine::new(d, None, conn, false);
+        let mut s = super::StateMachine::new(d, None, false);
         s.setup_state_machine();
         s.print_graph();
         s.run();
@@ -315,16 +333,25 @@ mod tests {
         // Set the previous state to something other than Unscanned
         in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
 
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
 
-        let mut s = super::StateMachine::new(d, None, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
@@ -513,7 +540,7 @@ impl Transition for Eval {
 impl Transition for MarkForReplacement {
     fn transition(
         to_state: &State,
-        device: &mut BlockDevice,
+        _device: &mut BlockDevice,
         _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
@@ -764,7 +791,6 @@ impl StateMachine {
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
         debug!("thread {} Starting state: {}", process::id(), self.state);
-        let dev_path = Path::new("/dev/").join(self.disk.device.name.clone());
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(
@@ -787,12 +813,7 @@ impl StateMachine {
                     &e.0,
                     &e.1
                 );
-                let state = e.2(
-                    &e.1,
-                    &mut self.disk,
-                    &self.scsi_info,
-                    self.simulate,
-                );
+                let state = e.2(&e.1, &mut self.disk, &self.scsi_info, self.simulate);
                 if state == State::Fail {
                     // Try the next transition if there is one
                     debug!(
@@ -1225,7 +1246,7 @@ pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResu
             let conn = connect_to_repair_database(db)?;
             let mut s = StateMachine::new(device, scsi_info, false);
             s.setup_state_machine();
-            if let Some(existing_state) = get_state(&conn, &s.disk.dev_path)?{
+            if let Some(existing_state) = get_state(&conn, &s.disk.dev_path)? {
                 s.state = existing_state;
             }
 
