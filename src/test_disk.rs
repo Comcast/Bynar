@@ -14,6 +14,7 @@ extern crate gpt;
 extern crate helpers;
 extern crate libatasmart;
 extern crate log;
+extern crate lvm;
 #[cfg(test)]
 extern crate mocktopus;
 extern crate petgraph;
@@ -26,28 +27,43 @@ use in_progress;
 
 use self::blkid::BlkId;
 use self::block_utils::{
-    format_block_device, get_mountpoint, mount_device, unmount_device, Device, Filesystem,
-    FilesystemType, MediaType,
+    format_block_device, get_device_info, mount_device, unmount_device, Device, DeviceState,
+    Filesystem, FilesystemType, MediaType, ScsiDeviceType, ScsiInfo, Vendor,
 };
-use self::gpt::{disk, header::read_header, partition::read_partitions};
-use self::helpers::error::*;
+use self::gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
+use self::helpers::{error::*, host_information::Host};
 use self::in_progress::*;
+use self::lvm::*;
 #[cfg(test)]
 use self::mocktopus::macros::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
-use self::rayon::prelude::*;
 use self::rusqlite::Connection;
+use self::rayon::prelude::*;
 use self::tempdir::TempDir;
 use self::uuid::Uuid;
 
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{self, Command};
 use std::str::FromStr;
+
+#[derive(Clone, Debug)]
+pub struct BlockDevice {
+    pub device: Device,
+    pub dev_path: PathBuf,
+    // None means disk is not in the database
+    pub device_database_id: Option<u32>,
+    pub mount_point: Option<PathBuf>,
+    pub partitions: Vec<Partition>,
+    pub scsi_info: ScsiInfo,
+    pub state: State,
+    pub storage_detail_id: u32,
+}
 
 #[cfg(test)]
 mod tests {
@@ -58,7 +74,7 @@ mod tests {
     use in_progress;
 
     use std::fs::{remove_file, File};
-    use std::io::{Error, ErrorKind, Write};
+    use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::sync::Mutex;
@@ -150,18 +166,26 @@ mod tests {
         let _ = remove_file(&db_path);
         let conn = super::connect_to_repair_database(&db_path).unwrap();
 
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
-        let mut s = super::StateMachine::new(d, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
-        s.restore_state().unwrap();
         s.run();
         println!("final state: {}", s.state);
 
@@ -202,18 +226,26 @@ mod tests {
         //cleanup old
         let _ = remove_file(&db_path);
         let conn = super::connect_to_repair_database(&db_path).unwrap();
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
-        let mut s = super::StateMachine::new(d, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
-        s.restore_state().unwrap();
         s.run();
         println!("final state: {}", s.state);
 
@@ -229,14 +261,13 @@ mod tests {
 
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
         super::check_writable
-            .mock_safe(|_| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
+            .mock_safe(|_| MockResult::Return(Err(BynarError::from("Mock Error"))));
         super::check_filesystem.mock_safe(|_, _| MockResult::Return(Ok(super::Fsck::Corrupt)));
         super::repair_filesystem
-            .mock_safe(|_, _| MockResult::Return(Err(BynarError::new("Mock Error".into()))));
+            .mock_safe(|_, _| MockResult::Return(Err(BynarError::from("Mock Error"))));
 
         // TODO: Can't mock outside dependencies.  Need a wrapper function or something
-        super::format_device
-            .mock_safe(|_| MockResult::Return(Err(BynarError::new("error".to_string()))));
+        super::format_device.mock_safe(|_| MockResult::Return(Err(BynarError::from("error"))));
         // That should leave the disk in WaitingForReplacement
 
         let dev = create_loop_device();
@@ -253,18 +284,26 @@ mod tests {
         let _ = remove_file(&db_path);
         let conn = super::connect_to_repair_database(&db_path).unwrap();
 
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
-        let mut s = super::StateMachine::new(d, conn, false);
+        let mut s = super::StateMachine::new(d, None, false);
         s.setup_state_machine();
         s.print_graph();
-        s.restore_state().unwrap();
         s.run();
         println!("final state: {}", s.state);
 
@@ -295,24 +334,31 @@ mod tests {
         // Set the previous state to something other than Unscanned
         in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
 
-        let d = super::Device {
-            id: Some(drive_id),
-            name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-            media_type: super::MediaType::Rotational,
-            capacity: 26214400,
-            fs_type: super::FilesystemType::Xfs,
-            serial_number: Some("123456".into()),
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 0,
         };
 
-        let mut s = super::StateMachine::new(d, conn, true);
+        let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
-        s.restore_state().unwrap();
         s.run();
         println!("final state: {}", s.state);
         assert_eq!(s.state, super::State::Good);
     }
-
 }
 
 trait Transition {
@@ -320,8 +366,8 @@ trait Transition {
     // database connection can be used to save and resume state
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        db_conn: &Connection,
+        device: &mut BlockDevice,
+        scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         simulate: bool, // Pretend to transition and skip any side effects
     ) -> State;
 }
@@ -330,15 +376,14 @@ impl Transition for AttemptRepair {
     // Take a Corrupt
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        _db_conn: &Connection,
+        device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         simulate: bool,
     ) -> State {
-        debug!("running AttemptRepair transition");
+        debug!("thread {} running AttemptRepair transition", process::id());
         // Disk filesystem is corrupted.  Attempt repairs.
-        let dev_path = Path::new("/dev").join(&device.name);
         if !simulate {
-            match repair_filesystem(&device.fs_type, &dev_path) {
+            match repair_filesystem(&device.device.fs_type, &device.dev_path) {
                 Ok(_) => *to_state,
                 Err(e) => {
                     error!("repair_filesystem failed on {:?}: {}", device, e);
@@ -354,14 +399,16 @@ impl Transition for AttemptRepair {
 impl Transition for CheckForCorruption {
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        _db_conn: &Connection,
+        device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         simulate: bool,
     ) -> State {
-        debug!("running CheckForCorruption transition");
+        debug!(
+            "thread {} running CheckForCorruption transition",
+            process::id()
+        );
         if !simulate {
-            let dev_path = Path::new("/dev").join(&device.name);
-            match check_filesystem(&device.fs_type, &dev_path) {
+            match check_filesystem(&device.device.fs_type, &device.dev_path) {
                 Ok(fsck) => match fsck {
                     // Writes are failing but fsck is ok?
                     // What else could be wrong?  The filesystem could be read only
@@ -384,13 +431,11 @@ impl Transition for CheckForCorruption {
 impl Transition for CheckReadOnly {
     fn transition(
         _to_state: &State,
-        device: &mut Device,
-        _db_conn: &Connection,
+        _device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running CheckReadOnly transition");
-        let dev_path = Path::new("/dev").join(&device.name);
-
+        debug!("thread {} running CheckReadOnly transition", process::id());
         // Try again
         State::Fail
     }
@@ -399,11 +444,14 @@ impl Transition for CheckReadOnly {
 impl Transition for CheckWearLeveling {
     fn transition(
         to_state: &State,
-        _device: &mut Device,
-        _db_conn: &Connection,
+        _device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running CheckWearLeveling transition");
+        debug!(
+            "thread {} running CheckWearLeveling transition",
+            process::id()
+        );
 
         //TODO: How can we check wear leveling?
         *to_state
@@ -414,17 +462,47 @@ impl Transition for CheckWearLeveling {
 impl Transition for Eval {
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        db_conn: &Connection,
+        device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running Eval transition");
-        let dev_path = Path::new("/dev").join(&device.name);
+        debug!("thread {} running Eval transition", process::id());
+        let blank = match is_disk_blank(&device.dev_path) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("Checking if disk is blank failed: {:?}", e);
+                // What is the appropriate thing to conclude here?
+                false
+            }
+        };
+        debug!(
+            "thread {} {} blank {}",
+            process::id(),
+            device.dev_path.display(),
+            blank
+        );
+        if blank {
+            debug!("thread {} Assuming blank disk is good", process::id());
+            return *to_state;
+        }
+        debug!("thread {} device: {:?}", process::id(), device);
+        if device.device.fs_type == FilesystemType::Lvm {
+            match check_lvm(&device.dev_path) {
+                Ok(_) => return *to_state,
+                Err(e) => {
+                    error!("check_lvm failed: {:?}", e);
+                    return State::Fail;
+                }
+            };
+        }
 
-        let mnt_dir: TempDir;
-        if !is_device_mounted(&dev_path) {
-            debug!("Mounting device: {}", dev_path.display());
-            mnt_dir = match TempDir::new("bynar") {
+        if device.mount_point.is_none() {
+            debug!(
+                "thread {} Mounting device: {}",
+                process::id(),
+                device.dev_path.display()
+            );
+            let mnt_dir = match TempDir::new("bynar") {
                 Ok(d) => d,
                 Err(e) => {
                     error!("temp dir creation failed: {:?}", e);
@@ -432,54 +510,28 @@ impl Transition for Eval {
                 }
             };
             // This requires root perms
-            if let Err(e) = mount_device(&device, &mnt_dir.path().to_string_lossy()) {
-                error!("Mounting {} failed: {}", dev_path.display(), e);
+            if let Err(e) = mount_device(&device.device, &mnt_dir.path()) {
+                error!("Mounting {} failed: {}", device.dev_path.display(), e);
                 return State::MountFailed;
             }
+            device.mount_point = Some(mnt_dir.into_path());
         }
-
-        debug!("Getting mountpoint info for {}", dev_path.display());
-        match get_mountpoint(&dev_path) {
-            Ok(mount_info) => match mount_info {
-                Some(info) => {
-                    debug!("mount info: {:?}", info);
-                    if let Err(e) = save_mount_location(&db_conn, &dev_path, &info) {
-                        error!(
-                            "save mount location failed for {}: {:?}",
-                            dev_path.display(),
-                            e
-                        );
-                        return State::Fail;
-                    }
-
-                    debug!("Checking if mount is writable");
-                    match check_writable(&info) {
-                        // Mount point is writeable, smart passed.  Good to go
-                        Ok(_) => *to_state,
-                        Err(e) => {
-                            //Should proceed to error checking now
-                            error!("Error writing to disk: {:?}", e);
-                            State::WriteFailed
-                        }
-                    }
-                }
-                None => {
-                    // Device isn't mounted.  Mount in temp location and check?
-                    // what if it doesn't have a filesystem.
-
-                    // This shouldn't happen because !is_mounted above
-                    // took care of it
-                    error!("Device is not mounted");
-                    State::NotMounted
-                }
-            },
+        debug!("thread {} Checking if mount is writable", process::id());
+        let mnt = device.mount_point.clone().unwrap();
+        match check_writable(&mnt) {
+            // Mount point is writeable, smart passed.  Good to go
+            Ok(_) => {
+                // clean up the mount we used
+                if let Err(e) = unmount_device(&mnt) {
+                    error!("unmount {} failed: {}", mnt.display(), e);
+                };
+                device.mount_point = None;
+                *to_state
+            }
             Err(e) => {
-                error!(
-                    "Error getting mountpoint for {}: {:?}",
-                    dev_path.display(),
-                    e
-                );
-                State::Fail
+                //Should proceed to error checking now
+                error!("Error writing to disk: {:?}", e);
+                State::WriteFailed
             }
         }
     }
@@ -488,56 +540,39 @@ impl Transition for Eval {
 impl Transition for MarkForReplacement {
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        db_conn: &Connection,
+        _device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running MarkForReplacement transition");
-        let dev_path = Path::new("/dev").join(&device.name);
-        match is_disk_in_progress(&db_conn, &dev_path) {
-            Ok(_in_progress) => {
-                //if in_progress {
-                // This is already in waiting for replacement
-                *to_state
-                //} else {
-                // TODO: Does this make sense?
-                //*to_state
-                //}
-            }
-            Err(e) => {
-                error!(
-                    "Error getting disk progress for {}: {:?}",
-                    dev_path.display(),
-                    e
-                );
-                State::Fail
-            }
-        }
+        debug!(
+            "thread {} running MarkForReplacement transition",
+            process::id()
+        );
+        *to_state
     }
 }
 
 impl Transition for Mount {
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        _db_conn: &Connection,
+        device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running mount transition");
-
-        let dev_path = Path::new("/dev").join(&device.name);
-        let mnt_dir: TempDir;
-
-        debug!("Mounting device: {}", dev_path.display());
-        mnt_dir = match TempDir::new("bynar") {
+        debug!(
+            "thread {} Mounting device: {}",
+            process::id(),
+            device.dev_path.display()
+        );
+        let mnt_dir = match TempDir::new("bynar") {
             Ok(d) => d,
             Err(e) => {
                 error!("temp dir creation failed: {:?}", e);
                 return State::Fail;
             }
         };
-        if let Err(e) = mount_device(&device, &mnt_dir.path().to_string_lossy()) {
-            error!("Mounting {} failed: {}", dev_path.display(), e);
+        if let Err(e) = mount_device(&device.device, &mnt_dir.path()) {
+            error!("Mounting {} failed: {}", device.dev_path.display(), e);
             return State::Fail;
         }
 
@@ -548,11 +583,11 @@ impl Transition for Mount {
 impl Transition for NoOp {
     fn transition(
         to_state: &State,
-        _device: &mut Device,
-        _db_conn: &Connection,
+        _device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running NoOp transition");
+        debug!("thread {} running NoOp transition", process::id());
 
         *to_state
     }
@@ -561,38 +596,31 @@ impl Transition for NoOp {
 impl Transition for Reformat {
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        _db_conn: &Connection,
+        device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running Reformat transition");
-        let dev_path = Path::new("/dev").join(&device.name);
-
+        debug!("thread {} running Reformat transition", process::id());
         // Ensure we're not mounted before this it run
-        match get_mountpoint(&dev_path) {
-            Ok(info) => {
-                if info.is_some() {
-                    // Must unmount
-                    if let Err(e) = unmount_device(&info.unwrap().to_string_lossy()) {
-                        error!("unmount failed: {}", e);
-                    }
-                }
+        if let Some(ref mnt) = device.mount_point {
+            if let Err(e) = unmount_device(&mnt) {
+                error!("unmount failed: {}", e);
             }
-            Err(e) => {
-                // Fail to get mountpoint.  Prob ok?
-                error!("get_mountpoint failed: {}", e);
-            }
-        };
-        match format_device(&device) {
+        }
+        match format_device(&device.device) {
             Ok(_) => {
                 // We need to update the UUID of the block device now.
-                let blkid = BlkId::new(&dev_path).expect("blkid creation failed");
+                let blkid = BlkId::new(&device.dev_path).expect("blkid creation failed");
                 blkid.do_probe().expect("blkid probe failed");
                 let drive_uuid = blkid
                     .lookup_value("UUID")
                     .expect("blkid lookup uuid failed");
-                debug!("drive_uuid: {}", Uuid::parse_str(&drive_uuid).unwrap());
-                device.id = Some(Uuid::parse_str(&drive_uuid).unwrap());
+                debug!(
+                    "thread {} drive_uuid: {}",
+                    process::id(),
+                    Uuid::parse_str(&drive_uuid).unwrap()
+                );
+                device.device.id = Some(Uuid::parse_str(&drive_uuid).unwrap());
 
                 *to_state
             }
@@ -607,11 +635,11 @@ impl Transition for Reformat {
 impl Transition for Remount {
     fn transition(
         to_state: &State,
-        _device: &mut Device,
-        _db_conn: &Connection,
+        _device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running Remount transition");
+        debug!("thread {} running Remount transition", process::id());
         // TODO: Investigate using libmount here
         match Command::new("mount").args(&["-o", "remount"]).output() {
             Ok(output) => {
@@ -634,11 +662,11 @@ impl Transition for Remount {
 impl Transition for Replace {
     fn transition(
         to_state: &State,
-        _device: &mut Device,
-        _db_conn: &Connection,
+        _device: &mut BlockDevice,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running Replace transition");
+        debug!("thread {} running Replace transition", process::id());
         // So we know at this point that the disk has been replaced
         // We know the device we're working with
 
@@ -649,31 +677,45 @@ impl Transition for Replace {
 impl Transition for Scan {
     fn transition(
         to_state: &State,
-        device: &mut Device,
-        db_conn: &Connection,
+        device: &mut BlockDevice,
+        scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
-        debug!("running Scan transition");
+        debug!("thread {} running Scan transition", process::id());
+        let raid_backed = is_raid_backed(&scsi_info);
 
-        // TODO: Handle devices that live behind a raid controller
-        let dev_path = Path::new("/dev").join(&device.name);
-        // Run a smart check on the base device without partition
-        match run_smart_checks(&Path::new(&dev_path)) {
-            Ok(_) => match save_smart_results(&db_conn, &Path::new(&dev_path), true) {
+        if raid_backed.0 {
+            match raid_backed.1 {
+                Vendor::Hp => {
+                    // is_raid_backed unpacks the Option so this should be safe
+                    match scsi_info.clone().unwrap().0.state {
+                        Some(state) => {
+                            debug!("thread {} scsi device state: {}", process::id(), state);
+                            if state == DeviceState::Running {
+                                *to_state
+                            } else {
+                                State::Fail
+                            }
+                        }
+                        None => {
+                            // What can we conclude??
+                            State::Fail
+                        }
+                    }
+                }
+                _ => {
+                    // Don't know how to deal with these yet
+                    warn!("Skipping {:?} raid backed disk scanning", raid_backed.1);
+                    *to_state
+                }
+            }
+        } else {
+            // Run a smart check on the base device without partition
+            match run_smart_checks(&Path::new(&device.dev_path)) {
                 Ok(_) => *to_state,
                 Err(e) => {
-                    error!("Save smart results failed {:?}", e);
+                    error!("Smart test failed: {:?}", e);
                     State::Fail
-                }
-            },
-            Err(e) => {
-                error!("Smart test failed: {:?}", e);
-                match save_smart_results(&db_conn, &Path::new(&dev_path), false) {
-                    Ok(_) => State::Fail,
-                    Err(e) => {
-                        error!("Save smart results failed {:?}", e);
-                        State::Fail
-                    }
                 }
             }
         }
@@ -687,12 +729,19 @@ pub struct StateMachine {
     // Mapping of valid From -> To transitions
     graph: GraphMap<
         State,
-        fn(to_state: &State, device: &mut Device, db_conn: &Connection, simulate: bool) -> State,
+        fn(
+            to_state: &State,
+            device: &mut BlockDevice,
+            scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
+            simulate: bool,
+        ) -> State,
         Directed,
     >,
     pub state: State,
-    pub disk: Device,
-    pub db_conn: Connection,
+    pub disk: BlockDevice,
+    // optional info of this device and optional scsi host information
+    // used to determine whether this device is behind a raid controller
+    pub scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
     simulate: bool,
 }
 
@@ -703,13 +752,17 @@ impl fmt::Debug for StateMachine {
 }
 
 impl StateMachine {
-    fn new(disk: Device, db_conn: Connection, simulate: bool) -> Self {
+    fn new(
+        disk: BlockDevice,
+        scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
+        simulate: bool,
+    ) -> Self {
         StateMachine {
             dot_graph: Vec::new(),
             graph: GraphMap::new(),
             state: State::Unscanned,
             disk,
-            db_conn,
+            scsi_info,
             simulate,
         }
     }
@@ -718,8 +771,12 @@ impl StateMachine {
         &mut self,
         from_state: State,
         to_state: State,
-        callback: fn(to_state: &State, device: &mut Device, db_conn: &Connection, simulate: bool)
-            -> State,
+        callback: fn(
+            to_state: &State,
+            device: &mut BlockDevice,
+            scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
+            simulate: bool,
+        ) -> State,
         // Just for debugging dot graph creation
         transition_label: &str,
     ) {
@@ -728,61 +785,62 @@ impl StateMachine {
         self.graph.add_edge(from_state, to_state, callback);
     }
 
-    // Restore the state of this machine from the database if it was previously saved
-    // otherwise do nothing and start over at Unscanned
-    fn restore_state(&mut self) -> BynarResult<()> {
-        let tmp = format!("/dev/{}", self.disk.name);
-        let dev_path = Path::new(&tmp);
-        if let Some(s) = get_state(&self.db_conn, &dev_path)? {
-            self.state = s;
-        }
-
-        Ok(())
-    }
-
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
-        debug!("Starting state: {}", self.state);
-        let tmp = format!("/dev/{}", self.disk.name);
-        let dev_path = Path::new(&tmp);
+        debug!("thread {} Starting state: {}", process::id(), self.state);
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(
                 State,
                 State,
-                &fn(to_state: &State, device: &mut Device, db_conn: &Connection, simulate: bool)
-                    -> State,
+                &fn(
+                    to_state: &State,
+                    device: &mut BlockDevice,
+                    scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
+                    simulate: bool,
+                ) -> State,
             )> = self.graph.edges(self.state).collect();
             // Some states have multiple paths they could go down.
             // If the state transition returns State::Fail try the next path
             let beginning_state = self.state;
             for e in edges {
-                debug!("Attempting {} to {} transition", &e.0, &e.1);
-                let state = e.2(&e.1, &mut self.disk, &self.db_conn, self.simulate);
+                debug!(
+                    "thread {} Attempting {} to {} transition",
+                    process::id(),
+                    &e.0,
+                    &e.1
+                );
+                let state = e.2(&e.1, &mut self.disk, &self.scsi_info, self.simulate);
                 if state == State::Fail {
                     // Try the next transition if there is one
-                    debug!("Fail. Trying next transition");
+                    debug!(
+                        "thread {} Transition failed. Trying next transition",
+                        process::id()
+                    );
                     continue;
                 }
                 if state == State::WaitingForReplacement {
                     // TODO: Is this the only state we shouldn't advance further from?
-                    debug!("state==State::WaitingForReplacement");
+                    debug!(
+                        "thread {} state==State::WaitingForReplacement",
+                        process::id()
+                    );
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break 'outer;
                 } else if state == State::Good {
-                    debug!("state==State::Good");
+                    debug!("thread {} state==State::Good", process::id());
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break 'outer;
                 }
                 // transition succeeded.  Save state and go around the loop again
                 // This won't detect if the transitions return something unexpected
                 if state == e.1 {
-                    debug!("state==e.1 {}=={}", state, e.1);
+                    debug!("thread {} state==e.1 {}=={}", process::id(), state, e.1);
                     self.state = state;
-                    save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                     break;
                 }
             }
@@ -791,13 +849,19 @@ impl StateMachine {
             // before ending back around again.
             if self.state == beginning_state {
                 // We're stuck in an infinite loop we can't advance further from
-                debug!("Breaking loop: {}=={}", self.state, beginning_state);
-                save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                debug!(
+                    "thread {} Breaking loop: {}=={}",
+                    process::id(),
+                    self.state,
+                    beginning_state
+                );
+                //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                 break 'outer;
             }
         }
     }
 
+    #[allow(dead_code)]
     fn print_graph(&self) {
         // FIXME: Too simple.  Doesn't label the transitions
         // Walk the graph and create a Dot
@@ -845,7 +909,7 @@ impl StateMachine {
         );
 
         self.add_transition(State::Scanned, State::Good, Eval::transition, "Eval");
-        //self.add_transition(State::Scanned, State::NotMounted, Scan::transition);
+        self.add_transition(State::Scanned, State::NotMounted, Eval::transition, "Eval");
         self.add_transition(State::Scanned, State::WriteFailed, Eval::transition, "Eval");
         self.add_transition(
             State::Scanned,
@@ -1060,49 +1124,65 @@ enum Fsck {
     Corrupt,
 }
 
-pub fn check_all_disks(db: &Path) -> BynarResult<Vec<BynarResult<StateMachine>>> {
-    // Udev will only show the disks that are currently attached to the tree
-    // It will fail to show disks that have died and disconnected but are still
-    // shown as mounted in /etc/mtab
-    let devices = block_utils::get_block_devices()?;
-
+fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
     // Gather info on all devices and skip Loopback devices
-    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())?
+    let devices = block_utils::get_all_device_info(&devices)?;
+    let block_devices: Vec<BlockDevice> = devices
         .into_iter()
-        // Get rid of loopback devices
-        .filter(|d| !(d.media_type == MediaType::Loopback))
-        // Get rid of lvm devices
-        .filter(|d| !(d.media_type == MediaType::LVM))
-        // Get rid of ram devices
-        .filter(|d| !(d.media_type == MediaType::Ram))
-        // Get rid of root disk
-        .filter(|d| {
+        .map(|d| {
             let dev_path = Path::new("/dev").join(&d.name);
             debug!("inspecting disk: {}", dev_path.display());
-            let disk_header = match read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE){
-                Ok(h) => h,
-                Err(e) => {
-                    warn!("Unable to read disk header: {}", e);
-                    // Keep the disk 
-                    return true;
+            let mut mount_point = None;
+            let partitions =
+                if let Ok(disk_header) = read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE) {
+                    read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE)
+                        .unwrap_or_else(|_| vec![])
+                } else {
+                    vec![]
+                };
+            if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
+                if let Some(mount) = mount_res {
+                    debug!("device mount: {}", mount.display());
+                    mount_point = Some(mount);
                 }
-            };
-            let partitions = match read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE){
-                Ok(p) => p,
-                Err(e) => {
-                    warn!("Unable to read disk partitions: {}", e);
-                    // Keep the disk 
-                    return true;
-                }
-            };
-            for p in partitions.iter().enumerate() {
-                let partition_path = Path::new("/dev").join(format!("{name}{num}", name=d.name, num=p.0+1));
+            }
+
+            BlockDevice {
+                device: d.clone(),
+                dev_path,
+                // None means disk is not in the database
+                device_database_id: None,
+                mount_point,
+                partitions,
+                scsi_info: ScsiInfo::default(),
+                state: State::Unscanned,
+                storage_detail_id: 0,
+            }
+        }).collect();
+    let filtered_devices: Vec<BlockDevice> = block_devices
+        .into_iter()
+        // Get rid of loopback devices
+        .filter(|b| !(b.device.media_type == MediaType::Loopback))
+        // Get rid of lvm devices
+        .filter(|b| !(b.device.media_type == MediaType::LVM))
+        // Get rid of cd/dvd rom devices
+        .filter(|b| !(b.device.name.starts_with("sr")))
+        // Get rid of ram devices
+        .filter(|b| !(b.device.media_type == MediaType::Ram))
+        // Get rid of root disk
+        .filter(|b| {
+            for p in b.partitions.iter().enumerate() {
+                let partition_path = Path::new("/dev").join(format!(
+                    "{name}{num}",
+                    name = b.device.name,
+                    num = p.0 + 1
+                ));
                 debug!("partition_path: {}", partition_path.display());
-                if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path){
+                if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path) {
                     if let Some(mount) = mount_res {
                         debug!("partition mount: {}", mount.display());
                         // Found the root filesystem disk
-                        if mount == Path::new("/"){
+                        if mount == Path::new("/") {
                             debug!("Found root disk. Skipping");
                             return false;
                         }
@@ -1110,24 +1190,30 @@ pub fn check_all_disks(db: &Path) -> BynarResult<Vec<BynarResult<StateMachine>>>
                 }
             }
             true
-        })
-        .collect();
+        }).collect();
+    Ok(filtered_devices)
+}
+
+pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResult<StateMachine>>> {
+    // Udev will only show the disks that are currently attached to the tree
+    // It will fail to show disks that have died and disconnected but are still
+    // shown as mounted in /etc/mtab
+    let mut devices = block_utils::get_block_devices()?;
+    let scsi_info = block_utils::sort_scsi_info(&host_info.scsi_info);
 
     // Gather info on all the currently mounted devices
-    let mut mtab_devices: Vec<Device> = block_utils::get_mounted_devices()?;
+    let mut mtab_devices: Vec<PathBuf> = block_utils::get_mounted_devices()?
+        .iter()
+        .map(|d| PathBuf::from("/dev/").join(d.name.clone()))
+        .collect();
 
     // Remove any mtab_devices that udev already knows about leaving only ones
     // that udev doesn't know about, ie broken mounted devices
-    mtab_devices.retain(|mtab_device| {
-        !device_info
-            .iter()
-            .any(|udev_device| mtab_device.name.contains(&udev_device.name))
-    });
+    mtab_devices.retain(|mtab_device| !devices.iter().any(|device| mtab_device == device));
+    devices.extend_from_slice(&mtab_devices);
 
-    // Check any devices that udev doesn't know about that are still mounted
-    for mtab_device in mtab_devices {
-        //results.push(run_checks(&mtab_device));
-    }
+    // Gather info on all devices and skip Loopback devices
+    let device_info = filter_disks(&devices)?;
 
     //TODO: Add nvme devices to block-utils
 
@@ -1139,17 +1225,36 @@ pub fn check_all_disks(db: &Path) -> BynarResult<Vec<BynarResult<StateMachine>>>
             // Lookup the disk and see if it's in progress.  If so then
             // set the state to WaitingOnReplacement.
             // Resume where we left off
+            let scsi_info = scsi_info
+                .iter()
+                .find(|r| {
+                    if let Some(ref dev_name) = r.0.block_device {
+                        if let Some(file_name) = dev_name.file_name() {
+                            if file_name == OsStr::new(&device.device.name) {
+                                return true;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                    false
+                }).and_then(|r| Some(r.clone()));
+            debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
+            debug!("thread {} device: {:?}", process::id(), device);
             let conn = connect_to_repair_database(db)?;
-            let mut s = StateMachine::new(device, conn, false);
+            let mut s = StateMachine::new(device, scsi_info, false);
             s.setup_state_machine();
-            s.restore_state()?;
+            if let Some(existing_state) = get_state(&conn, &s.disk.dev_path)? {
+                s.state = existing_state;
+            }
+
             s.run();
             // Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");
-                let disk_path = Path::new("/dev").join(&s.disk.name);
+                //let disk_path = Path::new("/dev").join(&s.disk.device.name);
                 let conn = connect_to_repair_database(db)?;
-                let in_progress = is_disk_in_progress(&conn, &disk_path)?;
+                let in_progress = is_disk_in_progress(&conn, &s.disk.dev_path)?;
             }
             Ok(s)
         }).collect();
@@ -1163,8 +1268,9 @@ fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRes
         FilesystemType::Ext2 => check_ext(device),
         FilesystemType::Ext3 => check_ext(device),
         FilesystemType::Ext4 => check_ext(device),
+        FilesystemType::Lvm => check_lvm(device),
         FilesystemType::Xfs => check_xfs(device),
-        _ => Err(BynarError::new("Unknown filesystem detected".to_string())),
+        _ => Err(BynarError::from("Unknown filesystem detected")),
     }
 }
 
@@ -1187,16 +1293,20 @@ fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRe
             repair_xfs(device)?;
             Ok(())
         }
-        _ => Err(BynarError::new("Unknown filesystem detected".to_string())),
+        _ => Err(BynarError::from("Unknown filesystem detected")),
     }
 }
 
 #[cfg_attr(test, mockable)]
 fn check_writable(path: &Path) -> BynarResult<()> {
-    debug!("Checking if {:?} is writable", path);
+    debug!(
+        "thread {} Checking if {:?} is writable",
+        process::id(),
+        path
+    );
     let temp_path = TempDir::new_in(path, "bynar")?;
     let file_path = temp_path.path().join("write_test");
-    debug!("Creating: {}", file_path.display());
+    debug!("thread {} Creating: {}", process::id(), file_path.display());
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -1205,10 +1315,42 @@ fn check_writable(path: &Path) -> BynarResult<()> {
     Ok(())
 }
 
+// TODO: How do you tell if an lvm device is functioning properly?
+fn check_lvm(device: &Path) -> BynarResult<Fsck> {
+    // lv display should show whether lvm can even access the device
+    // do a write test against the device
+    debug!("thread {} Checking lvm for corruption", process::id());
+    let lvm = Lvm::new(None)?;
+    lvm.scan()?;
+    // This might fail if the lvm on the disk is corrupt
+    if let Ok(vol_names) = lvm.get_volume_group_names() {
+        debug!("thread {} lvm volume names: {:?}", process::id(), vol_names);
+        for v in vol_names {
+            let vg = lvm.vg_open(&v, &OpenMode::Read)?;
+            let physical_vols = vg.list_pvs()?;
+            trace!(
+                "thread {} lvm physical volumes: {:?}",
+                process::id(),
+                physical_vols
+            );
+            for p in physical_vols {
+                trace!("thread {} physical volume: {}", process::id(), p.get_name());
+                if device == Path::new(&p.get_name()) {
+                    return Ok(Fsck::Ok);
+                }
+            }
+        }
+    }
+    Ok(Fsck::Ok)
+}
+
 fn check_xfs(device: &Path) -> BynarResult<Fsck> {
     //Any output that is produced when xfs_check is not run in verbose mode
     //indicates that the filesystem has an inconsistency.
-    debug!("Running xfs_repair -n to check for corruption");
+    debug!(
+        "thread {} Running xfs_repair -n to check for corruption",
+        process::id()
+    );
     let status = Command::new("xfs_repair")
         .args(&vec!["-n", &device.to_string_lossy()])
         .status()?;
@@ -1222,27 +1364,28 @@ fn check_xfs(device: &Path) -> BynarResult<Fsck> {
             ))),
         },
         //Process terminated by signal
-        None => Err(BynarError::new(
-            "xfs_repair terminated by signal".to_string(),
-        )),
+        None => Err(BynarError::from("xfs_repair terminated by signal")),
     }
 }
 
 fn repair_xfs(device: &Path) -> BynarResult<()> {
-    debug!("Running xfs_repair");
+    debug!("thread {} Running xfs_repair", process::id());
     let status = Command::new("xfs_repair").arg(device).status()?;
     match status.code() {
         Some(code) => match code {
             0 => Ok(()),
-            _ => Err(BynarError::new("xfs_repair failed".to_string())),
+            _ => Err(BynarError::from("xfs_repair failed")),
         },
         //Process terminated by signal
-        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
+        None => Err(BynarError::from("e2fsck terminated by signal")),
     }
 }
 
 fn check_ext(device: &Path) -> BynarResult<Fsck> {
-    debug!("running e2fsck -n to check for errors");
+    debug!(
+        "thread {} running e2fsck -n to check for errors",
+        process::id()
+    );
     let status = Command::new("e2fsck")
         .args(&["-n", &device.to_string_lossy()])
         .status()?;
@@ -1260,7 +1403,7 @@ fn check_ext(device: &Path) -> BynarResult<Fsck> {
             }
         }
         //Process terminated by signal
-        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
+        None => Err(BynarError::from("e2fsck terminated by signal")),
     }
 }
 
@@ -1288,7 +1431,7 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
             }
         }
         //Process terminated by signal
-        None => Err(BynarError::new("e2fsck terminated by signal".to_string())),
+        None => Err(BynarError::from("e2fsck terminated by signal")),
     }
 }
 
@@ -1318,7 +1461,7 @@ fn is_device_mounted(dev_path: &Path) -> bool {
     // First check if the device itself is mounted
     if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
         if let Some(mount) = mount_res {
-            debug!("device mount: {}", mount.display());
+            debug!("thread {} device mount: {}", process::id(), mount.display());
             return true;
         }
     }
@@ -1327,7 +1470,7 @@ fn is_device_mounted(dev_path: &Path) -> bool {
     let disk_header = match read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE) {
         Ok(h) => h,
         Err(e) => {
-            warn!("Unable to read disk header: {}", e);
+            warn!("thread {} Unable to read disk header: {}", process::id(), e);
             return false;
         }
     };
@@ -1335,7 +1478,11 @@ fn is_device_mounted(dev_path: &Path) -> bool {
     let partitions = match read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE) {
         Ok(p) => p,
         Err(e) => {
-            warn!("Unable to read disk partitions: {}", e);
+            warn!(
+                "thread {} Unable to read disk partitions: {}",
+                process::id(),
+                e
+            );
             return false;
         }
     };
@@ -1343,10 +1490,18 @@ fn is_device_mounted(dev_path: &Path) -> bool {
     for p in partitions.iter().enumerate() {
         let tmp = format!("{name}{num}", name = dev_path.display(), num = p.0 + 1);
         let partition_path = Path::new(&tmp);
-        debug!("partition_path: {}", partition_path.display());
+        debug!(
+            "thread {} partition_path: {}",
+            process::id(),
+            partition_path.display()
+        );
         if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path) {
             if let Some(mount) = mount_res {
-                debug!("partition mount: {}", mount.display());
+                debug!(
+                    "thread {} partition mount: {}",
+                    process::id(),
+                    mount.display()
+                );
                 return true;
             }
         }
@@ -1354,4 +1509,94 @@ fn is_device_mounted(dev_path: &Path) -> bool {
 
     // Unable to tell if it's mounted
     false
+}
+
+// While difficult to say for certain this runs through
+// a few tests and makes a best guess if the disk is
+// blank
+fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
+    debug!("thread {} Initializing lvm", process::id());
+    let lvm = Lvm::new(None)?;
+    lvm.scan()?;
+    // This might fail if the lvm on the disk is corrupt
+    if let Ok(vol_names) = lvm.get_volume_group_names() {
+        debug!("thread {} lvm volume names: {:?}", process::id(), vol_names);
+        for v in vol_names {
+            let vg = lvm.vg_open(&v, &OpenMode::Read)?;
+            let physical_vols = vg.list_pvs()?;
+            trace!(
+                "thread {} lvm physical volumes: {:?}",
+                process::id(),
+                physical_vols
+            );
+            for p in physical_vols {
+                trace!("thread {} physical volume: {}", process::id(), p.get_name());
+                if dev == Path::new(&p.get_name()) {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+
+    debug!(
+        "thread {} Attempting to read gpt disk header",
+        process::id()
+    );
+    if read_header(&dev, disk::DEFAULT_SECTOR_SIZE).is_ok() {
+        // We found a gpt header
+        return Ok(false);
+    }
+    debug!("thread {} Checking if disk is mounted", process::id());
+    if is_device_mounted(&dev) {
+        return Ok(false);
+    }
+    let device = get_device_info(dev)?;
+    debug!(
+        "thread {} Mounting device: {}",
+        process::id(),
+        dev.display()
+    );
+    let mnt_dir = TempDir::new("bynar")?;
+    match mount_device(&device, &mnt_dir.path()) {
+        Ok(_) => return Ok(false),
+        Err(e) => {
+            debug!(
+                "thread {} Mounting {} failed: {}",
+                process::id(),
+                dev.display(),
+                e
+            );
+        }
+    }
+
+    // Best guess is it's blank
+    Ok(true)
+}
+
+fn is_raid_backed(scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>) -> (bool, Vendor) {
+    if let Some(scsi_info) = scsi_info {
+        if let Some(ref dev_host) = scsi_info.1 {
+            if dev_host.scsi_type == ScsiDeviceType::StorageArray
+                || dev_host.scsi_type == ScsiDeviceType::Enclosure
+            {
+                //This device sits behind a raid controller
+                match dev_host.vendor {
+                    Vendor::Hp => {
+                        debug!("thread {} HP raid device found", process::id());
+                        return (true, Vendor::Hp);
+                    }
+                    _ => {
+                        // Don't know how to access these yet.
+                        warn!(
+                            "thread {} Unable to inspect {:?} raid types yet",
+                            process::id(),
+                            dev_host.vendor
+                        );
+                        return (false, dev_host.vendor.clone());
+                    }
+                }
+            }
+        }
+    }
+    (false, Vendor::None)
 }

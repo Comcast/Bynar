@@ -8,9 +8,11 @@ extern crate uname;
 use self::hostname::get_hostname;
 use self::pnet::datalink::{self, NetworkInterface};
 use self::uname::uname;
+use error::{BynarError, BynarResult};
+
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::{read_to_string, File};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
+use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
@@ -24,20 +26,19 @@ pub struct Host {
     pub server_type: String,
     pub serial_number: String,
     pub machine_architecture: String,
-    pub raid_info: Vec<block_utils::ScsiInfo>,
+    pub scsi_info: Vec<block_utils::ScsiInfo>,
     pub storage_type: StorageTypeEnum,
     pub array_name: Option<String>,
     pub pool_name: Option<String>,
 }
 
 impl Host {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> BynarResult<Self> {
         //
         debug!("Loading host information");
         let uname_info = uname()?;
         debug!("{:#?}", uname_info);
-        let hostname =
-            get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
+        let hostname = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
         debug!("{:#?}", hostname);
         let ip = get_ip()?;
         let region = get_region_from_hostname(&hostname)?;
@@ -50,8 +51,7 @@ impl Host {
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
-        let raid_info =
-            block_utils::get_raid_info().map_err(|e| Error::new(ErrorKind::Other, e))?;
+        let scsi_info = block_utils::get_scsi_info()?;
 
         Ok(Host {
             ip,
@@ -62,7 +62,7 @@ impl Host {
             machine_architecture: uname_info.machine,
             server_type,
             serial_number,
-            raid_info,
+            scsi_info,
             array_name: None,
             pool_name: None,
         })
@@ -88,7 +88,7 @@ impl Display for StorageTypeEnum {
     }
 }
 /// Get the default interface
-fn get_default_iface() -> Result<String> {
+fn get_default_iface() -> BynarResult<String> {
     let p = Path::new("/proc/net/route");
     let proc_route = File::open(p)?;
     let reader = BufReader::new(proc_route);
@@ -101,19 +101,19 @@ fn get_default_iface() -> Result<String> {
         }
     }
 
-    Err(Error::new(ErrorKind::Other, "No default interface found"))
+    Err(BynarError::from("No default interface found"))
 }
 
 /// Find the IP on default interface
-fn get_ip() -> Result<IpAddr> {
+fn get_ip() -> BynarResult<IpAddr> {
     let mut all_interfaces = datalink::interfaces();
     let default_iface = get_default_iface()?;
     if all_interfaces.is_empty() {
-        Err(Error::new(ErrorKind::Other, "No network interface found"))
+        Err(BynarError::from("No network interface found"))
     } else {
         all_interfaces.retain(|iface: &NetworkInterface| iface.name == default_iface);
         if all_interfaces.is_empty() {
-            Err(Error::new(ErrorKind::Other, "No network interface found"))
+            Err(BynarError::from("No network interface found"))
         } else {
             if all_interfaces.len() > 1 {
                 debug!("More than one default network interface found");
@@ -132,26 +132,22 @@ fn get_ip() -> Result<IpAddr> {
                     if found {
                         Ok(my_ip)
                     } else {
-                        Err(Error::new(ErrorKind::Other, "IPv4 Address not found"))
+                        Err(BynarError::from("IPv4 Address not found"))
                     }
                 }
-                None => Err(Error::new(
-                    ErrorKind::Other,
-                    "Default network interface does not exist",
-                )),
+                None => Err(BynarError::from("Default network interface does not exist")),
             }
         }
     }
 }
 
 /// Get region from hostname
-fn get_region_from_hostname(hostname: &str) -> Result<String> {
+fn get_region_from_hostname(hostname: &str) -> BynarResult<String> {
     // Production hostnames are usually <name>-<region_part-1>-<region_part2><*>
     if hostname.contains('-') {
         let splitter: Vec<&str> = hostname.split('-').collect();
         let mut region = String::new();
-        let mut index = 0;
-        for v in splitter {
+        for (index, v) in splitter.iter().enumerate() {
             // skip the first sub string
             if index == 1 {
                 region.push_str(v);
@@ -160,7 +156,6 @@ fn get_region_from_hostname(hostname: &str) -> Result<String> {
             if index == 2 {
                 region.push_str(&v[0..1]);
             }
-            index = index + 1;
         }
         Ok(region)
     } else {
@@ -169,26 +164,25 @@ fn get_region_from_hostname(hostname: &str) -> Result<String> {
 }
 
 /// Get storage type used on this system
-fn get_storage_type() -> Result<StorageTypeEnum> {
+fn get_storage_type() -> BynarResult<StorageTypeEnum> {
     // TODO: Change this later for other types
     Ok(StorageTypeEnum::Ceph)
 }
 
 /// Find the server type
-fn server_type() -> Result<String> {
+fn server_type() -> BynarResult<String> {
     debug!("Gathering server type");
     let path = Path::new("/sys/class/dmi/id/product_name");
     if Path::exists(path) {
         let buff = read_to_string(path)?;
         return Ok(buff.trim().into());
     }
-    Err(Error::new(
-        ErrorKind::Other,
+    Err(BynarError::from(
         "/sys/class/dmi/id/product_name does not exist",
     ))
 }
 
-fn server_serial() -> Result<String> {
+fn server_serial() -> BynarResult<String> {
     debug!("Gathering server serial");
     // Try the easy way first
     debug!("Checking for serial in /sys/class/dmi/id/product_serial");
@@ -230,23 +224,12 @@ fn server_serial() -> Result<String> {
     */
     // /sys/firmware/efi/systab
     // /proc/efi/systab
-    Err(Error::new(
-        ErrorKind::Other,
-        "Unable to discover system serial",
-    ))
+    Err(BynarError::from("Unable to discover system serial"))
 }
 
 //TODO: smp-utils has a lot of use information about how to interface with sas enclosures
 // http://sg.danny.cz/sg/smp_utils.html#mozTocId356346
 /*
-fn raid_info(dev: &Path) -> Result<()> {
-    let info = block_utils::get_raid_info().map_err(|e| {
-        Error::new(ErrorKind::Other, e)
-    })?;
-    println!("raid info: {:?}", info);
-    Ok(())
-}
-
 /// Given a disk find out what chassis position this disk is located at
 fn disk_position(dev: &Path, raid_type: RaidType) -> Result<String> {
     //

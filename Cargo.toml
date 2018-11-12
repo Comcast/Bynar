@@ -37,7 +37,7 @@ rand = "~0.5"
 [dependencies]
 api = { path = "api" }
 blkid = "~0.2"
-block-utils = "~0.5"
+block-utils = "~0.6"
 bytes = "*"
 ceph = "~2.0"
 ceph-safe-disk = "~0.1"

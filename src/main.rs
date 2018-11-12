@@ -32,7 +32,7 @@ use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
-use in_progress::{connect_to_database, update_storage_info, disconnect_database};
+use in_progress::{connect_to_database, disconnect_database, update_storage_info};
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
@@ -60,7 +60,7 @@ pub struct ConfigSettings {
     pub database: DBConfig,
 }
 
-#[derive (Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct DBConfig {
     pub username: String,
     pub password: String,
@@ -110,7 +110,11 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     }
 }
 
-fn check_for_failed_disks(config: &ConfigSettings, host_info: &Host, simulate: bool) -> BynarResult<()> {
+fn check_for_failed_disks(
+    config: &ConfigSettings,
+    host_info: &Host,
+    simulate: bool,
+) -> BynarResult<()> {
     let public_key = get_public_key(config, &host_info)?;
     let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
@@ -126,16 +130,16 @@ fn check_for_failed_disks(config: &ConfigSettings, host_info: &Host, simulate: b
 
     info!("Checking all drives");
     let conn = in_progress::connect_to_repair_database(&config_location)?;
-    for result in test_disk::check_all_disks(&config_location)? {
+    for result in test_disk::check_all_disks(&config_location, &host_info)? {
         match result {
             Ok(state) => {
-                info!("Disk status: {:?}", state);
+                info!("Disk status: /dev/{} {:?}", state.disk.device.name, state);
                 let mut dev_path = PathBuf::from("/dev");
-                dev_path.push(state.disk.name);
+                dev_path.push(state.disk.device.name);
 
                 if state.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = state.disk.serial_number {
+                    if let Some(serial) = state.disk.device.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
@@ -236,7 +240,11 @@ fn check_for_failed_disks(config: &ConfigSettings, host_info: &Host, simulate: b
     Ok(())
 }
 
-fn add_repaired_disks(config: &ConfigSettings, host_info: &Host, simulate: bool) -> BynarResult<()> {
+fn add_repaired_disks(
+    config: &ConfigSettings,
+    host_info: &Host,
+    simulate: bool,
+) -> BynarResult<()> {
     let config_location = Path::new(&config.db_location);
     let public_key = get_public_key(&config, &host_info)?;
 
@@ -366,8 +374,12 @@ fn main() {
     debug!("Gathered host info: {:?}", host_info);
     //TODO: create constant for bynar.json
     let config = helpers::load_config(config_dir, "bynar.json");
-    if config.is_err() {
-        error!("Failed to load config file {:?}/bynar.json", config_dir);
+    if let Err(e) = config {
+        error!(
+            "Failed to load config file {}. error: {}",
+            config_dir.join("bynar.json").display(),
+            e
+        );
         return;
     }
     let config: ConfigSettings = config.expect("Failed to load config");

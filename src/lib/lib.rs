@@ -6,12 +6,10 @@ extern crate hashicorp_vault;
 extern crate log;
 extern crate protobuf;
 extern crate serde;
-extern crate serde_derive;
 extern crate serde_json;
 extern crate zmq;
 
-use std::fs::File;
-use std::io::Read;
+use std::fs::read_to_string;
 use std::path::Path;
 
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
@@ -33,9 +31,7 @@ where
     if !p.exists() {
         error!("{} config file does not exist", p.display());
     }
-    let mut f = File::open(p)?;
-    let mut s = String::new();
-    f.read_to_string(&mut s)?;
+    let s = read_to_string(p)?;
     let deserialized: T = serde_json::from_str(&s)?;
     Ok(deserialized)
 }
@@ -99,12 +95,10 @@ pub fn add_disk_request(
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
                 error!("Add disk failed: {}", msg);
-                Err(BynarError::new(op_result.get_error_msg().into()))
+                Err(BynarError::from(op_result.get_error_msg()))
             } else {
                 error!("Add disk failed but error_msg not set");
-                Err(BynarError::new(
-                    "Add disk failed but error_msg not set".to_string(),
-                ))
+                Err(BynarError::from("Add disk failed but error_msg not set"))
             }
         }
     }
@@ -173,7 +167,7 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> 
     let op_result = parse_from_bytes::<OpBoolResult>(&safe_response)?;
     match op_result.get_result() {
         ResultType::OK => Ok(op_result.get_value()),
-        ResultType::ERR => Err(BynarError::new(op_result.get_error_msg().into())),
+        ResultType::ERR => Err(BynarError::from(op_result.get_error_msg())),
     }
 }
 
@@ -210,12 +204,10 @@ pub fn remove_disk_request(
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
                 error!("Remove disk failed: {}", msg);
-                Err(BynarError::new(op_result.get_error_msg().into()))
+                Err(BynarError::from(op_result.get_error_msg()))
             } else {
                 error!("Remove disk failed but error_msg not set");
-                Err(BynarError::new(
-                    "Remove disk failed but error_msg not set".to_string(),
-                ))
+                Err(BynarError::from("Remove disk failed but error_msg not set"))
             }
         }
     }
