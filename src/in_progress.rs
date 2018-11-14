@@ -178,6 +178,7 @@ pub fn get_outstanding_repair_tickets(conn: &Connection) -> BynarResult<Vec<Disk
     Ok(tickets)
 }
 
+/*
 pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> BynarResult<PathBuf> {
     debug!("Searching smart results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT mount_path FROM repairs where disk_path=?")?;
@@ -187,7 +188,6 @@ pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> BynarResult<Pat
     })?;
     Ok(mount_path)
 }
-/*
 pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> BynarResult<bool> {
     debug!("Searching smart results for disk: {}", dev_path.display());
     let mut stmt = conn.prepare("SELECT smart_passed FROM repairs where disk_path=?")?;
@@ -216,7 +216,6 @@ pub fn get_state(conn: &Connection, dev_path: &Path) -> BynarResult<Option<test_
 
     Ok(None)
 }
-*/
 pub fn save_mount_location(
     conn: &Connection,
     dev_path: &Path,
@@ -251,7 +250,6 @@ pub fn save_mount_location(
     Ok(())
 }
 
-/*
 pub fn save_smart_results(
     conn: &Connection,
     dev_path: &Path,
@@ -297,7 +295,7 @@ pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -
     }
     Ok(())
 }
-*/
+
 #[derive(Debug)]
 pub struct DiskInfo {
     pub disk_id: u32,
@@ -332,6 +330,7 @@ impl DiskInfo {
         self.disk_uuid = Some(disk_uuid);
     }
 }
+*/
 
 #[derive(Debug)]
 pub struct HostDetailsMapping {
@@ -523,7 +522,7 @@ pub fn update_storage_info(
         let detail_mapping = HostDetailsMapping::new(entry_id, region_id, detail_id);
         detail_mapping
     };
-    transaction.finish();
+    let _ = transaction.finish();
     Ok(host_detail_mapping)
 }
 
@@ -666,41 +665,50 @@ fn update_storage_details(conn: &Transaction, s_info: &MyHost, region_id: u32) -
 }
 
 // Inserts disk informatation record into bynar.disks and adds the disk_id to struct
-pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> BynarResult<bool> {
+pub fn add_disk_detail(
+    pool: &Pool<ConnectionManager>,
+    disk_info: &mut BlockDevice,
+) -> BynarResult<()> {
+    let conn = get_connection_from_pool(pool)?;
     let mut stmt = String::new();
-
-    match disk_info.disk_id {
-        0 => {
+    match disk_info.device_database_id {
+        None => {
             // no disk_id present, add a new record
-            stmt.push_str("INSERT INTO disks (storage_detail_id, disk_path, disk_name, mount_path");
-            if disk_info.disk_uuid.is_some() {
+            stmt.push_str("INSERT INTO devices(storage_detail_id, device_path, device_name, state");
+            if disk_info.mount_point.is_some() {
+                stmt.push_str(", mount_path");
+            }
+            if disk_info.device.id.is_some() {
                 stmt.push_str(", disk_uuid");
             }
+
             stmt.push_str(&format!(
                 ") VALUES ({}, {}, {}, {}",
                 disk_info.storage_detail_id,
-                disk_info.disk_path.to_string_lossy().into_owned(),
-                disk_info.disk_name,
-                disk_info.mount_path.to_string_lossy().into_owned()
+                disk_info.dev_path.to_string_lossy().into_owned(),
+                disk_info.device.name,
+                disk_info.state
             ));
-            if let Some(ref uuid) = disk_info.disk_uuid {
+
+            if let Some(ref mount) = disk_info.mount_point {
+                stmt.push_str(&format!(", {}", mount.display()));
+            }
+            if let Some(ref uuid) = disk_info.device.id {
                 stmt.push_str(&format!(", {}", uuid));
             }
 
-            stmt.push_str(") RETURNING disk_id");
+            stmt.push_str(") RETURNING device_id");
         }
-        _ => {
+        Some(id) => {
             // verify if all other details match, select disk_id to match with the
             // return from the insert stmt above
             stmt.push_str(&format!(
-                "SELECT disk_id FROM disks WHERE disk_id = {} AND
-                                    disk_name = {} AND disk_path = {} AND 
-                                    mounth_path = {} AND 
+                "SELECT device_id FROM disks WHERE device_id = {} AND
+                                    device_name = {} AND device_path = {} AND 
                                     storage_detail_id = {}",
-                disk_info.disk_id,
-                disk_info.disk_name,
-                disk_info.disk_path.to_string_lossy(),
-                disk_info.mount_path.to_string_lossy(),
+                id,
+                disk_info.device.name,
+                disk_info.dev_path.to_string_lossy(),
                 disk_info.storage_detail_id
             ));
         }
@@ -708,12 +716,21 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> BynarRes
     let stmt_query = conn.query(&stmt, &[])?;
 
     if let Some(result) = stmt_query.into_iter().next() {
-        let id: i32 = result.get("disk_id");
-        disk_info.set_disk_id(id as u32);
-        Ok(true)
+        let id: i32 = result.get("device_id");
+        disk_info.set_device_database_id(id as u32);
+        Ok(())
     } else {
-        error!("Failed to add disk information to database");
-        Ok(false)
+        if disk_info.device_database_id.is_some() {
+            // Information in DB didn't match what we have
+            Err(BynarError::new(format!(
+                "Information about {} for storage id {} didn't match",
+                disk_info.device.name, disk_info.storage_detail_id
+            )))
+        } else {
+            Err(BynarError::new(
+                "Failed to add device details to database".to_string(),
+            ))
+        }
     }
 }
 
@@ -912,13 +929,13 @@ pub fn save_state(
         if stmt_query != 1 {
             // Only one device should  be updated. Rollback
             transaction.set_rollback();
-            transaction.finish();
+            let _ = transaction.finish();
             Err(BynarError::new(
                 "Attempt to update more than one device in database. Rolling back.".to_string(),
             ))
         } else {
             transaction.set_commit();
-            transaction.finish();
+            let _ = transaction.finish();
             Ok(())
         }
     } else {

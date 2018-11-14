@@ -68,6 +68,12 @@ pub struct BlockDevice {
     pub storage_detail_id: u32,
 }
 
+impl BlockDevice {
+    pub fn set_device_database_id(&mut self, device_database_id: u32) {
+        self.device_database_id = Some(device_database_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate rand;
@@ -1196,7 +1202,9 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
         }).collect();
     Ok(filtered_devices)
 }
-
+/// Retrives a list of disks, and sets up a state machine on each of them.
+/// Retrives previous state and runs through the state machine and preserves
+/// the final state in the database before returning a vector of StateMachine
 pub fn check_all_disks(
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
@@ -1220,8 +1228,13 @@ pub fn check_all_disks(
     devices.extend_from_slice(&mtab_devices);
 
     // Gather info on all devices and skip Loopback devices
-    let device_info = filter_disks(&devices, storage_detail_id)?;
+    let mut device_info = filter_disks(&devices, storage_detail_id)?;
 
+    // add the filtered devices to the database.
+    // A mutable ref is needed so that the device_database_id can be set
+    for mut dev in device_info.iter_mut() {
+        add_disk_detail(pool, &mut dev)?;
+    }
     //TODO: Add nvme devices to block-utils
 
     // Create 1 state machine per Device and evaulate all devices in parallel
@@ -1252,15 +1265,8 @@ pub fn check_all_disks(
             s.setup_state_machine();
             s.block_device.state = get_state(pool, &s.block_device)?;
             s.run();
-            // Save the state after state machine finishes its run
+            // Save the state to database after state machine finishes its run
             save_state(pool, &s.block_device, &s.block_device.state)?;
-            /* TODO [SD]: Possibly serialize the state here to the database to resume later
-            if s.state == State::WaitingForReplacement {
-                info!("Connecting to database to check if block device is in progress");
-                //let block_device_path = Path::new("/dev").join(&s.block_device.device.name);
-                let conn = connect_to_repair_database(db)?;
-                let in_progress = is_block_device_in_progress(&conn, &s.block_device.dev_path)?;
-            } */
             Ok(s)
         }).collect();
 
