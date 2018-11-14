@@ -3,6 +3,8 @@ extern crate chrono;
 extern crate helpers;
 extern crate postgres;
 extern crate postgres_shared;
+extern crate r2d2;
+extern crate r2d2_postgres;
 extern crate rusqlite;
 extern crate time;
 
@@ -12,15 +14,19 @@ use self::chrono::offset::Utc;
 use self::chrono::DateTime;
 use self::helpers::{error::*, host_information::Host as MyHost};
 use self::postgres::{
-    params::ConnectParams, params::Host, Connection as pConnection, Result as pResult, TlsMode,
+    params::ConnectParams, params::Host, Connection as pConnection, Result as pResult,
 };
+use self::r2d2::{Pool, PooledConnection};
+use self::r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
 use self::rusqlite::Connection;
 use self::test_disk::{BlockDevice, State};
 use self::time::Timespec;
 use super::DBConfig;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::{Path, PathBuf};
+use std::process::id;
 use std::str::FromStr;
+use std::time::Duration;
 
 #[cfg(test)]
 mod tests {
@@ -453,8 +459,8 @@ impl OperationDetail {
     }
 }
 
-/// Reads the config file to establish a database connection
-pub fn connect_to_database(db_config: &DBConfig) -> BynarResult<pConnection> {
+/// Reads the config file to establish a pool of database connections
+pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<ConnectionManager>> {
     debug!(
         "Establishing a connection to database {} at {}:{} using {}",
         db_config.dbname, db_config.endpoint, db_config.port, db_config.username
@@ -464,28 +470,46 @@ pub fn connect_to_database(db_config: &DBConfig) -> BynarResult<pConnection> {
         .port(db_config.port)
         .database(&db_config.dbname)
         .build(Host::Tcp(db_config.endpoint.to_string()));
-    let conn = pConnection::connect(connection_params, TlsMode::None)?;
-    Ok(conn)
+    let manager = ConnectionManager::new(connection_params, TlsMode::None)?;
+    let db_pool = Pool::builder()
+        .max_size(10)
+        .connection_timeout(Duration::from_secs(300))
+        .build(manager)?;
+    Ok(db_pool)
+}
+
+/// return one connection from the pool
+pub fn get_connection_from_pool(
+    pool: &Pool<ConnectionManager>,
+) -> BynarResult<PooledConnection<ConnectionManager>> {
+    let connection = pool.get()?;
+    Ok(connection)
 }
 
 /// closes the connection. Should be called for every corresponding call
-/// to connect_to_database()
-pub fn disconnect_database(conn: pConnection) -> pResult<()> {
-    conn.finish()
+/// to get_connection_from_pool()
+pub fn drop_connection(conn: PooledConnection<ConnectionManager>) -> BynarResult<()> {
+    Ok(drop(conn))
 }
 
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
 /// TODO: return conn, entry_id, region_id, detail_id
-pub fn update_storage_info(s_info: &MyHost, pid: u32, conn: &pConnection) -> BynarResult<bool> {
+pub fn update_storage_info(s_info: &MyHost, pool: &Pool<ConnectionManager>) -> BynarResult<bool> {
     debug!("Adding datacenter and host information to database");
 
+    // Get a database connection
+    let conn = get_connection_from_pool(pool)?;
+    // get process id
+    let pid = id();
     // extract ip address to a &str
     let ip_address: String = s_info.ip.to_string();
     let entry_id = register_to_process_manager(&conn, pid, &ip_address)?;
     let region_id = update_region(&conn, &s_info.region.clone())?;
     let detail_id = update_storage_details(&conn, &s_info, region_id)?;
 
+    // Done, drop connection
+    drop(conn);
     if entry_id == 0 || region_id == 0 || detail_id == 0 {
         error!("Failed to update storage information in the database");
     } else {
@@ -859,7 +883,7 @@ pub fn add_or_update_operation_detail(
 }
 
 pub fn save_state(
-    conn: &pConnection,
+    pool: &Pool<ConnectionManager>,
     device_detail: &BlockDevice,
     state: State,
 ) -> BynarResult<()> {
@@ -867,6 +891,7 @@ pub fn save_state(
         "Saving state as {} for device {}",
         state, device_detail.device.name
     );
+    let conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
         // Device is in database, update the state. Start a transaction to roll back if needed.
@@ -903,7 +928,7 @@ pub fn save_state(
 }
 
 pub fn save_smart_result(
-    conn: &pConnection,
+    pool: &Pool<ConnectionManager>,
     device_detail: &BlockDevice,
     smart_passed: bool,
 ) -> BynarResult<()> {
@@ -911,6 +936,7 @@ pub fn save_smart_result(
         "Saving smart check result as {} for device {}",
         smart_passed, device_detail.device.name
     );
+    let conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
         // Device is in database, update smart_passed. Start a transaction to roll back if needed.
@@ -949,11 +975,16 @@ pub fn save_smart_result(
 /// Returns the state information from the database.
 /// Returns error if no record of device is found in the database.
 /// Returns the default state if state was not previously saved.
-pub fn get_state(conn: &pConnection, device_detail: &BlockDevice) -> BynarResult<State> {
+pub fn get_state(
+    pool: &Pool<ConnectionManager>,
+    device_detail: &BlockDevice,
+) -> BynarResult<State> {
     debug!(
         "Retrieving state for device {} with storage detail id {} from DB",
         device_detail.device.name, device_detail.storage_detail_id
     );
+    let conn = get_connection_from_pool(pool)?;
+
     if let Some(dev_id) = device_detail.device_database_id {
         let stmt = format!("SELECT state FROM devices WHERE device_id = {}", dev_id);
         let stmt_query = conn.query(&stmt, &[])?;
@@ -976,11 +1007,16 @@ pub fn get_state(conn: &pConnection, device_detail: &BlockDevice) -> BynarResult
 /// Returns whether smart checks have passed information from the database.
 /// Returns error if no record of device is found in the database.
 /// Returns false if not previously saved.
-pub fn get_smart_result(conn: &pConnection, device_detail: &BlockDevice) -> BynarResult<bool> {
+pub fn get_smart_result(
+    pool: &Pool<ConnectionManager>,
+    device_detail: &BlockDevice,
+) -> BynarResult<bool> {
     debug!(
         "Retrieving smart check result for device {} with storage detail id {} from DB",
         device_detail.device.name, device_detail.storage_detail_id
     );
+    let conn = get_connection_from_pool(pool)?;
+
     if let Some(dev_id) = device_detail.device_database_id {
         let stmt = format!(
             "SELECT smart_passed FROM devices WHERE device_id = {}",

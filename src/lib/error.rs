@@ -8,6 +8,8 @@ extern crate nix;
 extern crate postgres;
 extern crate protobuf;
 extern crate pwd;
+extern crate r2d2;
+extern crate r2d2_postgres;
 extern crate reqwest;
 extern crate rusqlite;
 extern crate serde_json;
@@ -24,6 +26,7 @@ use self::nix::Error as NixError;
 use self::postgres::Error as PostgresError;
 use self::protobuf::ProtobufError;
 use self::pwd::PwdError;
+use self::r2d2::Error as R2d2Error;
 use self::reqwest::Error as ReqwestError;
 use self::rusqlite::Error as SqliteError;
 use self::serde_json::Error as SerdeJsonError;
@@ -50,6 +53,7 @@ pub enum BynarError {
     PostgresError(PostgresError),
     ProtobufError(ProtobufError),
     PwdError(PwdError),
+    R2d2Error(R2d2Error),
     RadosError(RadosError),
     ReqwestError(ReqwestError),
     SerdeJsonError(SerdeJsonError),
@@ -82,6 +86,7 @@ impl err for BynarError {
                 PwdError::StringConvError(s) => &s,
                 PwdError::NullPtr => "nullptr",
             },
+            BynarError::R2d2Error(ref e) => e.description(),
             BynarError::RadosError(ref e) => e.description(),
             BynarError::ReqwestError(ref e) => e.description(),
             BynarError::SerdeJsonError(ref e) => e.description(),
@@ -104,6 +109,7 @@ impl err for BynarError {
             BynarError::PostgresError(ref e) => e.cause(),
             BynarError::ProtobufError(ref e) => e.cause(),
             BynarError::PwdError(_) => None,
+            BynarError::R2d2Error(ref e) => e.cause(),
             BynarError::RadosError(ref e) => e.cause(),
             BynarError::ReqwestError(ref e) => e.cause(),
             BynarError::SerdeJsonError(ref e) => e.cause(),
@@ -135,6 +141,7 @@ impl BynarError {
             BynarError::PostgresError(ref err) => err.to_string(),
             BynarError::ProtobufError(ref err) => err.to_string(),
             BynarError::PwdError(ref err) => err.to_string(),
+            BynarError::R2d2Error(ref e) => e.to_string(),
             BynarError::RadosError(ref err) => err.to_string(),
             BynarError::ReqwestError(ref err) => err.to_string(),
             BynarError::SerdeJsonError(ref err) => err.to_string(),
@@ -198,6 +205,12 @@ impl From<ProtobufError> for BynarError {
 impl From<PwdError> for BynarError {
     fn from(err: PwdError) -> BynarError {
         BynarError::PwdError(err)
+    }
+}
+
+impl From<R2d2Error> for BynarError {
+    fn from(err: R2d2Error) -> BynarError {
+        BynarError::R2d2Error(err)
     }
 }
 

@@ -18,7 +18,8 @@ extern crate lvm;
 #[cfg(test)]
 extern crate mocktopus;
 extern crate petgraph;
-extern crate postgres;
+extern crate r2d2;
+extern crate r2d2_postgres;
 extern crate rayon;
 extern crate rusqlite;
 extern crate tempdir;
@@ -39,7 +40,8 @@ use self::lvm::*;
 use self::mocktopus::macros::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
-use self::postgres::Connection as pConnection;
+use self::r2d2::Pool;
+use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 //use self::rusqlite::Connection;
 use self::rayon::prelude::*;
 use self::tempdir::TempDir;
@@ -187,7 +189,7 @@ mod tests {
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
-        // TODO [SD]: get_state 
+        // TODO [SD]: get_state
         s.run();
         // TODO [SD]: save_state();
         println!("final state: {}", s.state);
@@ -740,7 +742,6 @@ pub struct StateMachine {
         ) -> State,
         Directed,
     >,
-    pub state: State,
     pub disk: BlockDevice,
     // optional info of this device and optional scsi host information
     // used to determine whether this device is behind a raid controller
@@ -763,7 +764,6 @@ impl StateMachine {
         StateMachine {
             dot_graph: Vec::new(),
             graph: GraphMap::new(),
-            state: State::Unscanned,
             disk,
             scsi_info,
             simulate,
@@ -787,7 +787,7 @@ impl StateMachine {
             .push((from_state, to_state, transition_label.to_string()));
         self.graph.add_edge(from_state, to_state, callback);
     }
-    
+
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
@@ -1193,7 +1193,10 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
     Ok(filtered_devices)
 }
 
-pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResult<StateMachine>>> {
+pub fn check_all_disks(
+    host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
@@ -1240,13 +1243,12 @@ pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResu
                 }).and_then(|r| Some(r.clone()));
             debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
             debug!("thread {} device: {:?}", process::id(), device);
-            let conn = connect_to_repair_database(db)?;
             let mut s = StateMachine::new(device, scsi_info, false);
             s.setup_state_machine();
-            s.state = get_state(pconn, &device)?;
+            s.state = get_state(pool, &s.disk)?;
             s.run();
             // Save the state after state machine finishes its run
-            save_state(pconn, &device, s.state)?;
+            save_state(pool, &s.disk, s.state)?;
             /* TODO [SD]: Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
                 info!("Connecting to database to check if disk is in progress");

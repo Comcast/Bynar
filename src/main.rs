@@ -16,7 +16,8 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
-extern crate postgres;
+extern crate r2d2;
+extern crate r2d2_postgres;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -29,17 +30,17 @@ mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 
+use self::r2d2::Pool;
+use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
-use in_progress::{connect_to_database, disconnect_database, update_storage_info};
-use postgres::Connection;
+use in_progress::{create_db_connection_pool, update_storage_info};
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
-use std::process::id;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -115,7 +116,7 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
-    pconn: &Connection,
+    pool: &Pool<ConnectionManager>,
     simulate: bool,
 ) -> BynarResult<()> {
     let public_key = get_public_key(config, &host_info)?;
@@ -133,7 +134,7 @@ fn check_for_failed_disks(
 
     info!("Checking all drives");
     let conn = in_progress::connect_to_repair_database(&config_location)?;
-    for result in test_disk::check_all_disks(&config_location, &host_info, pconn)? {
+    for result in test_disk::check_all_disks(&host_info, pool)? {
         match result {
             Ok(state) => {
                 info!("Disk status: /dev/{} {:?}", state.disk.device.name, state);
@@ -386,24 +387,25 @@ fn main() {
         return;
     }
     let config: ConfigSettings = config.expect("Failed to load config");
-    match connect_to_database(&config.database) {
-        Err(e) => {
-            error!("Failed to connect to database {}", e);
-        }
-        Ok(conn) => {
-            // successfully connected to DB to track operations, update information
-            // TODO: When merged with sqllite3, program stops if connect_to_database() fails
-            let pid = id();
-            match update_storage_info(&host_info, pid, &conn) {
-                Err(e) => {
-                    error!("Failed to update information in tracking database {}", e);
-                }
-                _ => {
-                    info!("Host information added to database");
-                }
-            };
 
-    match check_for_failed_disks(&config, &host_info, &conn, simulate) {
+    let db_pool = create_db_connection_pool(&config.database);
+    if db_pool.is_err() {
+        // TODO: return if cannot create a database pool
+        error!("Failed to create databse pool");
+    }
+    let db_pool = db_pool.expect("Failed to create database pool");
+
+    // Successfully opened a a database pool. Update information about host
+    match update_storage_info(&host_info, &db_pool) {
+        Err(e) => {
+            error!("Failed to update information in tracking database {}", e);
+        }
+        _ => {
+            info!("Host information added to database");
+        }
+    };
+
+    match check_for_failed_disks(&config, &host_info, &db_pool, simulate) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
@@ -419,9 +421,4 @@ fn main() {
             info!("Add repaired disks completed");
         }
     };
-
-    // disconnect from database
-            let _ = disconnect_database(conn);
-        }
-    }
 }
