@@ -791,7 +791,11 @@ impl StateMachine {
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
-        debug!("thread {} Starting state: {}", process::id(), self.block_device.state);
+        debug!(
+            "thread {} Starting state: {}",
+            process::id(),
+            self.block_device.state
+        );
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(
@@ -1123,7 +1127,7 @@ enum Fsck {
     Corrupt,
 }
 
-fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
+fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<BlockDevice>> {
     // Gather info on all devices and skip Loopback devices
     let devices = block_utils::get_all_device_info(&devices)?;
     let block_devices: Vec<BlockDevice> = devices
@@ -1155,7 +1159,7 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
                 partitions,
                 scsi_info: ScsiInfo::default(),
                 state: State::Unscanned,
-                storage_detail_id: 0,
+                storage_detail_id: storage_detail_id,
             }
         }).collect();
     let filtered_devices: Vec<BlockDevice> = block_devices
@@ -1196,6 +1200,7 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
 pub fn check_all_disks(
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
+    storage_detail_id: u32,
 ) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
@@ -1215,7 +1220,7 @@ pub fn check_all_disks(
     devices.extend_from_slice(&mtab_devices);
 
     // Gather info on all devices and skip Loopback devices
-    let device_info = filter_disks(&devices)?;
+    let device_info = filter_disks(&devices, storage_detail_id)?;
 
     //TODO: Add nvme devices to block-utils
 

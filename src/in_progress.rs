@@ -14,7 +14,7 @@ use self::chrono::offset::Utc;
 use self::chrono::DateTime;
 use self::helpers::{error::*, host_information::Host as MyHost};
 use self::postgres::{
-    params::ConnectParams, params::Host, Connection as pConnection, Result as pResult,
+    params::ConnectParams, params::Host, transaction::Transaction, Connection as pConnection,
 };
 use self::r2d2::{Pool, PooledConnection};
 use self::r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
@@ -486,6 +486,7 @@ pub fn get_connection_from_pool(
     Ok(connection)
 }
 
+/// TODO: figure out if is needed.
 /// closes the connection. Should be called for every corresponding call
 /// to get_connection_from_pool()
 pub fn drop_connection(conn: PooledConnection<ConnectionManager>) -> BynarResult<()> {
@@ -495,31 +496,41 @@ pub fn drop_connection(conn: PooledConnection<ConnectionManager>) -> BynarResult
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
 /// TODO: return conn, entry_id, region_id, detail_id
-pub fn update_storage_info(s_info: &MyHost, pool: &Pool<ConnectionManager>) -> BynarResult<bool> {
+pub fn update_storage_info(
+    s_info: &MyHost,
+    pool: &Pool<ConnectionManager>,
+) -> BynarResult<HostDetailsMapping> {
     debug!("Adding datacenter and host information to database");
 
     // Get a database connection
     let conn = get_connection_from_pool(pool)?;
-    // get process id
-    let pid = id();
     // extract ip address to a &str
     let ip_address: String = s_info.ip.to_string();
-    let entry_id = register_to_process_manager(&conn, pid, &ip_address)?;
-    let region_id = update_region(&conn, &s_info.region.clone())?;
-    let detail_id = update_storage_details(&conn, &s_info, region_id)?;
 
-    // Done, drop connection
-    drop(conn);
-    if entry_id == 0 || region_id == 0 || detail_id == 0 {
+    // Do all these three in a transaction, rolls back by default.
+    let transaction = conn.transaction()?;
+    let entry_id = register_to_process_manager(&transaction, &ip_address)?;
+    let region_id = update_region(&transaction, &s_info.region.clone())?;
+    let detail_id = update_storage_details(&transaction, &s_info, region_id)?;
+
+    let host_detail_mapping = if entry_id == 0 || region_id == 0 || detail_id == 0 {
         error!("Failed to update storage information in the database");
+        return Err(BynarError::new(
+            "Failed to update storage information in the database".to_string(),
+        ));
     } else {
-        // TODO: Add entry, region_id and storage_id to bynar_operations table
-    }
-    Ok(true)
+        transaction.set_commit();
+        let detail_mapping = HostDetailsMapping::new(entry_id, region_id, detail_id);
+        detail_mapping
+    };
+    transaction.finish();
+    Ok(host_detail_mapping)
 }
 
 /// responsible to store the pid, ip of the system on which bynar is running
-fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResult<u32> {
+fn register_to_process_manager(conn: &Transaction, ip: &str) -> BynarResult<u32> {
+    // get process id
+    let pid = id();
     debug!("Adding daemon details with pid {} to process manager", pid);
     let mut entry_id: u32 = 0;
     let stmt = format!(
@@ -528,24 +539,16 @@ fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResul
         pid, &ip
     );
     let stmt_query = conn.query(&stmt, &[])?;
-    if let Some(_r) = stmt_query.into_iter().next() {
+    if let Some(row) = stmt_query.into_iter().next() {
         // entry exists for this ip with this pid. Update status
+        let r: i32 = row.get("entry_id");
         let update_stmt = format!(
             "UPDATE process_manager SET status='idle'
            WHERE pid={} AND ip='{}'",
             pid, &ip
         );
         conn.execute(&update_stmt, &[])?;
-        let select_stmt = format!(
-            "SELECT entry_id FROM process_manager WHERE pid
-        = {} AND ip = '{}'",
-            pid, &ip
-        );
-        let select_stmt_query = conn.query(&select_stmt, &[])?;
-        if let Some(r) = select_stmt_query.into_iter().next() {
-            let e: i32 = r.get("entry_id");
-            entry_id = e as u32;
-        }
+        entry_id = r as u32;
     } else {
         // does not exist, insert
         let insert_stmt = format!(
@@ -563,14 +566,14 @@ fn register_to_process_manager(conn: &pConnection, pid: u32, ip: &str) -> pResul
 }
 
 /// Responsible to de-register itself when daemon exists
-pub fn deregister_from_process_manager() -> pResult<()> {
+pub fn deregister_from_process_manager() -> BynarResult<()> {
     // DELETE FROM process_manager WHERE IP=<>
     Ok(())
 }
 
 // Checks for the region in the database, inserts if it does not exist
 // and returns the region_id
-fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
+fn update_region(conn: &Transaction, region: &str) -> BynarResult<u32> {
     let stmt = format!(
         "SELECT region_id FROM regions WHERE region_name = '{}'",
         region
@@ -600,7 +603,7 @@ fn update_region(conn: &pConnection, region: &str) -> pResult<u32> {
     Ok(region_id)
 }
 
-fn update_storage_details(conn: &pConnection, s_info: &MyHost, region_id: u32) -> pResult<u32> {
+fn update_storage_details(conn: &Transaction, s_info: &MyHost, region_id: u32) -> BynarResult<u32> {
     let stmt = format!(
         "SELECT storage_id FROM storage_types WHERE storage_type='{}'",
         s_info.storage_type
@@ -663,7 +666,7 @@ fn update_storage_details(conn: &pConnection, s_info: &MyHost, region_id: u32) -
 }
 
 // Inserts disk informatation record into bynar.disks and adds the disk_id to struct
-pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<bool> {
+pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> BynarResult<bool> {
     let mut stmt = String::new();
 
     match disk_info.disk_id {
@@ -716,7 +719,7 @@ pub fn add_disk_detail(conn: &pConnection, disk_info: &mut DiskInfo) -> pResult<
 
 // inserts the operation record and returns the operation_id
 // If updating, performs the query and returns the given operation_id if successful update
-pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> pResult<u32> {
+pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> BynarResult<u32> {
     let mut op_id: u32 = 0;
     let mut stmt = String::new();
 
@@ -795,7 +798,7 @@ pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> p
 pub fn add_or_update_operation_detail(
     conn: &pConnection,
     operation_detail: &mut OperationDetail,
-) -> pResult<bool> {
+) -> BynarResult<bool> {
     let mut stmt = String::new();
     let mut insert = false;
     match operation_detail.op_detail_id {

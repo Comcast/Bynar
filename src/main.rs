@@ -36,7 +36,7 @@ use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
-use in_progress::{create_db_connection_pool, update_storage_info};
+use in_progress::{create_db_connection_pool, update_storage_info, HostDetailsMapping};
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
@@ -117,6 +117,7 @@ fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
+    storage_detail_id: u32,
     simulate: bool,
 ) -> BynarResult<()> {
     let public_key = get_public_key(config, &host_info)?;
@@ -134,10 +135,13 @@ fn check_for_failed_disks(
 
     info!("Checking all drives");
     let conn = in_progress::connect_to_repair_database(&config_location)?;
-    for result in test_disk::check_all_disks(&host_info, pool)? {
+    for result in test_disk::check_all_disks(&host_info, pool, storage_detail_id)? {
         match result {
             Ok(state_machine) => {
-                info!("Disk status: /dev/{} {:?}", state_machine.block_device.device.name, state_machine);
+                info!(
+                    "Disk status: /dev/{} {:?}",
+                    state_machine.block_device.device.name, state_machine
+                );
                 let mut dev_path = PathBuf::from("/dev");
                 dev_path.push(state_machine.block_device.device.name);
 
@@ -388,24 +392,34 @@ fn main() {
     }
     let config: ConfigSettings = config.expect("Failed to load config");
 
-    let db_pool = create_db_connection_pool(&config.database);
-    if db_pool.is_err() {
-        // TODO: return if cannot create a database pool
-        error!("Failed to create databse pool");
-    }
-    let db_pool = db_pool.expect("Failed to create database pool");
+    let db_pool = match create_db_connection_pool(&config.database) {
+        Err(e) => {
+            error!("Failed to create database pool");
+            return;
+        }
+        Ok(p) => p,
+    };
 
     // Successfully opened a a database pool. Update information about host
-    match update_storage_info(&host_info, &db_pool) {
+    let host_details_mapping: HostDetailsMapping = match update_storage_info(&host_info, &db_pool) {
         Err(e) => {
             error!("Failed to update information in tracking database {}", e);
+            // TODO [SD]: return if cannot update.
+            return;
         }
-        _ => {
+        Ok(d) => {
             info!("Host information added to database");
+            d
         }
     };
 
-    match check_for_failed_disks(&config, &host_info, &db_pool, simulate) {
+    match check_for_failed_disks(
+        &config,
+        &host_info,
+        &db_pool,
+        host_details_mapping.storage_detail_id,
+        simulate,
+    ) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
