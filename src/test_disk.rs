@@ -742,7 +742,7 @@ pub struct StateMachine {
         ) -> State,
         Directed,
     >,
-    pub disk: BlockDevice,
+    pub block_device: BlockDevice,
     // optional info of this device and optional scsi host information
     // used to determine whether this device is behind a raid controller
     pub scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
@@ -751,20 +751,20 @@ pub struct StateMachine {
 
 impl fmt::Debug for StateMachine {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.state)
+        write!(f, "{:?}", self.block_device)
     }
 }
 
 impl StateMachine {
     fn new(
-        disk: BlockDevice,
+        block_device: BlockDevice,
         scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
         simulate: bool,
     ) -> Self {
         StateMachine {
             dot_graph: Vec::new(),
             graph: GraphMap::new(),
-            disk,
+            block_device,
             scsi_info,
             simulate,
         }
@@ -791,7 +791,7 @@ impl StateMachine {
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
-        debug!("thread {} Starting state: {}", process::id(), self.state);
+        debug!("thread {} Starting state: {}", process::id(), self.block_device.state);
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(
@@ -803,10 +803,10 @@ impl StateMachine {
                     scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
                     simulate: bool,
                 ) -> State,
-            )> = self.graph.edges(self.state).collect();
+            )> = self.graph.edges(self.block_device.state).collect();
             // Some states have multiple paths they could go down.
             // If the state transition returns State::Fail try the next path
-            let beginning_state = self.state;
+            let beginning_state = self.block_device.state;
             for e in edges {
                 debug!(
                     "thread {} Attempting {} to {} transition",
@@ -814,7 +814,7 @@ impl StateMachine {
                     &e.0,
                     &e.1
                 );
-                let state = e.2(&e.1, &mut self.disk, &self.scsi_info, self.simulate);
+                let state = e.2(&e.1, &mut self.block_device, &self.scsi_info, self.simulate);
                 if state == State::Fail {
                     // Try the next transition if there is one
                     debug!(
@@ -829,30 +829,30 @@ impl StateMachine {
                         "thread {} state==State::WaitingForReplacement",
                         process::id()
                     );
-                    self.state = state;
+                    self.block_device.state = state;
                     break 'outer;
                 } else if state == State::Good {
                     debug!("thread {} state==State::Good", process::id());
-                    self.state = state;
+                    self.block_device.state = state;
                     break 'outer;
                 }
                 // transition succeeded.  Save state and go around the loop again
                 // This won't detect if the transitions return something unexpected
                 if state == e.1 {
                     debug!("thread {} state==e.1 {}=={}", process::id(), state, e.1);
-                    self.state = state;
+                    self.block_device.state = state;
                     break;
                 }
             }
             // At this point we should've advanced further.  If not then we're stuck in an infinite loop
             // Note this won't detect more complicated infinite loops where it changes through 2 states
             // before ending back around again.
-            if self.state == beginning_state {
+            if self.block_device.state == beginning_state {
                 // We're stuck in an infinite loop we can't advance further from
                 debug!(
-                    "thread {} Breaking loop: {}=={}",
+                    "thread {} Breaking loop: stuck in same state {}=={}",
                     process::id(),
-                    self.state,
+                    self.block_device.state,
                     beginning_state
                 );
                 break 'outer;
@@ -1245,16 +1245,16 @@ pub fn check_all_disks(
             debug!("thread {} device: {:?}", process::id(), device);
             let mut s = StateMachine::new(device, scsi_info, false);
             s.setup_state_machine();
-            s.state = get_state(pool, &s.disk)?;
+            s.block_device.state = get_state(pool, &s.block_device)?;
             s.run();
             // Save the state after state machine finishes its run
-            save_state(pool, &s.disk, s.state)?;
+            save_state(pool, &s.block_device, &s.block_device.state)?;
             /* TODO [SD]: Possibly serialize the state here to the database to resume later
             if s.state == State::WaitingForReplacement {
-                info!("Connecting to database to check if disk is in progress");
-                //let disk_path = Path::new("/dev").join(&s.disk.device.name);
+                info!("Connecting to database to check if block device is in progress");
+                //let block_device_path = Path::new("/dev").join(&s.block_device.device.name);
                 let conn = connect_to_repair_database(db)?;
-                let in_progress = is_disk_in_progress(&conn, &s.disk.dev_path)?;
+                let in_progress = is_block_device_in_progress(&conn, &s.block_device.dev_path)?;
             } */
             Ok(s)
         }).collect();

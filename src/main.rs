@@ -136,14 +136,14 @@ fn check_for_failed_disks(
     let conn = in_progress::connect_to_repair_database(&config_location)?;
     for result in test_disk::check_all_disks(&host_info, pool)? {
         match result {
-            Ok(state) => {
-                info!("Disk status: /dev/{} {:?}", state.disk.device.name, state);
+            Ok(state_machine) => {
+                info!("Disk status: /dev/{} {:?}", state_machine.block_device.device.name, state_machine);
                 let mut dev_path = PathBuf::from("/dev");
-                dev_path.push(state.disk.device.name);
+                dev_path.push(state_machine.block_device.device.name);
 
-                if state.state == State::WaitingForReplacement {
+                if state_machine.block_device.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = state.disk.device.serial_number {
+                    if let Some(serial) = state_machine.block_device.device.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
@@ -226,7 +226,7 @@ fn check_for_failed_disks(
                         }
                     }
                 // Handle the ones that ended up stuck in Fail
-                } else if state.state == State::Fail {
+                } else if state_machine.block_device.state == State::Fail {
                     error!("Disk {} ended in a Fail state", dev_path.display(),);
                 } else {
                     // The rest should be State::Good ?

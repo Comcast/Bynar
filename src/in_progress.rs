@@ -885,7 +885,7 @@ pub fn add_or_update_operation_detail(
 pub fn save_state(
     pool: &Pool<ConnectionManager>,
     device_detail: &BlockDevice,
-    state: State,
+    state: &State,
 ) -> BynarResult<()> {
     debug!(
         "Saving state as {} for device {}",
@@ -954,13 +954,13 @@ pub fn save_smart_result(
         if stmt_query != 1 {
             // Only one device should  be updated. Rollback
             transaction.set_rollback();
-            transaction.finish();
+            transaction.finish()?;
             Err(BynarError::new(
                 "Attempt to update more than one device in database. Rolling back.".to_string(),
             ))
         } else {
             transaction.set_commit();
-            transaction.finish();
+            transaction.finish()?;
             Ok(())
         }
     } else {
