@@ -351,8 +351,8 @@ impl HostDetailsMapping {
 #[derive(Debug)]
 pub struct OperationInfo {
     pub operation_id: Option<u32>,
-    pub host_details: HostDetailsMapping,
-    pub disk_id: u32,
+    pub entry_id: u32,
+    pub device_id: u32,
     pub behalf_of: Option<String>,
     pub reason: Option<String>,
     pub start_time: DateTime<Utc>,
@@ -361,11 +361,11 @@ pub struct OperationInfo {
 }
 
 impl OperationInfo {
-    fn new(host_details: HostDetailsMapping, disk_id: u32) -> OperationInfo {
+    fn new(entry_id: u32, device_id: u32) -> OperationInfo {
         OperationInfo {
             operation_id: None,
-            host_details,
-            disk_id,
+            entry_id,
+            device_id,
             behalf_of: None,
             reason: None,
             start_time: Utc::now(),
@@ -515,7 +515,6 @@ pub fn update_storage_info(
     let detail_id = update_storage_details(&transaction, &s_info, region_id)?;
 
     let host_detail_mapping = if entry_id == 0 || region_id == 0 || detail_id == 0 {
-        error!("Failed to update storage information in the database");
         return Err(BynarError::new(
             "Failed to update storage information in the database".to_string(),
         ));
@@ -745,19 +744,13 @@ pub fn add_or_update_operation(pool: &Pool<ConnectionManager>, op_info: &mut Ope
     match op_info.operation_id {
         None => {
             // no operation_id, validate new record input
-            let host_info: &HostDetailsMapping = &op_info.host_details;
-            if host_info.region_id == 0
-                || host_info.entry_id == 0
-                || host_info.storage_detail_id == 0
+            if op_info.entry_id == 0
             {   
-
-                return Err(BynarError::new("Required region_id, storage_detail_id, entry_id".to_string()));
+                return Err(BynarError::new("A process tracking ID is required and is missing".to_string()));
             }
             stmt.push_str(
                 "INSERT INTO operations (
-                                    region_id, storage_detail_id, entry_id
-                                    start_time, disk_id",
-            );
+                                    entry_id, start_time, device_id");
 
             if op_info.behalf_of.is_some() {
                 stmt.push_str(", behalf_of");
@@ -769,12 +762,10 @@ pub fn add_or_update_operation(pool: &Pool<ConnectionManager>, op_info: &mut Ope
             stmt.push_str(")");
 
             stmt.push_str(&format!(
-                " VALUES ({},{},{},{}, {}",
-                host_info.region_id,
-                host_info.storage_detail_id,
-                host_info.entry_id,
+                " VALUES ({},{}, {}",
+                op_info.entry_id,
                 op_info.start_time,
-                op_info.disk_id
+                op_info.device_id
             ));
 
             if let Some(ref behalf_of) = op_info.behalf_of {
@@ -829,7 +820,7 @@ pub fn add_or_update_operation_detail(
             // insert new detail record
             let stmt2 = format!(
                 "SELECT type_id FROM operation_types WHERE
-                                op_name={}",
+                                op_name='{}'",
                 operation_detail.op_type
             );
             let stmt_query = conn.query(&stmt2, &[])?;
@@ -854,7 +845,7 @@ pub fn add_or_update_operation_detail(
             }
 
             stmt.push_str(&format!(
-                " ) VALUES ({}, {}, {}, {}, {}",
+                " ) VALUES ({}, {}, '{}', {}, {}",
                 operation_detail.operation_id,
                 type_id,
                 operation_detail.status,
@@ -875,7 +866,7 @@ pub fn add_or_update_operation_detail(
             // Only tracking_id, snapshot_time, done_time and status are update-able
             stmt.push_str(&format!(
                 "UPDATE operation_details SET (snapshot_time = {}, 
-                            status = {}",
+                            status = '{}'",
                 operation_detail.snapshot_time, operation_detail.status
             ));
             if let Some(t_id) = operation_detail.tracking_id {
@@ -1068,3 +1059,33 @@ pub fn get_smart_result(
         )))
     }
 }
+/*
+/// Get a list of ticket IDs (JIRA/other ids) for the given host 
+/// that are pending in op_type=waitForReplacement
+pub fn get_outstanding_tickets(pool: &Pool<ConnectionManager>, host_mapping: &HostDetailsMapping) -> BynarResult<()> {
+    let conn = get_connection_from_pool(pool)?;
+    let mut stmt = format!("SELECT operation_id FROM operations AS op
+    WHERE op.entry_id = {} AND op.storage_detail_id = {} AND op.region_id = {}", host_mapping.entry_id, host_mapping.region_id, 
+    host_mapping.storage_detail_id);
+    let mut stmt_query = conn.query(&stmt, &[])?;
+    if stmt_query.is_empty() {
+        // no row returned. Ideally, there should be atleast one row
+        return Err(BynarError::new("No operations were tracked for this host {:?}", host_mapping));
+    }
+    let row = stmt_query.get(0);
+    let operation_id = row.get("operation_id");
+
+    // for the above operation_id, get records from operation_details 
+    // where type=WaitForReplacement and status = pending or in_progress
+    stmt = format!("SELECT tracking_id FROM operation_details WHERE operation_id = {} AND (status = '{}' OR status = '{}') AND type_id = 
+    (SELECT type_id FROM operation_types WHERE op_name= '{}')", operation_id, OperationStatus::InProgress, OperationStatus::Pending,
+    OperationType::WaitForReplacement);
+
+    stmt_query = conn.query(&stmt, &[])?;
+    if stmt_query.is_empty() {
+        debug!("No pending or in-progress tickets for this host{:?}", host_mapping);
+    } else {
+        debug!("{} pending tickets for host {:?}", stmt_query.len(), host_mapping);
+        
+    }
+} */
