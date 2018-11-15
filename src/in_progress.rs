@@ -14,8 +14,7 @@ use self::chrono::offset::Utc;
 use self::chrono::DateTime;
 use self::helpers::{error::*, host_information::Host as MyHost};
 use self::postgres::{
-    params::ConnectParams, params::Host, transaction::Transaction, Connection as pConnection,
-};
+    params::ConnectParams, params::Host, transaction::Transaction};
 use self::r2d2::{Pool, PooledConnection};
 use self::r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
 use self::rusqlite::Connection;
@@ -23,7 +22,7 @@ use self::test_disk::{BlockDevice, State};
 use self::time::Timespec;
 use super::DBConfig;
 use std::fmt::{Display, Formatter, Result as fResult};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::process::id;
 use std::str::FromStr;
 use std::time::Duration;
@@ -351,7 +350,7 @@ impl HostDetailsMapping {
 
 #[derive(Debug)]
 pub struct OperationInfo {
-    pub operation_id: u32,
+    pub operation_id: Option<u32>,
     pub host_details: HostDetailsMapping,
     pub disk_id: u32,
     pub behalf_of: Option<String>,
@@ -364,7 +363,7 @@ pub struct OperationInfo {
 impl OperationInfo {
     fn new(host_details: HostDetailsMapping, disk_id: u32) -> OperationInfo {
         OperationInfo {
-            operation_id: 0,
+            operation_id: None,
             host_details,
             disk_id,
             behalf_of: None,
@@ -373,6 +372,9 @@ impl OperationInfo {
             snapshot_time: Utc::now(),
             done_time: None,
         }
+    }
+    fn set_operation_id(&mut self, op_id: u32) {
+        self.operation_id = Some(op_id);
     }
 }
 
@@ -418,7 +420,7 @@ impl Display for OperationStatus {
 
 #[derive(Debug)]
 pub struct OperationDetail {
-    pub op_detail_id: u32,
+    pub op_detail_id: Option<u32>,
     pub operation_id: u32,
     pub op_type: OperationType,
     pub status: OperationStatus,
@@ -431,7 +433,7 @@ pub struct OperationDetail {
 impl OperationDetail {
     fn new(operation_id: u32, op_type: OperationType) -> OperationDetail {
         OperationDetail {
-            op_detail_id: 0,
+            op_detail_id: None,
             operation_id,
             op_type,
             status: OperationStatus::Pending,
@@ -442,7 +444,7 @@ impl OperationDetail {
         }
     }
     fn set_operation_detail_id(&mut self, op_detail_id: u32) {
-        self.op_detail_id = op_detail_id;
+        self.op_detail_id = Some(op_detail_id);
     }
 
     fn set_tracking_id(&mut self, tracking_id: u32) {
@@ -734,22 +736,22 @@ pub fn add_disk_detail(
     }
 }
 
-// inserts the operation record and returns the operation_id
-// If updating, performs the query and returns the given operation_id if successful update
-pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> BynarResult<u32> {
-    let mut op_id: u32 = 0;
+// inserts the operation record. If successful insert, the provided input op_info
+// is modified. Returns error if insert or update fails.
+pub fn add_or_update_operation(pool: &Pool<ConnectionManager>, op_info: &mut OperationInfo) -> BynarResult<()> {
     let mut stmt = String::new();
 
+    let conn = get_connection_from_pool(pool)?;
     match op_info.operation_id {
-        0 => {
+        None => {
             // no operation_id, validate new record input
             let host_info: &HostDetailsMapping = &op_info.host_details;
             if host_info.region_id == 0
                 || host_info.entry_id == 0
                 || host_info.storage_detail_id == 0
-            {
-                error!("Required region_id, storage_detail_id, entry_id");
-                return Ok(0);
+            {   
+
+                return Err(BynarError::new("Required region_id, storage_detail_id, entry_id".to_string()));
             }
             stmt.push_str(
                 "INSERT INTO operations (
@@ -781,10 +783,9 @@ pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> B
             if let Some(ref reason) = op_info.reason {
                 stmt.push_str(&format!(", {}", reason));
             }
-
             stmt.push_str(") RETURNING operation_id");
         }
-        _ => {
+        Some(id) => {
             // update existing record. Only snapshot_time and done_time
             // can be updated.
             stmt.push_str(&format!(
@@ -795,47 +796,52 @@ pub fn add_or_update_operation(conn: &pConnection, op_info: &OperationInfo) -> B
             if let Some(d_time) = op_info.done_time {
                 stmt.push_str(&format!(", done_time = {}", d_time));
             }
-            stmt.push_str(&format!(") WHERE operation_id = {}", op_info.operation_id));
-
-            op_id = op_info.operation_id;
+            stmt.push_str(&format!(") WHERE operation_id = {}", id));
         }
     }
     let stmt_query = conn.query(&stmt, &[])?;
-    if let Some(result) = stmt_query.into_iter().next() {
-        let id: i32 = result.get("operation_id");
-        op_id = id as u32;
-    } else {
-        // failed to insert
-        error!("Failed to update operation to database");
+    match op_info.operation_id {
+        None => {
+            // insert
+            if let Some(row) = stmt_query.into_iter().next() {
+                let oid: i32 = row.get("operation_id");
+                op_info.set_operation_id(oid as u32);
+                Ok(())
+            } else {
+                Err(BynarError::new("Query to insert operation into DB failed".to_string()))           
+            }
+        },
+        Some(_) => {
+            // update. even if query to update failed that's fine.
+            Ok(())
+        }
     }
-
-    Ok(op_id)
 }
 
 pub fn add_or_update_operation_detail(
-    conn: &pConnection,
+    pool: &Pool<ConnectionManager>,
     operation_detail: &mut OperationDetail,
-) -> BynarResult<bool> {
+) -> BynarResult<()> {
+    let conn = get_connection_from_pool(pool)?;
     let mut stmt = String::new();
-    let mut insert = false;
     match operation_detail.op_detail_id {
-        0 => {
+        None => {
             // insert new detail record
-            let mut type_id = 0;
             let stmt2 = format!(
                 "SELECT type_id FROM operation_types WHERE
                                 op_name={}",
                 operation_detail.op_type
             );
             let stmt_query = conn.query(&stmt2, &[])?;
-            if let Some(result) = stmt_query.into_iter().next() {
-                type_id = result.get("type_id")
+            if stmt_query.len() != 1 {
+                return Err(BynarError::new(format!("More than one record found in database for operation {}", operation_detail.op_type)));
             }
+            if stmt_query.is_empty() {
+                return Err(BynarError::new(format!("No record in database for operation {}", operation_detail.op_type)));
+            }
+            let row = stmt_query.get(0);
+            let type_id:u32 = row.get("type_id");
 
-            if type_id == 0 {
-                error!("Failed to retrieve operation type ID");
-                return Ok(false);
-            }
             stmt.push_str(
                 "INSERT INTO operation_details (operation_id, type_id,
                             status, start_time, snapshot_time",
@@ -863,9 +869,8 @@ pub fn add_or_update_operation_detail(
                 stmt.push_str(&format!(", {}", done_time));
             }
             stmt.push_str(") RETURNING operation_detail_id");
-            insert = true;
         }
-        _ => {
+        Some(id) => {
             // update existing detail record.
             // Only tracking_id, snapshot_time, done_time and status are update-able
             stmt.push_str(&format!(
@@ -881,24 +886,27 @@ pub fn add_or_update_operation_detail(
             }
             stmt.push_str(&format!(
                 ") WHERE operation_detail_id = {}",
-                operation_detail.op_detail_id
+                id
             ));
         }
     }
 
     let stmt_query = conn.query(&stmt, &[])?;
-    if insert {
-        if let Some(result) = stmt_query.into_iter().next() {
-            let id: i32 = result.get("operation_detail_id");
-            operation_detail.set_operation_detail_id(id as u32);
-            Ok(true)
-        } else {
-            // failed to insert
-            error!("Failed to add operation detail to database");
-            Ok(false)
+    match operation_detail.op_detail_id {
+        None => {
+            // insert.
+            if let Some(row) = stmt_query.into_iter().next() {
+                let oid: i32 = row.get("operation_detail_id");
+                operation_detail.set_operation_detail_id(oid as u32);
+                Ok(())
+            } else {
+                Err(BynarError::new("Query to insert operation detail into database failed".to_string()))           
+            }
+        },
+        Some(_) => {
+            // update. even if query to update failed that's fine.
+            Ok(())
         }
-    } else {
-        Ok(true)
     }
 }
 
