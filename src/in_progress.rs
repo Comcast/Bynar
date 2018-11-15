@@ -35,6 +35,8 @@ mod tests {
     use simplelog::{Config, TermLogger};
     use std::path::Path;
     use std::process::id;
+    use super::test_disk::uuid::Uuid;
+    use super::test_disk::*;
     use ConfigSettings;
 
     #[test]
@@ -63,28 +65,92 @@ mod tests {
     }
 
     #[test]
-    fn test_update_storage_info() {
+    fn test_db_apis() {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
         let config_dir = Path::new("/newDevice/tests/");
         let config: ConfigSettings =
             super::helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
         let db_config = config.database;
-        let conn: super::pConnection = super::connect_to_database(&db_config).unwrap();
+        let pool = super::create_db_connection_pool(&db_config).unwrap();
 
-        let pid = id();
         let info = super::MyHost::new().unwrap();
-        let result = super::update_storage_info(&info, pid, &conn).expect(
+        let result = super::update_storage_info(&info, &pool).expect(
             "Failed to update
                 storage details",
         );
-
         println!("Successfully updated storage details");
-        assert!(result);
+        println!("host details mapping {:#?}",result); 
 
-        // close database connection
-        super::disconnect_database(conn).expect("failed to close DB connection");
+        // create fake device        
+        let drive_uuid = Uuid::new();
+        let dev_name = format!("some_path-{}", drive_uuid);
+        let path = format!("/some/{}",dev_name);
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: drive_uuid,
+                name: dev_name,
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(path),
+            device_database_id: None,
+            mount_point: None,
+            partitions: vec![],
+            scsi_info: super::test_disk::ScsiInfo::default(),
+            state: super::test_disk::State::Unscanned,
+            storage_detail_id: result.storage_detail_id,
+        };
+
+        let disk_result = add_disk_detail(pool, &mut d).unwrap();
+
+        let mut op_info = OperationInfo::new(result.entry_id, d.device_database_id).unwrap();
+        // Add operation
+        let op_result = add_or_update_operation(pool, &mut op_info).unwrap();
+        
+        // call add_disk_detail again for same device
+        let disk_result2 = add_disk_detail(pool, &mut d).unwrap();
+
+        // now update operation
+        op_info.set_snapshot_time(Utc::now());
+        let op_result2 = add_or_update_operation(pool, &mut op_info).unwrap();
+        // update again with done_time
+        op_info.set_done_time(UTc::now());
+        let op_result2 = add_or_update_operation(pool, &mut op_info).unwrap();
+
+        // Add operation_details
+        let op_detail = OperationDetail::new(op_info.operation_id, OperationType::Evaluation);
+        let detail_result = add_or_update_operation_detail(pol, &mut op_detail);
+        // Update status 
+        op_detail.set_operation_status(OperationStatus::InProgress);
+        let detail_result = add_or_update_operation_detail(pol, &mut op_detail);
+
+        // Add another sub-operation
+        let op_detail2 = OperationDetail::new(op_info.operation_id, OperationType::WaitForReplacement);
+        op_detail2.set_operation_status(OperationStatus::InProgress);
+        //update ticket_id
+        op_detail.set_tracking_id("ABC-1234".to_string());
+        let detail_result = add_or_update_operation_detail(pol, &mut op_detail2);
+
+        // update first sub-operation as complete
+        op_detail.set_operation_status(OperationStatus::Complete);
+        op_detail.set_done_time(Utc::now());
+        let detail_result = add_or_update_operation_detail(pol, &mut op_detail);
+
+        // get device state from db
+        let state = get_state(pool, &d);
+        println!("State for dev name {} is {:#?}", d.device.name, state);
+
+        let state_result = save_state(pool, &d, new_state).unwrap();
+
+        // get state again, and compare -- they should be same
+        let new_state_result = get_state(pool, &d);
+        assert_eq(state, new_state_result);
+
+        //TODO: add failure tests
+        // 1. set entry_id = 0
     }
-
 }
 
 #[derive(Debug)]
@@ -376,6 +442,12 @@ impl OperationInfo {
     fn set_operation_id(&mut self, op_id: u32) {
         self.operation_id = Some(op_id);
     }
+    fn set_done_time(&mut self, done_time: DateTime<Utc>) {
+        self.done_time = Some(done_time);
+    }
+    fn set_snapshot_time(&mut self, snapshot_time: DateTime<Utc>) {
+        self.snapshot_time = snapshot_time;
+    }
 }
 
 #[derive(Debug)]
@@ -510,6 +582,7 @@ pub fn update_storage_info(
 
     // Do all these three in a transaction, rolls back by default.
     let transaction = conn.transaction()?;
+    info!("Started transaction to update storage information in database");
     let entry_id = register_to_process_manager(&transaction, &ip_address)?;
     let region_id = update_region(&transaction, &s_info.region.clone())?;
     let detail_id = update_storage_details(&transaction, &s_info, region_id)?;
@@ -1060,10 +1133,12 @@ pub fn get_smart_result(
     }
 }
 /*
-/// Get a list of ticket IDs (JIRA/other ids) for the given host 
+/// Get a list of ticket IDs (JIRA/other ids) that belong to me. 
 /// that are pending in op_type=waitForReplacement
-pub fn get_outstanding_tickets(pool: &Pool<ConnectionManager>, host_mapping: &HostDetailsMapping) -> BynarResult<()> {
+pub fn get_outstanding_tickets(pool: &Pool<ConnectionManager>, storage_detail_id: u32) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
+
+    // first get records from operations for this storage_detail_id
     let mut stmt = format!("SELECT operation_id FROM operations AS op
     WHERE op.entry_id = {} AND op.storage_detail_id = {} AND op.region_id = {}", host_mapping.entry_id, host_mapping.region_id, 
     host_mapping.storage_detail_id);
@@ -1088,4 +1163,5 @@ pub fn get_outstanding_tickets(pool: &Pool<ConnectionManager>, host_mapping: &Ho
         debug!("{} pending tickets for host {:?}", stmt_query.len(), host_mapping);
         
     }
-} */
+} 
+*/
