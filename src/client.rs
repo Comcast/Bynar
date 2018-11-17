@@ -76,7 +76,7 @@ fn handle_list_disks(s: &mut Socket) {
 
 fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
     let p = Path::new(matches.value_of("path").unwrap());
-    info!("Adding disk: {}", p.display());
+    info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
         Some(i) => Some(u64::from_str(&i).unwrap()),
         None => None,

@@ -38,7 +38,6 @@ use self::lvm::*;
 use self::mocktopus::macros::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
-use self::rusqlite::Connection;
 use self::rayon::prelude::*;
 use self::tempdir::TempDir;
 use self::uuid::Uuid;
@@ -164,7 +163,6 @@ mod tests {
         let db_path = sql_dir.path().join("base.sqlite3");
         //cleanup old
         let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         let d = super::BlockDevice {
             device: super::Device {

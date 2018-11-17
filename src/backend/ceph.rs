@@ -435,6 +435,7 @@ impl CephBackend {
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
         auth_del(&self.cluster_handle, osd_id, simulate)?;
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {}", osd_id);
         osd_rm(&self.cluster_handle, osd_id, simulate)?;
 
@@ -692,6 +693,23 @@ fn systemctl_enable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> Bynar
         let args: Vec<String> = vec![
             "enable".to_string(),
             format!("ceph-volume@lvm-{}-{}", osd_id, osd_uuid.to_hyphenated()),
+        ];
+        debug!("cmd: systemctl {:?}", args);
+        let output = Command::new("systemctl").args(&args).output()?;
+        if !output.status.success() {
+            return Err(BynarError::new(
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn systemctl_stop(osd_id: u64, simulate: bool) -> BynarResult<()> {
+    if !simulate {
+        let args: Vec<String> = vec![
+            "stop".to_string(),
+            format!("ceph-osd@{}.service", osd_id),
         ];
         debug!("cmd: systemctl {:?}", args);
         let output = Command::new("systemctl").args(&args).output()?;
