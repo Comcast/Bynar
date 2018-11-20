@@ -1166,7 +1166,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                 partitions,
                 scsi_info: ScsiInfo::default(),
                 state: State::Unscanned,
-                storage_detail_id: storage_detail_id,
+                storage_detail_id,
                 operation_id: None,
             }
         }).collect();

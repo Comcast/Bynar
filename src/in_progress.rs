@@ -341,13 +341,6 @@ pub fn get_connection_from_pool(
     Ok(connection)
 }
 
-/// TODO: figure out if is needed.
-/// closes the connection. Should be called for every corresponding call
-/// to get_connection_from_pool()
-pub fn drop_connection(conn: PooledConnection<ConnectionManager>) -> BynarResult<()> {
-    Ok(drop(conn))
-}
-
 /// Should be called when bynar daemon first starts up
 /// Returns whether or not all steps in this call have been successful
 /// TODO: return conn, entry_id, region_id, detail_id
@@ -375,8 +368,7 @@ pub fn update_storage_info(
         ));
     } else {
         transaction.set_commit();
-        let detail_mapping = HostDetailsMapping::new(entry_id, region_id, detail_id);
-        detail_mapping
+        HostDetailsMapping::new(entry_id, region_id, detail_id)
     };
     let _ = transaction.finish();
     Ok(host_detail_mapping)
@@ -1014,7 +1006,7 @@ pub fn is_disk_waiting_repair(
         State::WaitingForReplacement
     );
     let stmt_query = conn.query(&stmt, &[])?;
-    if stmt_query.is_empty() || stmt_query.len() == 0 {
+    if stmt_query.is_empty() {
         Ok(false)
     } else {
         Ok(true)
