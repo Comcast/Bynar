@@ -336,11 +336,11 @@ mod tests {
             mount_point: None,
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
-            state: super::State::WaitingForReplacement,
+            state: super::State::REPLACED,
             storage_detail_id: 1,
             operation_id: None,
         };
-
+        // restore state?
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
@@ -658,6 +658,7 @@ impl Transition for Replace {
         debug!("thread {} running Replace transition", process::id());
         // So we know at this point that the disk has been replaced
         // We know the device we're working with
+        // If it's being a raid device do we need to do anything there?
 
         *to_state
     }

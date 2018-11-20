@@ -57,7 +57,7 @@ INSERT INTO operation_types (op_name) VALUES ('diskreplace');
 INSERT INTO operation_types (op_name) VALUES ('diskremove');
 INSERT INTO operation_types (op_name) VALUES ('clusteradd');
 INSERT INTO operation_types (op_name) VALUES ('clusterdelete');
-INSERT INTO operation_types (op_name) VALUES ('waitforreplacement');
+INSERT INTO operation_types (op_name) VALUES ('waitingforreplacement');
 -- Evaluation combines all the internal work like checking 
 -- file system for corruption, attempting repair etc.
 INSERT INTO operation_types (op_name) VALUES ('evaluation');

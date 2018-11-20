@@ -128,9 +128,9 @@ mod tests {
         let _detail_result = super::add_or_update_operation_detail(&pool, &mut op_detail);
 
         // Add another sub-operation
-        println!("Updating first operation detail as WaitForReplacement");
+        println!("Updating first operation detail as WaitingForReplacement");
         let mut op_detail2 =
-            super::OperationDetail::new(o_id, super::OperationType::WaitForReplacement);
+            super::OperationDetail::new(o_id, super::OperationType::WaitingForReplacement);
         op_detail2.set_operation_status(super::OperationStatus::InProgress);
 
         //update ticket_id
@@ -156,6 +156,7 @@ mod tests {
             "State for dev name {} is {:#?}",
             d.device.name, new_state_result
         );
+        assert_eq!(new_state, new_state_result);
 
         let tickets =
             super::get_outstanding_repair_tickets(&pool, result.storage_detail_id).unwrap();
@@ -237,7 +238,7 @@ pub enum OperationType {
     DiskAdd,
     DiskReplace,
     DiskRemove,
-    WaitForReplacement,
+    WaitingForReplacement,
     Evaluation,
 }
 
@@ -247,7 +248,7 @@ impl Display for OperationType {
             OperationType::DiskAdd => "diskadd",
             OperationType::DiskReplace => "diskreplace",
             OperationType::DiskRemove => "diskremove",
-            OperationType::WaitForReplacement => "waitforreplacement",
+            OperationType::WaitingForReplacement => "waitingforreplacement",
             OperationType::Evaluation => "evaluation",
         };
         write!(f, "{}", message)
@@ -933,7 +934,7 @@ pub fn get_outstanding_repair_tickets(
 ) -> BynarResult<Vec<DiskRepairTicket>> {
     let conn = get_connection_from_pool(pool)?;
 
-    // Get all tickets of myself with device.state=WaitForReplacement and operation_detail.status = pending or in_progress
+    // Get all tickets of myself with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
     let stmt = format!("SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
      JOIN devices USING (device_id) WHERE 
      (status = '{}' OR status = '{}') AND 
@@ -941,7 +942,7 @@ pub fn get_outstanding_repair_tickets(
      devices.state='{}' AND 
      detail_id = {} AND  
      tracking_id IS NOT NULL ORDER BY operations.start_time", OperationStatus::InProgress, OperationStatus::Pending,
-    OperationType::WaitForReplacement, State::WaitingForReplacement, storage_detail_id);
+    OperationType::WaitingForReplacement, State::WaitingForReplacement, storage_detail_id);
 
     let stmt_query = conn.query(&stmt, &[])?;
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
@@ -970,6 +971,7 @@ pub fn get_outstanding_repair_tickets(
 pub fn resolve_ticket(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
 
+    // TODO[SD]: make sure there is one ticket with this ID
     let stmt = format!(
         "UPDATE operation_details SET status='{}' WHERE ticket_id='{}'",
         OperationStatus::Complete,
@@ -1002,7 +1004,7 @@ pub fn is_disk_waiting_repair(
     state='{}'",
         dev_path.to_string_lossy().into_owned(),
         storage_detail_id,
-        OperationType::WaitForReplacement,
+        OperationType::WaitingForReplacement,
         State::WaitingForReplacement
     );
     let stmt_query = conn.query(&stmt, &[])?;

@@ -237,7 +237,7 @@ fn check_for_failed_disks(
                                 Some(i) => i,
                             };
                             let mut operation_detail =
-                                OperationDetail::new(op_id, OperationType::WaitForReplacement);
+                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                             operation_detail.set_tracking_id(ticket_id);
                             add_or_update_operation_detail(pool, &mut operation_detail)?;
                         } else {
