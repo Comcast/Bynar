@@ -149,7 +149,11 @@ fn check_for_failed_disks(
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
-                    let in_progress = in_progress::is_disk_waiting_repair(pool, host_mapping.storage_detail_id, &dev_path)?;
+                    let in_progress = in_progress::is_disk_waiting_repair(
+                        pool,
+                        host_mapping.storage_detail_id,
+                        &dev_path,
+                    )?;
                     if !simulate {
                         if !in_progress {
                             debug!("Asking disk-manager if it's safe to remove disk");
@@ -224,12 +228,16 @@ fn check_for_failed_disks(
                             debug!("Recording ticket id {} in database", ticket_id);
                             let op_id = match state_machine.block_device.operation_id {
                                 None => {
-                                    error!("Operation not recorded for {}", state_machine.block_device.dev_path.display());
+                                    error!(
+                                        "Operation not recorded for {}",
+                                        state_machine.block_device.dev_path.display()
+                                    );
                                     0
-                                },
+                                }
                                 Some(i) => i,
                             };
-                            let mut operation_detail = OperationDetail::new(op_id, OperationType::WaitForReplacement);
+                            let mut operation_detail =
+                                OperationDetail::new(op_id, OperationType::WaitForReplacement);
                             operation_detail.set_tracking_id(ticket_id);
                             add_or_update_operation_detail(pool, &mut operation_detail)?;
                         } else {
@@ -433,7 +441,13 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    match add_repaired_disks(&config, &host_info, &db_pool, host_details_mapping.storage_detail_id, simulate) {
+    match add_repaired_disks(
+        &config,
+        &host_info,
+        &db_pool,
+        host_details_mapping.storage_detail_id,
+        simulate,
+    ) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
         }

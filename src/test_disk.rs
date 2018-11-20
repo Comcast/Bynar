@@ -66,7 +66,7 @@ pub struct BlockDevice {
     pub scsi_info: ScsiInfo,
     pub state: State,
     pub storage_detail_id: u32,
-    pub operation_id: Option<u32>
+    pub operation_id: Option<u32>,
 }
 
 impl BlockDevice {
