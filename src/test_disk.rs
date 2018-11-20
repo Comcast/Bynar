@@ -66,6 +66,7 @@ pub struct BlockDevice {
     pub scsi_info: ScsiInfo,
     pub state: State,
     pub storage_detail_id: u32,
+    pub operation_id: Option<u32>
 }
 
 impl BlockDevice {
@@ -1166,6 +1167,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                 scsi_info: ScsiInfo::default(),
                 state: State::Unscanned,
                 storage_detail_id: storage_detail_id,
+                operation_id: None,
             }
         }).collect();
     let filtered_devices: Vec<BlockDevice> = block_devices
@@ -1208,7 +1210,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
 pub fn check_all_disks(
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
-    storage_detail_id: u32,
+    host_mapping: &HostDetailsMapping,
 ) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
@@ -1228,12 +1230,22 @@ pub fn check_all_disks(
     devices.extend_from_slice(&mtab_devices);
 
     // Gather info on all devices and skip Loopback devices
-    let mut device_info = filter_disks(&devices, storage_detail_id)?;
+    let mut device_info = filter_disks(&devices, host_mapping.storage_detail_id)?;
 
     // add the filtered devices to the database.
     // A mutable ref is needed so that the device_database_id can be set
     for mut dev in device_info.iter_mut() {
         add_disk_detail(pool, &mut dev)?;
+        // add operation for tracking
+        let device_db_id = match dev.device_database_id {
+            None => 0,
+            Some(i) => i,
+        };
+        let mut op_info = OperationInfo::new(host_mapping.entry_id, device_db_id);
+        add_or_update_operation(pool, &mut op_info)?;
+
+        // store the operation_id in BlockDevice struct
+        dev.operation_id = op_info.operation_id;
     }
     //TODO: Add nvme devices to block-utils
 

@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS storage_details (
 CREATE TABLE IF NOT EXISTS devices (
     device_id SERIAL NOT NULL UNIQUE,
     device_uuid VARCHAR,
-    detail_id INTEGER REFERENCES storage_details(detail_id) NOT NULL ON DELETE CASCADE,
+    detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
     device_name VARCHAR NOT NULL,
     device_path VARCHAR NOT NULL,
     mount_path VARCHAR, -- can be null if device not mounted

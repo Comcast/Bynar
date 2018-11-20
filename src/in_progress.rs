@@ -14,12 +14,10 @@ use self::chrono::offset::Utc;
 use self::chrono::DateTime;
 use self::helpers::{error::*, host_information::Host as MyHost};
 use self::postgres::{
-    params::ConnectParams, params::Host, transaction::Transaction};
+    params::ConnectParams, params::Host, transaction::Transaction, rows::Row};
 use self::r2d2::{Pool, PooledConnection};
 use self::r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
-use self::rusqlite::Connection;
 use self::test_disk::{BlockDevice, State};
-use self::time::Timespec;
 use super::DBConfig;
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::{Path};
@@ -31,31 +29,14 @@ use std::time::Duration;
 mod tests {
     extern crate log;
     extern crate tempdir;
-    use self::tempdir::TempDir;
+    extern crate uuid;
+    extern crate block_utils;
+
     use simplelog::{Config, TermLogger};
-    use std::path::Path;
-    use std::process::id;
-    use super::test_disk::uuid::Uuid;
-    use super::test_disk::*;
+    use std::path::{Path, PathBuf};
+    use self::uuid::Uuid;
+    use self::block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
     use ConfigSettings;
-
-    #[test]
-    fn test_in_progress() {
-        let sql_dir = TempDir::new("bynar").expect("Temp file creation failed");
-        let db_path = sql_dir.path().join("in_progress.sqlite3");
-
-        let conn = super::connect_to_repair_database(&db_path).expect("sqlite3 creation failed");
-        super::record_new_repair_ticket(&conn, "001", &Path::new("/dev/sda"))
-            .expect("Create repair ticket failed");
-        let result = super::is_disk_in_progress(&conn, &Path::new("/dev/sda"))
-            .expect("failed to query disk in progress");
-        println!(
-            "Outstanding repair tickets: {:?}",
-            super::get_outstanding_repair_tickets(&conn)
-        );
-
-        assert!(result);
-    }
 
     #[test]
     fn test_new_host() {
@@ -82,72 +63,102 @@ mod tests {
         println!("host details mapping {:#?}",result); 
 
         // create fake device        
-        let drive_uuid = Uuid::new();
+        let drive_uuid = Uuid::new_v4();
         let dev_name = format!("some_path-{}", drive_uuid);
         let path = format!("/some/{}",dev_name);
-        let d = super::BlockDevice {
-            device: super::Device {
-                id: drive_uuid,
+        let mut d = super::test_disk::BlockDevice {
+            device: Device {
+                id: Some(drive_uuid),
                 name: dev_name,
-                media_type: super::MediaType::Rotational,
+                media_type: MediaType::Rotational,
                 capacity: 26214400,
-                fs_type: super::FilesystemType::Xfs,
+                fs_type: FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
             },
             dev_path: PathBuf::from(path),
             device_database_id: None,
             mount_point: None,
             partitions: vec![],
-            scsi_info: super::test_disk::ScsiInfo::default(),
+            scsi_info: ScsiInfo::default(),
             state: super::test_disk::State::Unscanned,
             storage_detail_id: result.storage_detail_id,
+            operation_id: None,
         };
 
-        let disk_result = add_disk_detail(pool, &mut d).unwrap();
-
-        let mut op_info = OperationInfo::new(result.entry_id, d.device_database_id).unwrap();
-        // Add operation
-        let op_result = add_or_update_operation(pool, &mut op_info).unwrap();
+        println!("Adding disk {:#?}",d);
+        let _disk_result = super::add_disk_detail(&pool, &mut d).unwrap();
+        let dev_id = match d.device_database_id {
+            None => 0,
+            Some(i)=>i,
+        };
+        println!("Added disk with id {}", dev_id);
         
+        // Add operation
+        let mut op_info = super::OperationInfo::new(result.entry_id, dev_id);
+        println!("Created operation {:#?}", op_info);
+        let _op_result = super::add_or_update_operation(&pool, &mut op_info).unwrap();
+        d.operation_id = op_info.operation_id;
+
+        let o_id = match op_info.operation_id {
+            None => 0,
+            Some(i) => i,
+        };
+        println!("Added operation with ID {}",o_id);
+
         // call add_disk_detail again for same device
-        let disk_result2 = add_disk_detail(pool, &mut d).unwrap();
+        println!("Re-adding same disk again to the database");
+        let _disk_result2 = super::add_disk_detail(&pool, &mut d).unwrap();
 
         // now update operation
-        op_info.set_snapshot_time(Utc::now());
-        let op_result2 = add_or_update_operation(pool, &mut op_info).unwrap();
+        println!("Updating first operation with snapshot time");
+        op_info.set_snapshot_time(super::Utc::now());
+        let _op_result2 = super::add_or_update_operation(&pool, &mut op_info).unwrap();
+        
         // update again with done_time
-        op_info.set_done_time(UTc::now());
-        let op_result2 = add_or_update_operation(pool, &mut op_info).unwrap();
+        op_info.set_done_time(super::Utc::now());
+        println!("Updating first operation with done time");
+        let _op_result2 = super::add_or_update_operation(&pool, &mut op_info).unwrap();
 
         // Add operation_details
-        let op_detail = OperationDetail::new(op_info.operation_id, OperationType::Evaluation);
-        let detail_result = add_or_update_operation_detail(pol, &mut op_detail);
+        println!("Updating first operation detail as Evaluation");
+        let mut op_detail = super::OperationDetail::new(o_id, super::OperationType::Evaluation);
+        let _detail_result = super::add_or_update_operation_detail(&pool, &mut op_detail);
         // Update status 
-        op_detail.set_operation_status(OperationStatus::InProgress);
-        let detail_result = add_or_update_operation_detail(pol, &mut op_detail);
+        println!("Updating first operation status as in-progress");
+        op_detail.set_operation_status(super::OperationStatus::InProgress);
+        let _detail_result = super::add_or_update_operation_detail(&pool, &mut op_detail);
 
         // Add another sub-operation
-        let op_detail2 = OperationDetail::new(op_info.operation_id, OperationType::WaitForReplacement);
-        op_detail2.set_operation_status(OperationStatus::InProgress);
+        println!("Updating first operation detail as WaitForReplacement");
+        let mut op_detail2 = super::OperationDetail::new(o_id, super::OperationType::WaitForReplacement);
+        op_detail2.set_operation_status(super::OperationStatus::InProgress);
+        
         //update ticket_id
-        op_detail.set_tracking_id("ABC-1234".to_string());
-        let detail_result = add_or_update_operation_detail(pol, &mut op_detail2);
+        println!("Updating second operation detail with tracking number");
+        op_detail2.set_tracking_id("ABC-1234".to_string());
+        let _detail_result = super::add_or_update_operation_detail(&pool, &mut op_detail2);
 
         // update first sub-operation as complete
-        op_detail.set_operation_status(OperationStatus::Complete);
-        op_detail.set_done_time(Utc::now());
-        let detail_result = add_or_update_operation_detail(pol, &mut op_detail);
+        op_detail.set_operation_status(super::OperationStatus::Complete);
+        op_detail.set_done_time(super::Utc::now());
+        let _detail_result = super::add_or_update_operation_detail(&pool, &mut op_detail);
 
         // get device state from db
-        let state = get_state(pool, &d);
+        let state = super::get_state(&pool, &d).unwrap();
         println!("State for dev name {} is {:#?}", d.device.name, state);
 
-        let state_result = save_state(pool, &d, new_state).unwrap();
+        let new_state = super::test_disk::State::WaitingForReplacement;
+        let _state_result = super::save_state(&pool, &d, &new_state).unwrap();
 
         // get state again, and compare -- they should be same
-        let new_state_result = get_state(pool, &d);
-        assert_eq(state, new_state_result);
+        let new_state_result = super::get_state(&pool, &d).unwrap();
+        println!("State for dev name {} is {:#?}", d.device.name, new_state_result);
 
+        let tickets = super::get_outstanding_repair_tickets(&pool, result.storage_detail_id).unwrap();
+        println!("All open tickets {:#?}", tickets);
+
+        let is_repair_needed = super::is_disk_waiting_repair(&pool, result.storage_detail_id, &d.dev_path).unwrap();
+        println!("disk {} needs repair {}", d.dev_path.display(), is_repair_needed);
         //TODO: add failure tests
         // 1. set entry_id = 0
     }
@@ -155,248 +166,10 @@ mod tests {
 
 #[derive(Debug)]
 pub struct DiskRepairTicket {
-    pub id: i32,
     pub ticket_id: String,
-    pub time_created: Timespec,
-    pub disk_path: String,
+    pub device_name: String,
+    pub device_path: String,
 }
-
-pub fn connect_to_repair_database(db_path: &Path) -> BynarResult<Connection> {
-    debug!("Opening or creating repairs table if needed");
-    let conn = Connection::open(db_path)?;
-    // TODO: should this be broken out into 2 tables,
-    // 1 for repairs and 1 for state machine?
-    conn.execute(
-        "CREATE TABLE if not exists repairs (
-                  id              INTEGER PRIMARY KEY,
-                  ticket_id       TEXT,
-                  time_created    TEXT,
-                  disk_path       TEXT NOT NULL,
-                  smart_passed    BOOLEAN,
-                  mount_path      TEXT,
-                  state           TEXT)",
-        &[],
-    )?;
-    Ok(conn)
-}
-
-/// Create a new repair ticket
-pub fn record_new_repair_ticket(
-    conn: &Connection,
-    ticket_id: &str,
-    disk_path: &Path,
-) -> BynarResult<()> {
-    debug!(
-        "Recording new repair ticket: id: {}, disk_path: {}",
-        ticket_id,
-        disk_path.display()
-    );
-    conn.execute(
-        "INSERT INTO repairs (ticket_id, time_created, disk_path)
-                  VALUES (?1, ?2, ?3)",
-        &[
-            &ticket_id.to_string(),
-            &time::get_time(),
-            &disk_path.to_string_lossy().into_owned(),
-        ],
-    )?;
-    Ok(())
-}
-
-pub fn resolve_ticket(conn: &Connection, ticket_id: &str) -> BynarResult<()> {
-    debug!("Resolving ticket: {}", ticket_id);
-    conn.execute(
-        "DELETE FROM repairs where ticket_id=?",
-        &[&ticket_id.to_string()],
-    )?;
-    Ok(())
-}
-
-/// Check and return if a disk is in the database and awaiting repairs
-pub fn is_disk_in_progress(conn: &Connection, dev_path: &Path) -> BynarResult<bool> {
-    debug!(
-        "Searching for repair ticket for disk: {}",
-        dev_path.display()
-    );
-    let mut stmt = conn
-        .prepare("SELECT id, ticket_id, time_created, disk_path FROM repairs where disk_path=?")?;
-    let in_progress = stmt.exists(&[&dev_path.to_string_lossy().into_owned()])?;
-    Ok(in_progress)
-}
-
-/// Gather all the outstanding repair tickets
-pub fn get_outstanding_repair_tickets(conn: &Connection) -> BynarResult<Vec<DiskRepairTicket>> {
-    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
-    let mut stmt = conn.prepare(
-        "SELECT id, ticket_id, time_created, disk_path FROM repairs where ticket_id IS NOT NULL",
-    )?;
-    let repair_iter = stmt.query_map(&[], |row| DiskRepairTicket {
-        id: row.get(0),
-        ticket_id: row.get(1),
-        time_created: row.get(2),
-        disk_path: row.get(3),
-    })?;
-
-    for repair in repair_iter {
-        tickets.push(repair?);
-    }
-    Ok(tickets)
-}
-
-/*
-pub fn get_mount_location(conn: &Connection, dev_path: &Path) -> BynarResult<PathBuf> {
-    debug!("Searching smart results for disk: {}", dev_path.display());
-    let mut stmt = conn.prepare("SELECT mount_path FROM repairs where disk_path=?")?;
-    let mount_path = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| {
-        let row: String = row.get(0);
-        PathBuf::from(row)
-    })?;
-    Ok(mount_path)
-}
-pub fn get_smart_result(conn: &Connection, dev_path: &Path) -> BynarResult<bool> {
-    debug!("Searching smart results for disk: {}", dev_path.display());
-    let mut stmt = conn.prepare("SELECT smart_passed FROM repairs where disk_path=?")?;
-    let passed = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| {
-        row.get(0)
-    })?;
-    Ok(passed)
-}
-
-pub fn get_state(conn: &Connection, dev_path: &Path) -> BynarResult<Option<test_disk::State>> {
-    debug!("Searching state results for disk: {}", dev_path.display());
-    let mut stmt = conn.prepare("SELECT state FROM repairs where disk_path=?")?;
-    let state_exists = stmt.exists(&[&dev_path.to_string_lossy().into_owned()])?;
-    if state_exists {
-        let mut stmt = conn.prepare("SELECT state FROM repairs where disk_path=?")?;
-        let state = stmt.query_row(&[&dev_path.to_string_lossy().into_owned()], |row| {
-            let state: String = row.get(0);
-            state
-        })?;
-        debug!("Found state: {}", state);
-
-        return Ok(Some(
-            test_disk::State::from_str(&state).unwrap_or(test_disk::State::Unscanned),
-        ));
-    }
-
-    Ok(None)
-}
-pub fn save_mount_location(
-    conn: &Connection,
-    dev_path: &Path,
-    mount_path: &Path,
-) -> BynarResult<()> {
-    debug!(
-        "Saving mount path for {}: {}",
-        dev_path.display(),
-        mount_path.display()
-    );
-    // First check if a row exists with this disk
-    let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        // It exists so we update
-        let mut stmt = conn.prepare("Update repairs set mount_path=? where disk_path=?")?;
-        stmt.execute(&[
-            &mount_path.to_string_lossy().into_owned(),
-            &dev_path.to_string_lossy().into_owned(),
-        ])?;
-    } else {
-        // It does not exist so we insert
-        conn.execute(
-            "INSERT INTO repairs (mount_path, disk_path)
-                  VALUES (?1, ?2)",
-            &[
-                &mount_path.to_string_lossy().into_owned(),
-                &dev_path.to_string_lossy().into_owned(),
-            ],
-        )?;
-    }
-
-    Ok(())
-}
-
-pub fn save_smart_results(
-    conn: &Connection,
-    dev_path: &Path,
-    smart_passed: bool,
-) -> BynarResult<()> {
-    debug!(
-        "Saving smart results for {} passed: {}",
-        dev_path.display(),
-        smart_passed.to_string()
-    );
-    // First check if a row exists with this disk
-    let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        // It exists so we update
-        let mut stmt = conn.prepare("Update repairs set smart_passed=? where disk_path=?")?;
-        stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
-    } else {
-        // It does not exist so we insert
-        let mut stmt =
-            conn.prepare("Insert INTO repairs (smart_passed, disk_path) VALUES (?1, ?2)")?;
-        stmt.execute(&[&smart_passed, &dev_path.to_string_lossy().into_owned()])?;
-    }
-
-    Ok(())
-}
-pub fn save_state(conn: &Connection, dev_path: &Path, state: test_disk::State) -> BynarResult<()> {
-    debug!("Saving state for {}: {}", dev_path.display(), state);
-
-    // First check if a row exists with this disk
-    let mut stmt = conn.prepare("SELECT * FROM repairs where disk_path=?")?;
-    if stmt.exists(&[&dev_path.to_string_lossy().into_owned()])? {
-        debug!("Updating state for {}", dev_path.display());
-        // It exists so we update
-        let mut stmt = conn.prepare("Update repairs set state=? where disk_path=?")?;
-        stmt.execute(&[&state.to_string(), &dev_path.to_string_lossy().into_owned()])?;
-    } else {
-        debug!("Inserting state for {}", dev_path.display());
-        // It does not exist so we insert
-        conn.execute(
-            "INSERT INTO repairs (state, disk_path) VALUES (?1, ?2)",
-            &[&state.to_string(), &dev_path.to_string_lossy().into_owned()],
-        )?;
-    }
-    Ok(())
-}
-
-#[derive(Debug)]
-pub struct DiskInfo {
-    pub disk_id: u32,
-    pub storage_detail_id: u32,
-    pub disk_path: PathBuf,
-    pub mount_path: PathBuf,
-    pub disk_name: String,
-    pub disk_uuid: Option<String>,
-}
-
-impl DiskInfo {
-    pub fn new(
-        disk_name: String,
-        disk_path: PathBuf,
-        mount_path: PathBuf,
-        storage_detail_id: u32,
-    ) -> DiskInfo {
-        DiskInfo {
-            disk_id: 0,
-            disk_name,
-            disk_path,
-            mount_path,
-            storage_detail_id,
-            disk_uuid: None,
-        }
-    }
-
-    pub fn set_disk_id(&mut self, disk_id: u32) {
-        self.disk_id = disk_id;
-    }
-    pub fn set_disk_uuid(&mut self, disk_uuid: String) {
-        self.disk_uuid = Some(disk_uuid);
-    }
-}
-*/
-
 #[derive(Debug)]
 pub struct HostDetailsMapping {
     pub entry_id: u32,
@@ -427,7 +200,7 @@ pub struct OperationInfo {
 }
 
 impl OperationInfo {
-    fn new(entry_id: u32, device_id: u32) -> OperationInfo {
+    pub fn new(entry_id: u32, device_id: u32) -> OperationInfo {
         OperationInfo {
             operation_id: None,
             entry_id,
@@ -442,10 +215,10 @@ impl OperationInfo {
     fn set_operation_id(&mut self, op_id: u32) {
         self.operation_id = Some(op_id);
     }
-    fn set_done_time(&mut self, done_time: DateTime<Utc>) {
+    pub fn set_done_time(&mut self, done_time: DateTime<Utc>) {
         self.done_time = Some(done_time);
     }
-    fn set_snapshot_time(&mut self, snapshot_time: DateTime<Utc>) {
+    pub fn set_snapshot_time(&mut self, snapshot_time: DateTime<Utc>) {
         self.snapshot_time = snapshot_time;
     }
 }
@@ -496,14 +269,14 @@ pub struct OperationDetail {
     pub operation_id: u32,
     pub op_type: OperationType,
     pub status: OperationStatus,
-    pub tracking_id: Option<u32>,
+    pub tracking_id: Option<String>,
     pub start_time: DateTime<Utc>,
     pub snapshot_time: DateTime<Utc>,
     pub done_time: Option<DateTime<Utc>>,
 }
 
 impl OperationDetail {
-    fn new(operation_id: u32, op_type: OperationType) -> OperationDetail {
+    pub fn new(operation_id: u32, op_type: OperationType) -> OperationDetail {
         OperationDetail {
             op_detail_id: None,
             operation_id,
@@ -519,15 +292,15 @@ impl OperationDetail {
         self.op_detail_id = Some(op_detail_id);
     }
 
-    fn set_tracking_id(&mut self, tracking_id: u32) {
+    pub fn set_tracking_id(&mut self, tracking_id: String) {
         self.tracking_id = Some(tracking_id);
     }
 
-    fn set_done_time(&mut self, done_time: DateTime<Utc>) {
+    pub fn set_done_time(&mut self, done_time: DateTime<Utc>) {
         self.done_time = Some(done_time);
     }
 
-    fn set_operation_status(&mut self, status: OperationStatus) {
+    pub fn set_operation_status(&mut self, status: OperationStatus) {
         self.status = status;
     }
 }
@@ -738,7 +511,7 @@ fn update_storage_details(conn: &Transaction, s_info: &MyHost, region_id: u32) -
     Ok(storage_detail_id)
 }
 
-// Inserts disk informatation record into bynar.disks and adds the disk_id to struct
+// Inserts disk informatation record into bynar.devices and adds the device_database_id to struct
 pub fn add_disk_detail(
     pool: &Pool<ConnectionManager>,
     disk_info: &mut BlockDevice,
@@ -748,16 +521,16 @@ pub fn add_disk_detail(
     match disk_info.device_database_id {
         None => {
             // no disk_id present, add a new record
-            stmt.push_str("INSERT INTO devices(storage_detail_id, device_path, device_name, state");
+            stmt.push_str("INSERT INTO devices(detail_id, device_path, device_name, state");
             if disk_info.mount_point.is_some() {
                 stmt.push_str(", mount_path");
             }
             if disk_info.device.id.is_some() {
-                stmt.push_str(", disk_uuid");
+                stmt.push_str(", device_uuid");
             }
 
             stmt.push_str(&format!(
-                ") VALUES ({}, {}, {}, {}",
+                ") VALUES ({}, '{}', '{}', '{}'",
                 disk_info.storage_detail_id,
                 disk_info.dev_path.to_string_lossy().into_owned(),
                 disk_info.device.name,
@@ -765,10 +538,10 @@ pub fn add_disk_detail(
             ));
 
             if let Some(ref mount) = disk_info.mount_point {
-                stmt.push_str(&format!(", {}", mount.display()));
+                stmt.push_str(&format!(", '{}'", mount.display()));
             }
             if let Some(ref uuid) = disk_info.device.id {
-                stmt.push_str(&format!(", {}", uuid));
+                stmt.push_str(&format!(", '{}'", uuid));
             }
 
             stmt.push_str(") RETURNING device_id");
@@ -777,9 +550,9 @@ pub fn add_disk_detail(
             // verify if all other details match, select disk_id to match with the
             // return from the insert stmt above
             stmt.push_str(&format!(
-                "SELECT device_id FROM disks WHERE device_id = {} AND
-                                    device_name = {} AND device_path = {} AND 
-                                    storage_detail_id = {}",
+                "SELECT device_id FROM devices WHERE device_id = {} AND
+                                    device_name = '{}' AND device_path = '{}' AND 
+                                    detail_id = {}",
                 id,
                 disk_info.device.name,
                 disk_info.dev_path.to_string_lossy(),
@@ -823,7 +596,7 @@ pub fn add_or_update_operation(pool: &Pool<ConnectionManager>, op_info: &mut Ope
             }
             stmt.push_str(
                 "INSERT INTO operations (
-                                    entry_id, start_time, device_id");
+                                    entry_id, start_time, snapshot_time, device_id");
 
             if op_info.behalf_of.is_some() {
                 stmt.push_str(", behalf_of");
@@ -835,17 +608,18 @@ pub fn add_or_update_operation(pool: &Pool<ConnectionManager>, op_info: &mut Ope
             stmt.push_str(")");
 
             stmt.push_str(&format!(
-                " VALUES ({},{}, {}",
+                " VALUES ({},'{}', '{}', {}",
                 op_info.entry_id,
                 op_info.start_time,
+                op_info.snapshot_time,
                 op_info.device_id
             ));
 
             if let Some(ref behalf_of) = op_info.behalf_of {
-                stmt.push_str(&format!(", {}", behalf_of));
+                stmt.push_str(&format!(", '{}'", behalf_of));
             }
             if let Some(ref reason) = op_info.reason {
-                stmt.push_str(&format!(", {}", reason));
+                stmt.push_str(&format!(", '{}'", reason));
             }
             stmt.push_str(") RETURNING operation_id");
         }
@@ -853,14 +627,14 @@ pub fn add_or_update_operation(pool: &Pool<ConnectionManager>, op_info: &mut Ope
             // update existing record. Only snapshot_time and done_time
             // can be updated.
             stmt.push_str(&format!(
-                "UPDATE operations SET (snapshot_time = {}",
+                "UPDATE operations SET snapshot_time = '{}'",
                 op_info.snapshot_time
             ));
 
             if let Some(d_time) = op_info.done_time {
-                stmt.push_str(&format!(", done_time = {}", d_time));
+                stmt.push_str(&format!(", done_time = '{}'", d_time));
             }
-            stmt.push_str(&format!(") WHERE operation_id = {}", id));
+            stmt.push_str(&format!(" WHERE operation_id = {}", id));
         }
     }
     let stmt_query = conn.query(&stmt, &[])?;
@@ -904,7 +678,7 @@ pub fn add_or_update_operation_detail(
                 return Err(BynarError::new(format!("No record in database for operation {}", operation_detail.op_type)));
             }
             let row = stmt_query.get(0);
-            let type_id:u32 = row.get("type_id");
+            let type_id: i32 = row.get("type_id");
 
             stmt.push_str(
                 "INSERT INTO operation_details (operation_id, type_id,
@@ -918,19 +692,19 @@ pub fn add_or_update_operation_detail(
             }
 
             stmt.push_str(&format!(
-                " ) VALUES ({}, {}, '{}', {}, {}",
+                " ) VALUES ({}, {}, '{}', '{}', '{}'",
                 operation_detail.operation_id,
-                type_id,
+                type_id as u32,
                 operation_detail.status,
                 operation_detail.start_time,
                 operation_detail.snapshot_time
             ));
 
-            if let Some(t_id) = operation_detail.tracking_id {
-                stmt.push_str(&format!(", {}", t_id));
+            if let Some(ref t_id) = operation_detail.tracking_id {
+                stmt.push_str(&format!(", '{}'", t_id));
             }
             if let Some(done_time) = operation_detail.done_time {
-                stmt.push_str(&format!(", {}", done_time));
+                stmt.push_str(&format!(", '{}'", done_time));
             }
             stmt.push_str(") RETURNING operation_detail_id");
         }
@@ -938,18 +712,18 @@ pub fn add_or_update_operation_detail(
             // update existing detail record.
             // Only tracking_id, snapshot_time, done_time and status are update-able
             stmt.push_str(&format!(
-                "UPDATE operation_details SET (snapshot_time = {}, 
+                "UPDATE operation_details SET snapshot_time = '{}', 
                             status = '{}'",
                 operation_detail.snapshot_time, operation_detail.status
             ));
-            if let Some(t_id) = operation_detail.tracking_id {
-                stmt.push_str(&format!(", tracking_id = {}", t_id));
+            if let Some(ref t_id) = operation_detail.tracking_id {
+                stmt.push_str(&format!(", tracking_id = '{}'", t_id));
             }
             if let Some(done_time) = operation_detail.done_time {
-                stmt.push_str(&format!(", done_time = {}", done_time));
+                stmt.push_str(&format!(", done_time = '{}'", done_time));
             }
             stmt.push_str(&format!(
-                ") WHERE operation_detail_id = {}",
+                " WHERE operation_detail_id = {}",
                 id
             ));
         }
@@ -990,7 +764,7 @@ pub fn save_state(
         // transaction rolls back by default.
         let transaction = conn.transaction()?;
         let stmt = format!(
-            "UPDATE disks SET state = {} WHERE disk_id={}",
+            "UPDATE devices SET state = '{}' WHERE device_id={}",
             state, dev_id
         );
         let stmt_query = transaction.execute(&stmt, &[])?;
@@ -1035,7 +809,7 @@ pub fn save_smart_result(
         // transaction rolls back by default.
         let transaction = conn.transaction()?;
         let stmt = format!(
-            "UPDATE disks SET smart_passed = {} WHERE disk_id={}",
+            "UPDATE devices SET smart_passed = {} WHERE device_id={}",
             smart_passed, dev_id
         );
         let stmt_query = transaction.execute(&stmt, &[])?;
@@ -1132,36 +906,75 @@ pub fn get_smart_result(
         )))
     }
 }
-/*
+
+fn row_to_ticket(row: &Row) -> DiskRepairTicket {
+    DiskRepairTicket {
+        ticket_id: row.get(0),
+        device_name: row.get(1),
+        device_path: row.get(2),
+    }
+}
+
 /// Get a list of ticket IDs (JIRA/other ids) that belong to me. 
 /// that are pending in op_type=waitForReplacement
-pub fn get_outstanding_tickets(pool: &Pool<ConnectionManager>, storage_detail_id: u32) -> BynarResult<()> {
+pub fn get_outstanding_repair_tickets(pool: &Pool<ConnectionManager>, storage_detail_id: u32) -> BynarResult<Vec<DiskRepairTicket>> {
     let conn = get_connection_from_pool(pool)?;
 
-    // first get records from operations for this storage_detail_id
-    let mut stmt = format!("SELECT operation_id FROM operations AS op
-    WHERE op.entry_id = {} AND op.storage_detail_id = {} AND op.region_id = {}", host_mapping.entry_id, host_mapping.region_id, 
-    host_mapping.storage_detail_id);
-    let mut stmt_query = conn.query(&stmt, &[])?;
-    if stmt_query.is_empty() {
-        // no row returned. Ideally, there should be atleast one row
-        return Err(BynarError::new("No operations were tracked for this host {:?}", host_mapping));
-    }
-    let row = stmt_query.get(0);
-    let operation_id = row.get("operation_id");
+    // Get all tickets of myself with device.state=WaitForReplacement and operation_detail.status = pending or in_progress
+    let stmt = format!("SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
+     JOIN devices USING (device_id) WHERE 
+     (status = '{}' OR status = '{}') AND 
+     type_id = (SELECT type_id FROM operation_types WHERE op_name= '{}') AND 
+     devices.state='{}' AND 
+     detail_id = {} AND  
+     tracking_id IS NOT NULL ORDER BY operations.start_time", OperationStatus::InProgress, OperationStatus::Pending,
+    OperationType::WaitForReplacement, State::WaitingForReplacement, storage_detail_id);
 
-    // for the above operation_id, get records from operation_details 
-    // where type=WaitForReplacement and status = pending or in_progress
-    stmt = format!("SELECT tracking_id FROM operation_details WHERE operation_id = {} AND (status = '{}' OR status = '{}') AND type_id = 
-    (SELECT type_id FROM operation_types WHERE op_name= '{}')", operation_id, OperationStatus::InProgress, OperationStatus::Pending,
-    OperationType::WaitForReplacement);
-
-    stmt_query = conn.query(&stmt, &[])?;
+    let stmt_query = conn.query(&stmt, &[])?;
+    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
     if stmt_query.is_empty() {
-        debug!("No pending or in-progress tickets for this host{:?}", host_mapping);
+        debug!("No pending or in-progress tickets for this host with detail id {}", storage_detail_id);
+        Ok(tickets)
     } else {
-        debug!("{} pending tickets for host {:?}", stmt_query.len(), host_mapping);
-        
+        debug!("{} pending tickets for this host with detail id {}", stmt_query.len(), storage_detail_id);
+        for row in stmt_query.iter() {
+            // TODO [SD]: use postgres_derive
+            tickets.push(row_to_ticket(&row));
+        } 
+        Ok(tickets)
     }
-} 
-*/
+}
+
+/// Sets status=Complete for the record that has the given ticket_id.
+/// Equivalent to calling add_or_update_operation_detail() with appropriate fields set
+pub fn resolve_ticket(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
+    let conn = get_connection_from_pool(pool)?;
+
+    let stmt = format!("UPDATE operation_details SET status='{}' WHERE ticket_id='{}'", OperationStatus::Complete, ticket_id);
+    let stmt_query = conn.execute(&stmt, &[])?;
+    info!( "Updated {} rows in database. Ticket {} marked as complete.", stmt_query, ticket_id);
+    Ok(())
+}
+
+/// Checks the status of the operation_detail corresponding to this device, and returns true if pending/in_progress
+pub fn is_disk_waiting_repair(pool: &Pool<ConnectionManager>, storage_detail_id: u32, dev_path: &Path) -> BynarResult<bool> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // is there is any operation for this device that is waiting for replacement
+    let stmt = format!("SELECT status FROM operation_details 
+    JOIN operations USING (operation_id) 
+    JOIN devices USING (device_id) 
+    WHERE device_path='{}' AND 
+    detail_id={} AND 
+    type_id = (SELECT type_id FROM operation_types WHERE op_name='{}') AND 
+    state='{}'",
+    dev_path.to_string_lossy().into_owned(), 
+    storage_detail_id, 
+    OperationType::WaitForReplacement, State::WaitingForReplacement);
+    let stmt_query = conn.query(&stmt, &[])?;
+    if stmt_query.is_empty() || stmt_query.len() == 0 {
+        Ok(false)
+    } else {
+        Ok(true)
+    }
+}
