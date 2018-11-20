@@ -21,7 +21,6 @@ extern crate petgraph;
 extern crate r2d2;
 extern crate r2d2_postgres;
 extern crate rayon;
-extern crate rusqlite;
 extern crate tempdir;
 extern crate uuid;
 
@@ -42,7 +41,6 @@ use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
 use self::r2d2::Pool;
 use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
-//use self::rusqlite::Connection;
 use self::rayon::prelude::*;
 use self::tempdir::TempDir;
 use self::uuid::Uuid;
@@ -83,7 +81,7 @@ mod tests {
 
     use in_progress;
 
-    use std::fs::{remove_file, File};
+    use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -170,11 +168,6 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("base.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         let d = super::BlockDevice {
             device: super::Device {
@@ -191,19 +184,16 @@ mod tests {
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
-            storage_detail_id: 0,
+            storage_detail_id: 1,
+            operation_id: None,
         };
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
-        // TODO [SD]: get_state
         s.run();
-        // TODO [SD]: save_state();
-        println!("final state: {}", s.state);
-
+        println!("final state: {}", s.block_device.state);
         cleanup_loop_device(&dev);
-
-        assert_eq!(s.state, super::State::Good);
+        assert_eq!(s.block_device.state, super::State::Good);
     }
 
     #[test]
@@ -233,11 +223,6 @@ mod tests {
             .unwrap();
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("bad_fs.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
         let d = super::BlockDevice {
             device: super::Device {
                 id: Some(drive_id),
@@ -253,16 +238,17 @@ mod tests {
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
-            storage_detail_id: 0,
+            storage_detail_id: 1,
+            operation_id: None,
         };
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
+        println!("final state: {}", s.block_device.state);
 
         cleanup_loop_device(&dev);
-        assert_eq!(s.state, super::State::Good);
+        assert_eq!(s.block_device.state, super::State::Good);
     }
 
     #[test]
@@ -290,11 +276,6 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("replace_disk.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         let d = super::BlockDevice {
             device: super::Device {
@@ -311,17 +292,18 @@ mod tests {
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
-            storage_detail_id: 0,
+            storage_detail_id: 1,
+            operation_id: None,
         };
         let mut s = super::StateMachine::new(d, None, false);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
+        println!("final state: {}", s.block_device.state);
 
         cleanup_loop_device(&dev);
 
-        assert_eq!(s.state, super::State::WaitingForReplacement);
+        assert_eq!(s.block_device.state, super::State::WaitingForReplacement);
     }
 
     #[test]
@@ -337,14 +319,8 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("replaced_disk.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         // Set the previous state to something other than Unscanned
-        in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
 
         let d = super::BlockDevice {
             device: super::Device {
@@ -360,16 +336,17 @@ mod tests {
             mount_point: None,
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
-            state: super::State::Unscanned,
-            storage_detail_id: 0,
+            state: super::State::WaitingForReplacement,
+            storage_detail_id: 1,
+            operation_id: None,
         };
 
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
-        assert_eq!(s.state, super::State::Good);
+        println!("final state: {}", s.block_device.state);
+        assert_eq!(s.block_device.state, super::State::Good);
     }
 }
 
