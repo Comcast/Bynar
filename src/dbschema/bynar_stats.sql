@@ -1,18 +1,18 @@
 -- This handles the tables and relevant information for bynar database.
 -- The database needs to be created prior to installing bynar on 
--- other systems, and the database details should be added to bynar.json
+-- other systems, and the database config details should be added to bynar.json
 -- config file. 
 
--- A schema_mgmt table in the database maintains the versioning information
+-- A schema_mgmt table in the bynar database maintains the versioning information
 -- There is only record in the schema_mgmt table:
 -- revision: The revision number that is currently installed
 
--- To change, increment the new_rev variable in the DECLARE block
+-- To change, increment the new_rev variable in the DECLARE block of update_db
 -- Add a new block with condition current_revision < new_rev
 
--- Basic structure in update_bp() is as follows:
+-- Basic structure in update_db() is as follows:
 -- DECLARE
--- new_rev INTEGER := 1 <--- change this for new versions
+-- new_rev INTEGER := 1 <------ change this for new versions
 -- IF (current_revision < 1)
 -- THEN
 --  SQL statements to apply
@@ -21,44 +21,57 @@
 
 -- Helper functions
 
--- Check if we are connected to bynar database. If not, return
-IF (SELECT COUNT(*) FROM current_catalog WHERE current_catalog='bynar') != 1 
-THEN
-    RAISE NOTICE 'Not connected to bynar database';
-    RETURN 1;
-END IF;
-
 -- Check if a table exists. Returns boolean true or false.
 CREATE OR REPLACE FUNCTION table_exists(schema_name VARCHAR, table_name VARCHAR)
 RETURNS BOOLEAN AS
 $BODY$ BEGIN
     -- tables names are case insensitive, compare isn't. convert
     RETURN ((SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE 
-            lower(schemaname)=lower(sch_name) AND 
+            lower(schemaname)=lower(schema_name) AND 
             lower(tablename)=lower(table_name)) > 0);
 END$BODY$
 LANGUAGE 'plpgsql' VOLATILE;
 
-
+CREATE OR REPLACE FUNCTION create_schema_mgmt()
+RETURNS INT4 AS
+$BODY$DECLARE
+    result INT4;
+BEGIN
+    result := 0;
+    IF (SELECT COUNT(*) FROM current_catalog WHERE current_catalog='bynar') < 1 THEN
+        result := 1;
+        RETURN result;
+    END IF;
+    -- Create schema_mgmt table and add the revision record
+    IF NOT table_exists('public', 'schema_mgmt') THEN
+        CREATE TABLE schema_mgmt (revision INTEGER PRIMARY KEY);
+        INSERT INTO schema_mgmt(revision) VALUES (0);
+    END IF;
+    RETURN result;
+END;
+$BODY$
+LANGUAGE 'plpgsql' VOLATILE;
+    
 -- End helper functions
-
--- Create schema_mgmt table and add the revision record
-IF NOT table_exists('public', 'schema_mgmt') THEN
-    CREATE TABLE schema_mgmt (revision INTEGER PRIMARY KEY);
-    INSERT INTO schema_mgmt(revision) VALUES (0);
-END IF;
 
 CREATE OR REPLACE FUNCTION update_db()
 RETURNS BOOLEAN AS
-$BODY$
+$BODY$ 
+
 DECLARE
-    new_row schema_mgmt%ROWTYPE;
+    new_row INTEGER; 
     new_rev INTEGER := 1;
     current_revision INTEGER;
 BEGIN
-    SELECT INTO new_row * FROM schema_mgmt ORDER by revision DESC LIMIT 1;
+    
+    -- Stop if not bynar database
+    IF (SELECT COUNT(*) FROM current_catalog WHERE current_catalog='bynar') < 1 THEN
+        RETURN FALSE;
+    END IF;
 
-    current_revision := new_row.revision;
+    SELECT INTO new_row revision FROM schema_mgmt ORDER by revision DESC LIMIT 1;
+
+    current_revision := new_row;
 
     IF (current_revision >= new_rev) THEN
         RETURN TRUE;
@@ -175,11 +188,12 @@ BEGIN
 END$BODY$
 LANGUAGE 'plpgsql' VOLATILE;
 
--- Entry point to script
 
+SELECT create_schema_mgmt();
 -- Run the update schema function
 SELECT update_db();
 
 -- Drop all functions we just created
+DROP FUNCTION create_schema_mgmt();
 DROP function update_db();
 DROP FUNCTION table_exists(VARCHAR, VARCHAR);
