@@ -16,6 +16,8 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate protobuf;
+extern crate r2d2;
+extern crate r2d2_postgres;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -28,16 +30,17 @@ mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 
+use self::r2d2::Pool;
+use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use self::test_disk::State;
 use clap::{App, Arg};
 use create_support_ticket::{create_support_ticket, ticket_resolved};
 use helpers::{error::*, host_information::Host};
-use in_progress::{connect_to_database, disconnect_database, update_storage_info};
+use in_progress::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
-use std::process::id;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -113,10 +116,11 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
     simulate: bool,
 ) -> BynarResult<()> {
     let public_key = get_public_key(config, &host_info)?;
-    let config_location = Path::new(&config.db_location);
     //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
     let environment = format!(
@@ -129,21 +133,27 @@ fn check_for_failed_disks(
     );
 
     info!("Checking all drives");
-    let conn = in_progress::connect_to_repair_database(&config_location)?;
-    for result in test_disk::check_all_disks(&config_location, &host_info)? {
+    for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
         match result {
-            Ok(state) => {
-                info!("Disk status: /dev/{} {:?}", state.disk.device.name, state);
+            Ok(state_machine) => {
+                info!(
+                    "Disk status: /dev/{} {:?}",
+                    state_machine.block_device.device.name, state_machine
+                );
                 let mut dev_path = PathBuf::from("/dev");
-                dev_path.push(state.disk.device.name);
+                dev_path.push(state_machine.block_device.device.name);
 
-                if state.state == State::WaitingForReplacement {
+                if state_machine.block_device.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = state.disk.device.serial_number {
+                    if let Some(serial) = state_machine.block_device.device.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
                     info!("Connecting to database to check if disk is in progress");
-                    let in_progress = in_progress::is_disk_in_progress(&conn, &dev_path)?;
+                    let in_progress = in_progress::is_disk_waiting_repair(
+                        pool,
+                        host_mapping.storage_detail_id,
+                        &dev_path,
+                    )?;
                     if !simulate {
                         if !in_progress {
                             debug!("Asking disk-manager if it's safe to remove disk");
@@ -216,13 +226,26 @@ fn check_for_failed_disks(
                                 &environment,
                             )?;
                             debug!("Recording ticket id {} in database", ticket_id);
-                            in_progress::record_new_repair_ticket(&conn, &ticket_id, &dev_path)?;
+                            let op_id = match state_machine.block_device.operation_id {
+                                None => {
+                                    error!(
+                                        "Operation not recorded for {}",
+                                        state_machine.block_device.dev_path.display()
+                                    );
+                                    0
+                                }
+                                Some(i) => i,
+                            };
+                            let mut operation_detail =
+                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                            operation_detail.set_tracking_id(ticket_id);
+                            add_or_update_operation_detail(pool, &mut operation_detail)?;
                         } else {
                             debug!("Device is already in the repair queue");
                         }
                     }
                 // Handle the ones that ended up stuck in Fail
-                } else if state.state == State::Fail {
+                } else if state_machine.block_device.state == State::Fail {
                     error!("Disk {} ended in a Fail state", dev_path.display(),);
                 } else {
                     // The rest should be State::Good ?
@@ -243,15 +266,14 @@ fn check_for_failed_disks(
 fn add_repaired_disks(
     config: &ConfigSettings,
     host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+    storage_detail_id: u32,
     simulate: bool,
 ) -> BynarResult<()> {
-    let config_location = Path::new(&config.db_location);
     let public_key = get_public_key(&config, &host_info)?;
 
-    info!("Connecting to database to find repaired drives");
-    let conn = in_progress::connect_to_repair_database(&config_location)?;
     info!("Getting outstanding repair tickets");
-    let tickets = in_progress::get_outstanding_repair_tickets(&conn)?;
+    let tickets = in_progress::get_outstanding_repair_tickets(&pool, storage_detail_id)?;
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         match ticket_resolved(config, &ticket.ticket_id.to_string()) {
@@ -266,13 +288,13 @@ fn add_repaired_disks(
                     )?;
                     match helpers::add_disk_request(
                         &mut socket,
-                        &Path::new(&ticket.disk_path),
+                        &Path::new(&ticket.device_path),
                         None,
                         simulate,
                     ) {
                         Ok(_) => {
-                            debug!("Disk added successfully");
-                            match in_progress::resolve_ticket(&conn, &ticket.ticket_id) {
+                            debug!("Disk added successfully. Updating database record");
+                            match in_progress::resolve_ticket(pool, &ticket.ticket_id) {
                                 Ok(_) => {
                                     debug!("Database updated");
                                 }
@@ -383,27 +405,35 @@ fn main() {
         return;
     }
     let config: ConfigSettings = config.expect("Failed to load config");
-    match connect_to_database(&config.database) {
-        Err(e) => {
-            error!("Failed to connect to database {}", e);
-        }
-        Ok(conn) => {
-            // successfully connected to DB to track operations, update information
-            // TODO: When merged with sqllite3, program stops if connect_to_database() fails
-            let pid = id();
-            match update_storage_info(&host_info, pid, &conn) {
-                Err(e) => {
-                    error!("Failed to update information in tracking database {}", e);
-                }
-                _ => {
-                    info!("Host information added to database");
-                }
-            }
-            let _ = disconnect_database(conn);
-        }
-    }
 
-    match check_for_failed_disks(&config, &host_info, simulate) {
+    let db_pool = match create_db_connection_pool(&config.database) {
+        Err(e) => {
+            error!("Failed to create database pool {}", e);
+            return;
+        }
+        Ok(p) => p,
+    };
+
+    // Successfully opened a a database pool. Update information about host
+    let host_details_mapping: HostDetailsMapping = match update_storage_info(&host_info, &db_pool) {
+        Err(e) => {
+            error!("Failed to update information in tracking database {}", e);
+            // TODO [SD]: return if cannot update.
+            return;
+        }
+        Ok(d) => {
+            info!("Host information added to database");
+            d
+        }
+    };
+
+    match check_for_failed_disks(
+        &config,
+        &host_info,
+        &db_pool,
+        &host_details_mapping,
+        simulate,
+    ) {
         Err(e) => {
             error!("Check for failed disks failed with error: {}", e);
         }
@@ -411,7 +441,13 @@ fn main() {
             info!("Check for failed disks completed");
         }
     };
-    match add_repaired_disks(&config, &host_info, simulate) {
+    match add_repaired_disks(
+        &config,
+        &host_info,
+        &db_pool,
+        host_details_mapping.storage_detail_id,
+        simulate,
+    ) {
         Err(e) => {
             error!("Add repaired disks failed with error: {}", e);
         }

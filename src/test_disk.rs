@@ -18,8 +18,9 @@ extern crate lvm;
 #[cfg(test)]
 extern crate mocktopus;
 extern crate petgraph;
+extern crate r2d2;
+extern crate r2d2_postgres;
 extern crate rayon;
-extern crate rusqlite;
 extern crate tempdir;
 extern crate uuid;
 
@@ -38,10 +39,11 @@ use self::lvm::*;
 use self::mocktopus::macros::*;
 use self::petgraph::graphmap::GraphMap;
 use self::petgraph::Directed;
+use self::r2d2::Pool;
+use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use self::rayon::prelude::*;
 use self::tempdir::TempDir;
 use self::uuid::Uuid;
-
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
@@ -62,6 +64,13 @@ pub struct BlockDevice {
     pub scsi_info: ScsiInfo,
     pub state: State,
     pub storage_detail_id: u32,
+    pub operation_id: Option<u32>,
+}
+
+impl BlockDevice {
+    pub fn set_device_database_id(&mut self, device_database_id: u32) {
+        self.device_database_id = Some(device_database_id);
+    }
 }
 
 #[cfg(test)]
@@ -72,7 +81,7 @@ mod tests {
 
     use in_progress;
 
-    use std::fs::{remove_file, File};
+    use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -159,10 +168,6 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("base.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
 
         let d = super::BlockDevice {
             device: super::Device {
@@ -179,17 +184,16 @@ mod tests {
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
-            storage_detail_id: 0,
+            storage_detail_id: 1,
+            operation_id: None,
         };
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
-
+        println!("final state: {}", s.block_device.state);
         cleanup_loop_device(&dev);
-
-        assert_eq!(s.state, super::State::Good);
+        assert_eq!(s.block_device.state, super::State::Good);
     }
 
     #[test]
@@ -219,11 +223,6 @@ mod tests {
             .unwrap();
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("bad_fs.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
         let d = super::BlockDevice {
             device: super::Device {
                 id: Some(drive_id),
@@ -239,16 +238,17 @@ mod tests {
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
-            storage_detail_id: 0,
+            storage_detail_id: 1,
+            operation_id: None,
         };
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
+        println!("final state: {}", s.block_device.state);
 
         cleanup_loop_device(&dev);
-        assert_eq!(s.state, super::State::Good);
+        assert_eq!(s.block_device.state, super::State::Good);
     }
 
     #[test]
@@ -276,11 +276,6 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("replace_disk.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         let d = super::BlockDevice {
             device: super::Device {
@@ -297,17 +292,18 @@ mod tests {
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
-            storage_detail_id: 0,
+            storage_detail_id: 1,
+            operation_id: None,
         };
         let mut s = super::StateMachine::new(d, None, false);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
+        println!("final state: {}", s.block_device.state);
 
         cleanup_loop_device(&dev);
 
-        assert_eq!(s.state, super::State::WaitingForReplacement);
+        assert_eq!(s.block_device.state, super::State::WaitingForReplacement);
     }
 
     #[test]
@@ -323,14 +319,8 @@ mod tests {
         debug!("drive_uuid: {}", drive_uuid);
 
         let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let sql_dir = TempDir::new("bynar").unwrap();
-        let db_path = sql_dir.path().join("replaced_disk.sqlite3");
-        //cleanup old
-        let _ = remove_file(&db_path);
-        let conn = super::connect_to_repair_database(&db_path).unwrap();
 
         // Set the previous state to something other than Unscanned
-        in_progress::save_state(&conn, dev.as_path(), super::State::WaitingForReplacement).unwrap();
 
         let d = super::BlockDevice {
             device: super::Device {
@@ -346,16 +336,17 @@ mod tests {
             mount_point: None,
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
-            state: super::State::Unscanned,
-            storage_detail_id: 0,
+            state: super::State::REPLACED,
+            storage_detail_id: 1,
+            operation_id: None,
         };
-
+        // restore state?
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
         s.print_graph();
         s.run();
-        println!("final state: {}", s.state);
-        assert_eq!(s.state, super::State::Good);
+        println!("final state: {}", s.block_device.state);
+        assert_eq!(s.block_device.state, super::State::Good);
     }
 }
 
@@ -667,6 +658,7 @@ impl Transition for Replace {
         debug!("thread {} running Replace transition", process::id());
         // So we know at this point that the disk has been replaced
         // We know the device we're working with
+        // If it's being a raid device do we need to do anything there?
 
         *to_state
     }
@@ -735,8 +727,7 @@ pub struct StateMachine {
         ) -> State,
         Directed,
     >,
-    pub state: State,
-    pub disk: BlockDevice,
+    pub block_device: BlockDevice,
     // optional info of this device and optional scsi host information
     // used to determine whether this device is behind a raid controller
     pub scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
@@ -745,21 +736,20 @@ pub struct StateMachine {
 
 impl fmt::Debug for StateMachine {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.state)
+        write!(f, "{:?}", self.block_device)
     }
 }
 
 impl StateMachine {
     fn new(
-        disk: BlockDevice,
+        block_device: BlockDevice,
         scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
         simulate: bool,
     ) -> Self {
         StateMachine {
             dot_graph: Vec::new(),
             graph: GraphMap::new(),
-            state: State::Unscanned,
-            disk,
+            block_device,
             scsi_info,
             simulate,
         }
@@ -786,7 +776,11 @@ impl StateMachine {
     // Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
-        debug!("thread {} Starting state: {}", process::id(), self.state);
+        debug!(
+            "thread {} Starting state: {}",
+            process::id(),
+            self.block_device.state
+        );
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(
@@ -798,10 +792,10 @@ impl StateMachine {
                     scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
                     simulate: bool,
                 ) -> State,
-            )> = self.graph.edges(self.state).collect();
+            )> = self.graph.edges(self.block_device.state).collect();
             // Some states have multiple paths they could go down.
             // If the state transition returns State::Fail try the next path
-            let beginning_state = self.state;
+            let beginning_state = self.block_device.state;
             for e in edges {
                 debug!(
                     "thread {} Attempting {} to {} transition",
@@ -809,7 +803,7 @@ impl StateMachine {
                     &e.0,
                     &e.1
                 );
-                let state = e.2(&e.1, &mut self.disk, &self.scsi_info, self.simulate);
+                let state = e.2(&e.1, &mut self.block_device, &self.scsi_info, self.simulate);
                 if state == State::Fail {
                     // Try the next transition if there is one
                     debug!(
@@ -824,36 +818,32 @@ impl StateMachine {
                         "thread {} state==State::WaitingForReplacement",
                         process::id()
                     );
-                    self.state = state;
-                    //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    self.block_device.state = state;
                     break 'outer;
                 } else if state == State::Good {
                     debug!("thread {} state==State::Good", process::id());
-                    self.state = state;
-                    //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    self.block_device.state = state;
                     break 'outer;
                 }
                 // transition succeeded.  Save state and go around the loop again
                 // This won't detect if the transitions return something unexpected
                 if state == e.1 {
                     debug!("thread {} state==e.1 {}=={}", process::id(), state, e.1);
-                    self.state = state;
-                    //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
+                    self.block_device.state = state;
                     break;
                 }
             }
             // At this point we should've advanced further.  If not then we're stuck in an infinite loop
             // Note this won't detect more complicated infinite loops where it changes through 2 states
             // before ending back around again.
-            if self.state == beginning_state {
+            if self.block_device.state == beginning_state {
                 // We're stuck in an infinite loop we can't advance further from
                 debug!(
-                    "thread {} Breaking loop: {}=={}",
+                    "thread {} Breaking loop: stuck in same state {}=={}",
                     process::id(),
-                    self.state,
+                    self.block_device.state,
                     beginning_state
                 );
-                //save_state(&self.db_conn, &dev_path, self.state).expect("save_state failed");
                 break 'outer;
             }
         }
@@ -1122,7 +1112,7 @@ enum Fsck {
     Corrupt,
 }
 
-fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
+fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<BlockDevice>> {
     // Gather info on all devices and skip Loopback devices
     let devices = block_utils::get_all_device_info(&devices)?;
     let block_devices: Vec<BlockDevice> = devices
@@ -1154,7 +1144,8 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
                 partitions,
                 scsi_info: ScsiInfo::default(),
                 state: State::Unscanned,
-                storage_detail_id: 0,
+                storage_detail_id,
+                operation_id: None,
             }
         }).collect();
     let filtered_devices: Vec<BlockDevice> = block_devices
@@ -1191,8 +1182,14 @@ fn filter_disks(devices: &[PathBuf]) -> BynarResult<Vec<BlockDevice>> {
         }).collect();
     Ok(filtered_devices)
 }
-
-pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResult<StateMachine>>> {
+/// Retrives a list of disks, and sets up a state machine on each of them.
+/// Retrives previous state and runs through the state machine and preserves
+/// the final state in the database before returning a vector of StateMachine
+pub fn check_all_disks(
+    host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
+) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree
     // It will fail to show disks that have died and disconnected but are still
     // shown as mounted in /etc/mtab
@@ -1211,8 +1208,23 @@ pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResu
     devices.extend_from_slice(&mtab_devices);
 
     // Gather info on all devices and skip Loopback devices
-    let device_info = filter_disks(&devices)?;
+    let mut device_info = filter_disks(&devices, host_mapping.storage_detail_id)?;
 
+    // add the filtered devices to the database.
+    // A mutable ref is needed so that the device_database_id can be set
+    for mut dev in device_info.iter_mut() {
+        add_disk_detail(pool, &mut dev)?;
+        // add operation for tracking
+        let device_db_id = match dev.device_database_id {
+            None => 0,
+            Some(i) => i,
+        };
+        let mut op_info = OperationInfo::new(host_mapping.entry_id, device_db_id);
+        add_or_update_operation(pool, &mut op_info)?;
+
+        // store the operation_id in BlockDevice struct
+        dev.operation_id = op_info.operation_id;
+    }
     //TODO: Add nvme devices to block-utils
 
     // Create 1 state machine per Device and evaulate all devices in parallel
@@ -1239,21 +1251,12 @@ pub fn check_all_disks(db: &Path, host_info: &Host) -> BynarResult<Vec<BynarResu
                 }).and_then(|r| Some(r.clone()));
             debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
             debug!("thread {} device: {:?}", process::id(), device);
-            let conn = connect_to_repair_database(db)?;
             let mut s = StateMachine::new(device, scsi_info, false);
             s.setup_state_machine();
-            if let Some(existing_state) = get_state(&conn, &s.disk.dev_path)? {
-                s.state = existing_state;
-            }
-
+            s.block_device.state = get_state(pool, &s.block_device)?;
             s.run();
-            // Possibly serialize the state here to the database to resume later
-            if s.state == State::WaitingForReplacement {
-                info!("Connecting to database to check if disk is in progress");
-                //let disk_path = Path::new("/dev").join(&s.disk.device.name);
-                let conn = connect_to_repair_database(db)?;
-                let in_progress = is_disk_in_progress(&conn, &s.disk.dev_path)?;
-            }
+            // Save the state to database after state machine finishes its run
+            save_state(pool, &s.block_device, &s.block_device.state)?;
             Ok(s)
         }).collect();
 
