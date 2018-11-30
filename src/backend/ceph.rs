@@ -105,9 +105,9 @@ impl CephBackend {
         simulate: bool,
     ) -> BynarResult<()> {
         /*
-    //TODO  What is the deal with this tmpfs??
-    mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
-        */
+        //TODO  What is the deal with this tmpfs??
+        mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
+            */
         // Create a new osd id
         let new_osd_id = osd_create(&self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
@@ -534,7 +534,8 @@ impl CephBackend {
                         "LVM device {} has no parent directory",
                         lv_dev_name.display()
                     ))
-                })?.join(tmp)
+                })?
+                .join(tmp)
                 .canonicalize()?;
             Ok(p)
         } else {
@@ -707,10 +708,7 @@ fn systemctl_enable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> Bynar
 
 fn systemctl_stop(osd_id: u64, simulate: bool) -> BynarResult<()> {
     if !simulate {
-        let args: Vec<String> = vec![
-            "stop".to_string(),
-            format!("ceph-osd@{}.service", osd_id),
-        ];
+        let args: Vec<String> = vec!["stop".to_string(), format!("ceph-osd@{}.service", osd_id)];
         debug!("cmd: systemctl {:?}", args);
         let output = Command::new("systemctl").args(&args).output()?;
         if !output.status.success() {
