@@ -321,8 +321,13 @@ pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<Conne
         "Establishing a connection to database {} at {}:{} using {}",
         db_config.dbname, db_config.endpoint, db_config.port, db_config.username
     );
+    // Postgres expects an &str here instead of Option<String>
+    let password: Option<&str> = match db_config.password {
+        Some(ref v) => Some(v),
+        None => None,
+    };
     let connection_params = ConnectParams::builder()
-        .user(&db_config.username, Some(&db_config.password))
+        .user(&db_config.username, password)
         .port(db_config.port)
         .database(&db_config.dbname)
         .build(Host::Tcp(db_config.endpoint.to_string()));

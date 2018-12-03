@@ -66,7 +66,7 @@ pub struct ConfigSettings {
 #[derive(Clone, Debug, Deserialize)]
 pub struct DBConfig {
     pub username: String,
-    pub password: String,
+    pub password: Option<String>,
     pub port: u16,
     pub endpoint: String,
     pub dbname: String,
