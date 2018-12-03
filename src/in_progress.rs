@@ -105,8 +105,24 @@ mod tests {
         println!("Added operation with ID {}", o_id);
 
         // call add_disk_detail again for same device
-        println!("Re-adding same disk again to the database");
+        println!(
+            "Re-adding same disk with id {} again to the database",
+            dev_id
+        );
         let _disk_result2 = super::add_disk_detail(&pool, &mut d).unwrap();
+
+        // Clear device_database_id to mimic re-run and add again
+        d.device_database_id = None;
+
+        let _disk_result3 = super::add_disk_detail(&pool, &mut d).unwrap();
+        let new_dev_id = match d.device_database_id {
+            None => 0,
+            Some(i) => i,
+        };
+        println!(
+            "Dev-id after reinsert attempt {}, old {}",
+            new_dev_id, dev_id
+        );
 
         // now update operation
         println!("Updating first operation with snapshot time");
@@ -524,66 +540,81 @@ pub fn add_disk_detail(
     disk_info: &mut BlockDevice,
 ) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
-    let mut stmt = String::new();
-    match disk_info.device_database_id {
-        None => {
-            // no disk_id present, add a new record
-            stmt.push_str("INSERT INTO devices(detail_id, device_path, device_name, state");
-            if disk_info.mount_point.is_some() {
-                stmt.push_str(", mount_path");
-            }
-            if disk_info.device.id.is_some() {
-                stmt.push_str(", device_uuid");
-            }
+    let mut check_stmt = String::new();
+    check_stmt.push_str(&format!(
+        "SELECT device_id FROM devices WHERE device_path='{}'
+                                        AND detail_id={} AND device_name='{}'",
+        disk_info.dev_path.display(),
+        disk_info.storage_detail_id,
+        disk_info.device.name
+    ));
 
-            stmt.push_str(&format!(
-                ") VALUES ({}, '{}', '{}', '{}'",
-                disk_info.storage_detail_id,
-                disk_info.dev_path.to_string_lossy().into_owned(),
-                disk_info.device.name,
-                disk_info.state
-            ));
-
-            if let Some(ref mount) = disk_info.mount_point {
-                stmt.push_str(&format!(", '{}'", mount.display()));
-            }
-            if let Some(ref uuid) = disk_info.device.id {
-                stmt.push_str(&format!(", '{}'", uuid));
-            }
-
-            stmt.push_str(") RETURNING device_id");
+    let stmt_query = conn.query(&check_stmt, &[])?;
+    if stmt_query.is_empty() {
+        // A record doesn't exist, insert
+        let mut stmt = String::new();
+        stmt.push_str("INSERT INTO devices(detail_id, device_path, device_name, state");
+        if disk_info.mount_point.is_some() {
+            stmt.push_str(", mount_path");
         }
-        Some(id) => {
-            // verify if all other details match, select disk_id to match with the
-            // return from the insert stmt above
-            stmt.push_str(&format!(
-                "SELECT device_id FROM devices WHERE device_id = {} AND
-                                    device_name = '{}' AND device_path = '{}' AND 
-                                    detail_id = {}",
-                id,
-                disk_info.device.name,
-                disk_info.dev_path.to_string_lossy(),
-                disk_info.storage_detail_id
-            ));
+        if disk_info.device.id.is_some() {
+            stmt.push_str(", device_uuid");
         }
-    }
-    let stmt_query = conn.query(&stmt, &[])?;
 
-    if let Some(result) = stmt_query.into_iter().next() {
-        let id: i32 = result.get("device_id");
-        disk_info.set_device_database_id(id as u32);
-        Ok(())
-    } else {
-        if disk_info.device_database_id.is_some() {
-            // Information in DB didn't match what we have
-            Err(BynarError::new(format!(
-                "Information about {} for storage id {} didn't match",
-                disk_info.device.name, disk_info.storage_detail_id
-            )))
+        stmt.push_str(&format!(
+            ") VALUES ({}, '{}', '{}', '{}'",
+            disk_info.storage_detail_id,
+            disk_info.dev_path.display(),
+            disk_info.device.name,
+            disk_info.state
+        ));
+
+        if let Some(ref mount) = disk_info.mount_point {
+            stmt.push_str(&format!(", '{}'", mount.display()));
+        }
+        if let Some(ref uuid) = disk_info.device.id {
+            stmt.push_str(&format!(", '{}'", uuid));
+        }
+
+        stmt.push_str(") RETURNING device_id");
+        let stmt_q = conn.query(&stmt, &[])?;
+        if let Some(row) = stmt_q.into_iter().next() {
+            let id: i32 = row.get("device_id");
+            disk_info.set_device_database_id(id as u32);
+            Ok(())
         } else {
-            Err(BynarError::new(
-                "Failed to add device details to database".to_string(),
-            ))
+            Err(BynarError::new(format!(
+                "Failed to add {},{} to database",
+                disk_info.storage_detail_id, disk_info.device.name
+            )))
+        }
+    } else {
+        // device exists in database
+        if let Some(result) = stmt_query.into_iter().next() {
+            let id: i32 = result.get("device_id");
+            // does it match our struct?
+            match disk_info.device_database_id {
+                None => {
+                    disk_info.set_device_database_id(id as u32);
+                    Ok(())
+                }
+                Some(i) => {
+                    if i != id as u32 {
+                        Err(BynarError::new(format!(
+                            "Information about {} for storage id {} didn't match",
+                            disk_info.device.name, disk_info.storage_detail_id
+                        )))
+                    } else {
+                        Ok(())
+                    }
+                }
+            }
+        } else {
+            // Query said something exists, but we couldn't find that
+            Err(BynarError::new(format!(
+                "Failed to find device information for {},{} in database",
+                disk_info.storage_detail_id, disk_info.device.name
+            )))
         }
     }
 }
@@ -1007,7 +1038,7 @@ pub fn is_disk_waiting_repair(
     detail_id={} AND 
     type_id = (SELECT type_id FROM operation_types WHERE op_name='{}') AND 
     state='{}'",
-        dev_path.to_string_lossy().into_owned(),
+        dev_path.display(),
         storage_detail_id,
         OperationType::WaitingForReplacement,
         State::WaitingForReplacement

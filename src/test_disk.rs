@@ -336,7 +336,7 @@ mod tests {
             mount_point: None,
             partitions: vec![],
             scsi_info: super::ScsiInfo::default(),
-            state: super::State::REPLACED,
+            state: super::State::Replaced,
             storage_detail_id: 1,
             operation_id: None,
         };
