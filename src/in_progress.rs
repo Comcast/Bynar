@@ -539,7 +539,7 @@ pub fn add_disk_detail(
     check_stmt.push_str(&format!(
         "SELECT device_id FROM devices WHERE device_path='{}'
                                         AND detail_id={} AND device_name='{}'",
-        disk_info.dev_path.to_string_lossy().into_owned(),
+        disk_info.dev_path.display(),
         disk_info.storage_detail_id,
         disk_info.device.name
     ));
@@ -559,7 +559,7 @@ pub fn add_disk_detail(
         stmt.push_str(&format!(
             ") VALUES ({}, '{}', '{}', '{}'",
             disk_info.storage_detail_id,
-            disk_info.dev_path.to_string_lossy().into_owned(),
+            disk_info.dev_path.display(),
             disk_info.device.name,
             disk_info.state
         ));
@@ -1033,7 +1033,7 @@ pub fn is_disk_waiting_repair(
     detail_id={} AND 
     type_id = (SELECT type_id FROM operation_types WHERE op_name='{}') AND 
     state='{}'",
-        dev_path.to_string_lossy().into_owned(),
+        dev_path.display(),
         storage_detail_id,
         OperationType::WaitingForReplacement,
         State::WaitingForReplacement
