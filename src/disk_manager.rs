@@ -105,8 +105,8 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()
 }
 
 /*
- Server that manages disks
- */
+Server that manages disks
+*/
 fn listen(
     backend_type: &backend::BackendType,
     config_dir: &Path,
@@ -120,11 +120,9 @@ fn listen(
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
     setup_curve(&mut responder, config_dir, vault).unwrap();
-    assert!(
-        responder
-            .bind(&format!("tcp://{}:5555", listen_address))
-            .is_ok()
-    );
+    assert!(responder
+        .bind(&format!("tcp://{}:5555", listen_address))
+        .is_ok());
 
     loop {
         let msg = responder.recv_bytes(0)?;
@@ -203,17 +201,37 @@ fn listen(
                     error!("Remove operation must include disk field.  Ignoring request");
                     continue;
                 }
-                match remove_disk(
-                    &mut responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    config_dir,
-                ) {
-                    Ok(_) => {
-                        info!("Remove disk finished");
+                let mut result = OpResult::new();
+                match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
+                    Ok(safe) => {
+                        if safe {
+                            match remove_disk(
+                                &mut responder,
+                                operation.get_disk(),
+                                &backend_type,
+                                config_dir,
+                            ) {
+                                Ok(_) => {
+                                    info!("Remove disk finished");
+                                }
+                                Err(e) => {
+                                    error!("Remove disk error: {:?}", e);
+                                }
+                            };
+                        } else {
+                            debug!("Disk is not safe to remove");
+                            //Response to client
+                            result.set_result(ResultType::ERR);
+                            result.set_error_msg("Not safe to remove disk".to_string());
+                            let _ = respond_to_client(&result, &mut responder);
+                        }
                     }
                     Err(e) => {
-                        error!("Remove disk error: {:?}", e);
+                        error!("safe to remove failed: {:?}", e);
+                        // Response to client
+                        result.set_result(ResultType::ERR);
+                        result.set_error_msg(e.to_string());
+                        let _ = respond_to_client(&result, &mut responder);
                     }
                 };
             }
@@ -229,10 +247,10 @@ fn listen(
                     config_dir,
                 ) {
                     Ok(_) => {
-                        info!("Remove disk finished");
+                        info!("Safe to remove disk finished");
                     }
                     Err(e) => {
-                        error!("Remove disk error: {:?}", e);
+                        error!("Safe to remove error: {:?}", e);
                     }
                 };
             }
@@ -334,7 +352,8 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
             p.set_flags(part.flags);
             p.set_name(part.name.clone());
             p
-        }).collect();
+        })
+        .collect();
     partition_info.set_partition(RepeatedField::from_vec(proto_parts));
     Ok(partition_info)
 }
@@ -385,34 +404,36 @@ fn remove_disk(
     Ok(())
 }
 
+fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarResult<bool> {
+    let backend = backend::load_backend(backend, Some(config_dir))?;
+    let safe = backend.safe_to_remove(d, false)?;
+
+    Ok(safe)
+}
+
 fn safe_to_remove_disk(
     s: &mut Socket,
     d: &str,
     backend: &BackendType,
     config_dir: &Path,
 ) -> BynarResult<()> {
+    debug!("Checking if {} is safe to remove", d);
     let mut result = OpBoolResult::new();
-    let backend = match backend::load_backend(backend, Some(config_dir)) {
-        Ok(b) => b,
-        Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
-            let encoded = result.write_to_bytes()?;
-            let msg = Message::from_slice(&encoded)?;
-            debug!("Responding to client with msg len: {}", msg.len());
-            s.send_msg(msg, 0)?;
-            return Ok(());
-        }
-    };
-    match backend.safe_to_remove(&Path::new(d), false) {
+    match safe_to_remove(&Path::new(d), &backend, &config_dir) {
         Ok(val) => {
+            debug!("Safe to remove: {}", val);
             result.set_result(ResultType::OK);
             result.set_value(val);
         }
         Err(e) => {
+            debug!("Safe to remove err: {}", e);
             result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
+            let encoded = result.write_to_bytes()?;
+            let msg = Message::from_slice(&encoded)?;
+            debug!("Responding to client with msg len: {}", msg.len());
+            s.send_msg(msg, 0)?;
+            return Err(BynarError::new(format!("safe to remove error: {}", e)));
         }
     };
     let encoded = result.write_to_bytes()?;
@@ -435,28 +456,32 @@ fn main() {
                 .possible_values(&["ceph"])
                 .takes_value(true)
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("listen")
                 .default_value("*")
                 .help("Address to listen on.  Default is all interfaces")
                 .long("listenaddress")
                 .takes_value(true)
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("configdir")
                 .default_value("/etc/bynar")
                 .help("The directory where all config files can be found")
                 .long("configdir")
                 .takes_value(true)
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("log")
                 .default_value("/var/log/bynar-disk-manager.log")
                 .help("Default log file location")
                 .long("logfile")
                 .takes_value(true)
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("vault")
                 .default_value("false")
                 .help("Enable vault support. Remember to set the vault_token and vault_endpoint")
@@ -464,12 +489,14 @@ fn main() {
                 .possible_values(&["true", "false"])
                 .takes_value(true)
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        ).get_matches();
+        )
+        .get_matches();
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
@@ -495,9 +522,7 @@ fn main() {
     }
     let log = Path::new(matches.value_of("log").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
-    let vault_support = {
-        bool::from_str(matches.value_of("vault").unwrap()).unwrap()
-    };
+    let vault_support = { bool::from_str(matches.value_of("vault").unwrap()).unwrap() };
     let mut loggers: Vec<Box<SharedLogger>> = vec![];
     if let Some(term_logger) = TermLogger::new(level, Config::default()) {
         //systemd doesn't use a terminal
