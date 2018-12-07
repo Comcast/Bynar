@@ -123,14 +123,14 @@ fn check_for_failed_disks(
     let public_key = get_public_key(config, &host_info)?;
     //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
-    let environment = format!(
-        "Hostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
+    description.push_str(&format!(
+        "\nHostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
         host_info.hostname,
         host_info.server_type,
         host_info.serial_number,
         host_info.machine_architecture,
         host_info.kernel,
-    );
+    ));
 
     info!("Checking all drives");
     for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
@@ -148,6 +148,17 @@ fn check_for_failed_disks(
                     if let Some(serial) = state_machine.block_device.device.serial_number {
                         description.push_str(&format!("\nDisk serial: {}", serial));
                     }
+                    description.push_str(&format!(
+                        "\nSCSI host: {}, channel: {} id: {} lun: {}",
+                        state_machine.block_device.scsi_info.host,
+                        state_machine.block_device.scsi_info.channel,
+                        state_machine.block_device.scsi_info.id,
+                        state_machine.block_device.scsi_info.lun
+                    ));
+                    description.push_str(&format!(
+                        "\nDisk vendor: {:?}",
+                        state_machine.block_device.scsi_info.vendor
+                    ));
                     info!("Connecting to database to check if disk is in progress");
                     let in_progress = in_progress::is_disk_waiting_repair(
                         pool,
@@ -165,6 +176,7 @@ fn check_for_failed_disks(
                             )?;
                             match helpers::safe_to_remove_request(&mut socket, &dev_path) {
                                 Ok(result) => {
+                                    debug!("safe to remove: {}", result);
                                     //Ok to remove the disk
                                     if result {
                                         if config.slack_webhook.is_some() {
@@ -223,7 +235,6 @@ fn check_for_failed_disks(
                                 config,
                                 "Bynar: Dead disk",
                                 &description,
-                                &environment,
                             )?;
                             debug!("Recording ticket id {} in database", ticket_id);
                             let op_id = match state_machine.block_device.operation_id {
@@ -341,17 +352,20 @@ fn main() {
                 .long("configdir")
                 .takes_value(true)
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("simulate")
                 .help("Log messages but take no action")
                 .long("simulate")
                 .required(false),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        ).get_matches();
+        )
+        .get_matches();
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,

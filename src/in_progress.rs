@@ -19,7 +19,7 @@ use self::r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMod
 use self::test_disk::{BlockDevice, State};
 use super::DBConfig;
 use std::fmt::{Display, Formatter, Result as fResult};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::id;
 use std::str::FromStr;
 use std::time::Duration;
@@ -164,7 +164,7 @@ mod tests {
         println!("State for dev name {} is {:#?}", d.device.name, state);
 
         let new_state = super::test_disk::State::WaitingForReplacement;
-        let _state_result = super::save_state(&pool, &d, &new_state).unwrap();
+        let _state_result = super::save_state(&pool, &d, new_state).unwrap();
 
         // get state again, and compare -- they should be same
         let new_state_result = super::get_state(&pool, &d).unwrap();
@@ -338,8 +338,8 @@ pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<Conne
         db_config.dbname, db_config.endpoint, db_config.port, db_config.username
     );
     // Postgres expects an &str here instead of Option<String>
-    let password: Option<&str> = match db_config.password {
-        Some(ref v) => Some(v),
+    let password: Option<&str> = match db_config.password.as_ref() {
+        Some(v) => Some(v),
         None => None,
     };
     let connection_params = ConnectParams::builder()
@@ -540,16 +540,16 @@ pub fn add_disk_detail(
     disk_info: &mut BlockDevice,
 ) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
-    let mut check_stmt = String::new();
-    check_stmt.push_str(&format!(
-        "SELECT device_id FROM devices WHERE device_path='{}'
-                                        AND detail_id={} AND device_name='{}'",
-        disk_info.dev_path.display(),
-        disk_info.storage_detail_id,
-        disk_info.device.name
-    ));
-
-    let stmt_query = conn.query(&check_stmt, &[])?;
+    let detail_id = disk_info.storage_detail_id as i32;
+    let stmt_query = conn.query(
+        "SELECT device_id FROM devices WHERE device_path=$1
+            AND detail_id=$2 AND device_name=$3",
+        &[
+            &disk_info.dev_path.to_string_lossy(),
+            &detail_id,
+            &disk_info.device.name,
+        ],
+    )?;
     if stmt_query.is_empty() {
         // A record doesn't exist, insert
         let mut stmt = String::new();
@@ -559,6 +559,10 @@ pub fn add_disk_detail(
         }
         if disk_info.device.id.is_some() {
             stmt.push_str(", device_uuid");
+        }
+
+        if disk_info.device.serial_number.is_some() {
+            stmt.push_str(", serial_number");
         }
 
         stmt.push_str(&format!(
@@ -574,6 +578,9 @@ pub fn add_disk_detail(
         }
         if let Some(ref uuid) = disk_info.device.id {
             stmt.push_str(&format!(", '{}'", uuid));
+        }
+        if let Some(ref serial) = disk_info.device.serial_number {
+            stmt.push_str(&format!(", '{}'", serial));
         }
 
         stmt.push_str(") RETURNING device_id");
@@ -798,7 +805,7 @@ pub fn add_or_update_operation_detail(
 pub fn save_state(
     pool: &Pool<ConnectionManager>,
     device_detail: &BlockDevice,
-    state: &State,
+    state: State,
 ) -> BynarResult<()> {
     debug!(
         "Saving state as {} for device {}",
@@ -885,6 +892,21 @@ pub fn save_smart_result(
     }
 }
 
+// Returns the currently known devices from the database.
+pub fn get_devices(pool: &Pool<ConnectionManager>) -> BynarResult<Vec<PathBuf>> {
+    debug!("Retrieving devices from DB",);
+    let conn = get_connection_from_pool(pool)?;
+
+    let stmt_query = conn.query("select device_path from devices", &[])?;
+
+    let mut devices: Vec<PathBuf> = Vec::new();
+    for row in stmt_query.iter() {
+        let dev_path: String = row.get(0);
+        devices.push(PathBuf::from(dev_path));
+    }
+    Ok(devices)
+}
+
 /// Returns the state information from the database.
 /// Returns error if no record of device is found in the database.
 /// Returns the default state if state was not previously saved.
@@ -898,22 +920,27 @@ pub fn get_state(
     );
     let conn = get_connection_from_pool(pool)?;
 
-    if let Some(dev_id) = device_detail.device_database_id {
-        let stmt = format!("SELECT state FROM devices WHERE device_id = {}", dev_id);
-        let stmt_query = conn.query(&stmt, &[])?;
-        if stmt_query.len() != 1 || stmt_query.is_empty() {
-            Ok(State::Unscanned)
-        } else {
-            let row = stmt_query.get(0);
-            let retrieved_state: String = row.get("state");
-            Ok(State::from_str(&retrieved_state).unwrap_or(State::Unscanned))
+    match device_detail.device_database_id {
+        Some(dev_id) => {
+            let dev_id = dev_id as i32;
+            let stmt_query =
+                conn.query("SELECT state FROM devices WHERE device_id = $1", &[&dev_id])?;
+            if stmt_query.len() != 1 || stmt_query.is_empty() {
+                // Database doesn't know about the device.  Must be new disk.
+                Ok(State::Unscanned)
+            } else {
+                let row = stmt_query.get(0);
+                let retrieved_state: String = row.get("state");
+                Ok(State::from_str(&retrieved_state).unwrap_or(State::Unscanned))
+            }
         }
-    } else {
-        // No entry of this device in database table. Cannot get state information
-        Err(BynarError::new(format!(
-            "Device {} for storage detail {} is not in DB",
-            device_detail.device.name, device_detail.storage_detail_id
-        )))
+        None => {
+            // No entry of this device in database table. Cannot get state information
+            Err(BynarError::new(format!(
+                "Device {} for storage detail {} is not in DB",
+                device_detail.device.name, device_detail.storage_detail_id
+            )))
+        }
     }
 }
 

@@ -122,6 +122,7 @@ BEGIN
                 device_name VARCHAR NOT NULL,
                 device_path VARCHAR NOT NULL,
                 mount_path VARCHAR, -- can be null if device not mounted
+                serial_number VARCHAR, --disk serial number if we can find it
                 state VARCHAR, -- refers to device state in the state machine
                 smart_passed boolean, -- refers to whether smart checks passed
                 UNIQUE (device_path, detail_id)
