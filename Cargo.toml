@@ -5,6 +5,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 description = "Server remediation as a service"
 license = "Apache-2.0"
 readme = "README.md"
+edition = '2018'
 
 [package.metadata.deb]
 maintainer = "Chris Holcombe <xfactor973@gmail.com>"

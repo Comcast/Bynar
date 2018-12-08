@@ -3,6 +3,7 @@ name = "api"
 version = "0.1.0"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 build = "build.rs"
+edition = '2018'
 
 [build-dependencies]
 protobuf-codegen-pure = "~2"

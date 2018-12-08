@@ -1,23 +1,13 @@
-/// Monitor in progress disk repairs
-extern crate chrono;
-extern crate helpers;
-extern crate postgres;
-extern crate postgres_shared;
-extern crate r2d2;
-extern crate r2d2_postgres;
-extern crate rusqlite;
-extern crate time;
-
-use test_disk;
-
-use self::chrono::offset::Utc;
-use self::chrono::DateTime;
-use self::helpers::{error::*, host_information::Host as MyHost};
-use self::postgres::{params::ConnectParams, params::Host, rows::Row, transaction::Transaction};
-use self::r2d2::{Pool, PooledConnection};
-use self::r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
-use self::test_disk::{BlockDevice, State};
 use super::DBConfig;
+use crate::test_disk::{BlockDevice, State};
+/// Monitor in progress disk repairs
+use chrono::offset::Utc;
+use chrono::DateTime;
+use helpers::{error::*, host_information::Host as MyHost};
+use log::{debug, error, info};
+use postgres::{params::ConnectParams, params::Host, rows::Row, transaction::Transaction};
+use r2d2::{Pool, PooledConnection};
+use r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::{Path, PathBuf};
 use std::process::id;
@@ -26,16 +16,11 @@ use std::time::Duration;
 
 #[cfg(test)]
 mod tests {
-    extern crate block_utils;
-    extern crate log;
-    extern crate tempdir;
-    extern crate uuid;
-
-    use self::block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
-    use self::uuid::Uuid;
+    use super::super::ConfigSettings;
+    use block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
     use simplelog::{Config, TermLogger};
     use std::path::{Path, PathBuf};
-    use ConfigSettings;
+    use uuid::Uuid;
 
     #[test]
     fn test_new_host() {
@@ -49,7 +34,7 @@ mod tests {
         TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
         let config_dir = Path::new("/newDevice/tests/");
         let config: ConfigSettings =
-            super::helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
+            helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
         let db_config = config.database;
         let pool = super::create_db_connection_pool(&db_config).unwrap();
 
@@ -65,7 +50,7 @@ mod tests {
         let drive_uuid = Uuid::new_v4();
         let dev_name = format!("some_path-{}", drive_uuid);
         let path = format!("/some/{}", dev_name);
-        let mut d = super::test_disk::BlockDevice {
+        let mut d = crate::test_disk::BlockDevice {
             device: Device {
                 id: Some(drive_uuid),
                 name: dev_name,
@@ -79,7 +64,7 @@ mod tests {
             mount_point: None,
             partitions: vec![],
             scsi_info: ScsiInfo::default(),
-            state: super::test_disk::State::Unscanned,
+            state: crate::test_disk::State::Unscanned,
             storage_detail_id: result.storage_detail_id,
             operation_id: None,
         };
@@ -163,7 +148,7 @@ mod tests {
         let state = super::get_state(&pool, &d).unwrap();
         println!("State for dev name {} is {:#?}", d.device.name, state);
 
-        let new_state = super::test_disk::State::WaitingForReplacement;
+        let new_state = crate::test_disk::State::WaitingForReplacement;
         let _state_result = super::save_state(&pool, &d, new_state).unwrap();
 
         // get state again, and compare -- they should be same

@@ -4,39 +4,21 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
-extern crate api;
-#[macro_use]
-extern crate clap;
-extern crate helpers;
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
-extern crate log;
-extern crate protobuf;
-extern crate r2d2;
-extern crate r2d2_postgres;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
-extern crate simplelog;
-extern crate slack_hook;
-extern crate zmq;
 
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 
-use self::r2d2::Pool;
-use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
-use self::test_disk::State;
-use clap::{App, Arg};
-use create_support_ticket::{create_support_ticket, ticket_resolved};
+use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
+use crate::in_progress::*;
+use crate::test_disk::State;
+use clap::{crate_authors, crate_version, App, Arg};
 use helpers::{error::*, host_information::Host};
-use in_progress::*;
+use log::{debug, error, info, warn};
+use r2d2::Pool;
+use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
@@ -231,11 +213,8 @@ fn check_for_failed_disks(
                                 }
                             };
                             debug!("Creating support ticket");
-                            let ticket_id = create_support_ticket(
-                                config,
-                                "Bynar: Dead disk",
-                                &description,
-                            )?;
+                            let ticket_id =
+                                create_support_ticket(config, "Bynar: Dead disk", &description)?;
                             debug!("Recording ticket id {} in database", ticket_id);
                             let op_id = match state_machine.block_device.operation_id {
                                 None => {

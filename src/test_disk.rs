@@ -7,43 +7,29 @@
 //! `dot -Tsvg example.dot -o example.svg` to svg.
 //! See comments on the run() function for StateMachine and also
 //! the comments under setup_state_machine() to learn more about how it works.
-extern crate blkid;
-extern crate block_utils;
-extern crate fstab;
-extern crate gpt;
-extern crate helpers;
-extern crate libatasmart;
-extern crate log;
-extern crate lvm;
 #[cfg(test)]
 extern crate mocktopus;
-extern crate petgraph;
-extern crate r2d2;
-extern crate r2d2_postgres;
-extern crate rayon;
-extern crate tempdir;
-extern crate uuid;
 
-use in_progress;
-
-use self::blkid::BlkId;
-use self::block_utils::{
+use crate::in_progress::{
+    add_disk_detail, add_or_update_operation, get_devices, get_state, is_disk_waiting_repair,
+    save_state, HostDetailsMapping, OperationInfo,
+};
+use blkid::BlkId;
+use block_utils::{
     format_block_device, get_device_info, mount_device, unmount_device, Device, DeviceState,
     Filesystem, FilesystemType, MediaType, ScsiDeviceType, ScsiInfo, Vendor,
 };
-use self::gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
-use self::helpers::{error::*, host_information::Host};
-use self::in_progress::*;
-use self::lvm::*;
+use gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
+use helpers::{error::*, host_information::Host};
+use log::{debug, error, trace, warn};
+use lvm::*;
 #[cfg(test)]
-use self::mocktopus::macros::*;
-use self::petgraph::graphmap::GraphMap;
-use self::petgraph::Directed;
-use self::r2d2::Pool;
-use self::r2d2_postgres::PostgresConnectionManager as ConnectionManager;
-use self::rayon::prelude::*;
-use self::tempdir::TempDir;
-use self::uuid::Uuid;
+use mocktopus::macros::*;
+use petgraph::graphmap::GraphMap;
+use petgraph::Directed;
+use r2d2::Pool;
+use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
@@ -52,6 +38,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::str::FromStr;
+use tempdir::TempDir;
+use uuid::Uuid;
 
 // Function pointer to the transition function
 type TransitionFn =
@@ -79,23 +67,19 @@ impl BlockDevice {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
-    extern crate simplelog;
-    extern crate tempdir;
-
-    use in_progress;
-
     use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::sync::Mutex;
 
-    use self::tempdir::TempDir;
-    use super::blkid::BlkId;
-    use super::mocktopus::mocking::*;
-    use super::uuid::Uuid;
+    use blkid::BlkId;
+    use lazy_static::lazy_static;
+    use log::debug;
+    use mocktopus::mocking::*;
     use simplelog::{Config, TermLogger};
+    use tempdir::TempDir;
+    use uuid::Uuid;
 
     lazy_static! {
         // This prevents all threads from getting the same loopback device
@@ -159,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_base() {
-        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
 
         // Mock smart to return Ok(true)
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
@@ -202,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_bad_filesystem() {
-        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
 
         // Mock smart to return Ok(true)
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
@@ -260,7 +244,7 @@ mod tests {
     fn test_state_machine_replace_disk() {
         use helpers::error::*;
         // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
-        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
 
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
         super::check_writable
@@ -313,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_replaced_disk() {
-        TermLogger::new(super::log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
 
         let dev = create_loop_device();

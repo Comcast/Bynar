@@ -1,20 +1,12 @@
 //! Functions that are needed across most of the workspace.
 //!
-extern crate api;
-extern crate hashicorp_vault;
-#[macro_use]
-extern crate log;
-extern crate protobuf;
-extern crate serde;
-extern crate serde_json;
-extern crate zmq;
-
 use std::fs::read_to_string;
 use std::path::Path;
 
+use crate::error::{BynarError, BynarResult};
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
-use error::*;
 use hashicorp_vault::client::VaultClient;
+use log::{debug, error};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
@@ -46,11 +38,9 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
     debug!("Connecting to tcp://{}:{}", host, port);
-    assert!(
-        requester
-            .connect(&format!("tcp://{}:{}", host, port))
-            .is_ok()
-    );
+    assert!(requester
+        .connect(&format!("tcp://{}:{}", host, port))
+        .is_ok());
     debug!("Client mechanism: {:?}", requester.get_mechanism());
 
     Ok(requester)

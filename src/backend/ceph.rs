@@ -1,18 +1,3 @@
-extern crate block_utils;
-extern crate ceph;
-extern crate ceph_safe_disk;
-extern crate dirs;
-extern crate fstab;
-extern crate helpers;
-extern crate init_daemon;
-extern crate libc;
-extern crate lvm;
-extern crate nix;
-extern crate pwd;
-extern crate serde_json;
-extern crate tempdir;
-extern crate uuid;
-
 use std::fs::{create_dir, read_to_string, remove_dir_all, File};
 use std::io::Write;
 use std::os::unix::fs::symlink;
@@ -20,23 +5,24 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
-use backend::Backend;
+use crate::backend::Backend;
 
-use self::ceph::ceph::{connect_to_ceph, Rados};
-use self::ceph::cmd::*;
-use self::ceph::CephVersion;
-use self::ceph_safe_disk::diag::{DiagMap, Format, Status};
-use self::dirs::home_dir;
-use self::fstab::FsTab;
-use self::helpers::{error::*, host_information::Host};
-use self::init_daemon::{detect_daemon, Daemon};
-use self::lvm::*;
-use self::nix::{
+use ceph::ceph::{connect_to_ceph, Rados};
+use ceph::cmd::*;
+use ceph::CephVersion;
+use ceph_safe_disk::diag::{DiagMap, Format, Status};
+use dirs::home_dir;
+use fstab::FsTab;
+use helpers::{error::*, host_information::Host};
+use init_daemon::{detect_daemon, Daemon};
+use log::{debug, error, info};
+use lvm::*;
+use nix::{
     unistd::chown,
     unistd::{Gid, Uid},
 };
-use self::pwd::Passwd;
-use self::tempdir::TempDir;
+use pwd::Passwd;
+use tempdir::TempDir;
 
 /// Ceph cluster
 pub struct CephBackend {

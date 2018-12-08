@@ -1,14 +1,9 @@
+use crate::error::{BynarError, BynarResult};
 /// Gather information about the current host
-extern crate block_utils;
-extern crate dmi;
-extern crate hostname;
-extern crate pnet;
-extern crate uname;
-
-use self::hostname::get_hostname;
-use self::pnet::datalink::{self, NetworkInterface};
-use self::uname::uname;
-use error::{BynarError, BynarResult};
+use hostname::get_hostname;
+use log::debug;
+use pnet::datalink::{self, NetworkInterface};
+use uname::uname;
 
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::fs::{read_to_string, File};

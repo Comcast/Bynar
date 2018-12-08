@@ -1,14 +1,9 @@
-extern crate goji;
-extern crate helpers;
-extern crate log;
-extern crate reqwest;
-extern crate serde_json;
-
-use self::goji::issues::*;
-use self::goji::{Credentials, Jira};
-use self::helpers::error::*;
-use self::serde_json::value::Value;
 use super::ConfigSettings;
+use goji::issues::*;
+use goji::{Credentials, Jira};
+use helpers::error::*;
+use log::debug;
+use serde_json::value::Value;
 
 /// Create a new JIRA support ticket and return the ticket ID associated with it
 pub fn create_support_ticket(

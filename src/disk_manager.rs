@@ -1,23 +1,5 @@
-extern crate api;
-extern crate block_utils;
-extern crate bytes;
-#[macro_use]
-extern crate clap;
-extern crate gpt;
-extern crate hashicorp_vault;
-extern crate helpers;
-extern crate hostname;
-#[macro_use]
-extern crate log;
-extern crate protobuf;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
-extern crate simplelog;
-extern crate zmq;
-
-mod backend;
 
 use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Write};
@@ -29,13 +11,15 @@ use std::time::Duration;
 use api::service::{
     Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo, ResultType,
 };
-use backend::BackendType;
+mod backend;
+use crate::backend::BackendType;
 use block_utils::{Device, MediaType};
-use clap::{App, Arg};
+use clap::{crate_authors, crate_version, App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
 use helpers::error::*;
 use hostname::get_hostname;
+use log::{debug, error, info, trace, warn};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;

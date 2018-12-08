@@ -1,5 +1,3 @@
-extern crate helpers;
-
 pub mod ceph;
 //#[cfg(feature = "gluster")]
 pub mod gluster;
@@ -9,7 +7,7 @@ use std::str::FromStr;
 
 use self::ceph::CephBackend;
 use self::gluster::GlusterBackend;
-use self::helpers::error::*;
+use helpers::error::*;
 
 /// Different distributed storage clusters have different ways of adding and removing
 /// disks.  This will be consolidated here in trait impl's.

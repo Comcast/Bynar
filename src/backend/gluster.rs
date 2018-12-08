@@ -1,11 +1,6 @@
-extern crate gluster;
-extern crate helpers;
-extern crate tempdir;
+use crate::backend::Backend;
 
-use backend::Backend;
-
-use self::helpers::error::*;
-
+use helpers::error::*;
 use std::path::Path;
 
 pub struct GlusterBackend;
