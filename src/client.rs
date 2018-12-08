@@ -1,23 +1,13 @@
 /// This is built into a separate binary called bynar-client
-extern crate api;
-#[macro_use]
-extern crate clap;
-extern crate helpers;
-extern crate hostname;
-#[macro_use]
-extern crate log;
-extern crate protobuf;
-extern crate simplelog;
-extern crate zmq;
-
 use std::fs::{read_to_string, File};
 use std::path::Path;
 use std::str::FromStr;
 
 use api::service::Disk;
-use clap::{App, Arg, ArgMatches, SubCommand};
-use helpers::error::*;
+use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
+use helpers::error::BynarResult;
 use hostname::get_hostname;
+use log::{error, info};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
