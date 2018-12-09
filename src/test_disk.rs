@@ -729,7 +729,7 @@ pub struct StateMachine {
 }
 
 impl fmt::Debug for StateMachine {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.block_device)
     }
 }
@@ -1028,7 +1028,7 @@ impl FromStr for State {
 }
 
 impl fmt::Display for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             State::Corrupt => write!(f, "corrupt"),
             State::Fail => write!(f, "fail"),

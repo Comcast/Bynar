@@ -316,7 +316,7 @@ impl CephBackend {
     // Add the lvm tags that ceph requires to identify the osd
     fn create_lvm_tags(
         &self,
-        lv: &LogicalVolume,
+        lv: &LogicalVolume<'_, '_>,
         lv_dev_name: &Path,
         osd_fsid: &uuid::Uuid,
         new_osd_id: u64,

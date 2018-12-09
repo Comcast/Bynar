@@ -507,7 +507,7 @@ fn main() {
     let log = Path::new(matches.value_of("log").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
     let vault_support = { bool::from_str(matches.value_of("vault").unwrap()).unwrap() };
-    let mut loggers: Vec<Box<SharedLogger>> = vec![];
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
     if let Some(term_logger) = TermLogger::new(level, Config::default()) {
         //systemd doesn't use a terminal
         loggers.push(term_logger);
