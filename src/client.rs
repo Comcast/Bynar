@@ -31,7 +31,7 @@ fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> 
     Ok(())
 }
 
-fn handle_add_disk(s: &mut Socket, matches: &ArgMatches) {
+fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -64,7 +64,7 @@ fn handle_list_disks(s: &mut Socket) {
     };
 }
 
-fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
+fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -85,7 +85,7 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches) {
     }
 }
 
-fn get_cli_args(default_server_key: &str) -> ArgMatches {
+fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())
         .author(crate_authors!())

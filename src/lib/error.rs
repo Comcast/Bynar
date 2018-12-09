@@ -47,7 +47,7 @@ pub enum BynarError {
 }
 
 impl fmt::Display for BynarError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.description())
     }
 }
@@ -79,7 +79,7 @@ impl err for BynarError {
             BynarError::ZmqError(ref e) => e.description(),
         }
     }
-    fn cause(&self) -> Option<&err> {
+    fn cause(&self) -> Option<&dyn err> {
         match *self {
             BynarError::BlockUtilsError(ref e) => e.cause(),
             BynarError::Error(_) => None,

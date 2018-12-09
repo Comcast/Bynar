@@ -350,7 +350,7 @@ fn main() {
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
-    let mut loggers: Vec<Box<SharedLogger>> = vec![];
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
     if let Some(term_logger) = TermLogger::new(level, Config::default()) {
         //systemd doesn't use a terminal
         loggers.push(term_logger);

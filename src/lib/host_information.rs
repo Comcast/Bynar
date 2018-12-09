@@ -72,7 +72,7 @@ pub enum StorageTypeEnum {
 }
 
 impl Display for StorageTypeEnum {
-    fn fmt(&self, f: &mut Formatter) -> fResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fResult {
         let message = match *self {
             StorageTypeEnum::Ceph => "ceph",
             StorageTypeEnum::Scaleio => "scaleio",

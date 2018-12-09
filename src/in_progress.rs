@@ -244,7 +244,7 @@ pub enum OperationType {
 }
 
 impl Display for OperationType {
-    fn fmt(&self, f: &mut Formatter) -> fResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fResult {
         let message = match *self {
             OperationType::DiskAdd => "diskadd",
             OperationType::DiskReplace => "diskreplace",
@@ -264,7 +264,7 @@ pub enum OperationStatus {
 }
 
 impl Display for OperationStatus {
-    fn fmt(&self, f: &mut Formatter) -> fResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fResult {
         let message = match *self {
             OperationStatus::Pending => "pending",
             OperationStatus::InProgress => "in_progress",
@@ -382,7 +382,7 @@ pub fn update_storage_info(
 }
 
 /// responsible to store the pid, ip of the system on which bynar is running
-fn register_to_process_manager(conn: &Transaction, ip: &str) -> BynarResult<u32> {
+fn register_to_process_manager(conn: &Transaction<'_>, ip: &str) -> BynarResult<u32> {
     // get process id
     let pid = id();
     debug!("Adding daemon details with pid {} to process manager", pid);
@@ -427,7 +427,7 @@ pub fn deregister_from_process_manager() -> BynarResult<()> {
 
 // Checks for the region in the database, inserts if it does not exist
 // and returns the region_id
-fn update_region(conn: &Transaction, region: &str) -> BynarResult<u32> {
+fn update_region(conn: &Transaction<'_>, region: &str) -> BynarResult<u32> {
     let stmt = format!(
         "SELECT region_id FROM regions WHERE region_name = '{}'",
         region
@@ -457,7 +457,11 @@ fn update_region(conn: &Transaction, region: &str) -> BynarResult<u32> {
     Ok(region_id)
 }
 
-fn update_storage_details(conn: &Transaction, s_info: &MyHost, region_id: u32) -> BynarResult<u32> {
+fn update_storage_details(
+    conn: &Transaction<'_>,
+    s_info: &MyHost,
+    region_id: u32,
+) -> BynarResult<u32> {
     let stmt = format!(
         "SELECT storage_id FROM storage_types WHERE storage_type='{}'",
         s_info.storage_type
@@ -966,7 +970,7 @@ pub fn get_smart_result(
     }
 }
 
-fn row_to_ticket(row: &Row) -> DiskRepairTicket {
+fn row_to_ticket(row: &Row<'_>) -> DiskRepairTicket {
     DiskRepairTicket {
         ticket_id: row.get(0),
         device_name: row.get(1),
