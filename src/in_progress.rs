@@ -545,7 +545,7 @@ pub fn add_disk_detail(
         "SELECT device_id FROM devices WHERE device_path=$1
             AND detail_id=$2 AND device_name=$3",
         &[
-            &disk_info.dev_path.to_string_lossy(),
+            &format!("{}", disk_info.dev_path.display()),
             &detail_id,
             &disk_info.device.name,
         ],
@@ -893,16 +893,24 @@ pub fn save_smart_result(
 }
 
 // Returns the currently known devices from the database.
-pub fn get_devices(pool: &Pool<ConnectionManager>) -> BynarResult<Vec<PathBuf>> {
+pub fn get_devices_from_db(
+    pool: &Pool<ConnectionManager>,
+    storage_detail_id: u32,
+) -> BynarResult<Vec<(u32, PathBuf)>> {
     debug!("Retrieving devices from DB",);
     let conn = get_connection_from_pool(pool)?;
 
-    let stmt_query = conn.query("select device_path from devices", &[])?;
+    let detail_id = storage_detail_id as i32;
+    let stmt_query = conn.query(
+        "select device_id, device_path from devices where detail_id=$1",
+        &[&detail_id],
+    )?;
 
-    let mut devices: Vec<PathBuf> = Vec::new();
+    let mut devices: Vec<(u32, PathBuf)> = Vec::new();
     for row in stmt_query.iter() {
-        let dev_path: String = row.get(0);
-        devices.push(PathBuf::from(dev_path));
+        let dev_id: i32 = row.get(0);
+        let dev_path: String = row.get(1);
+        devices.push((dev_id as u32, PathBuf::from(dev_path)));
     }
     Ok(devices)
 }

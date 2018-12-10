@@ -231,11 +231,8 @@ fn check_for_failed_disks(
                                 }
                             };
                             debug!("Creating support ticket");
-                            let ticket_id = create_support_ticket(
-                                config,
-                                "Bynar: Dead disk",
-                                &description,
-                            )?;
+                            let ticket_id =
+                                create_support_ticket(config, "Bynar: Dead disk", &description)?;
                             debug!("Recording ticket id {} in database", ticket_id);
                             let op_id = match state_machine.block_device.operation_id {
                                 None => {

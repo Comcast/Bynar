@@ -1194,9 +1194,9 @@ fn add_previous_devices(
 ) -> BynarResult<()> {
     // Sometimes failed devices are removed from sys/udev and we can no
     // longer find them. This will dig up previously known devices
-    let previously_known_devices = get_devices(&pool)?;
+    let previously_known_devices = get_devices_from_db(&pool, host_mapping.storage_detail_id)?;
     // Add back in missing devices here
-    for device in previously_known_devices {
+    for (dev_id, device) in previously_known_devices {
         if !devices.iter().any(|b| b.dev_path == device) {
             // Ok so if the host doesn't know about the device
             // but the database does, what do we do about this?
@@ -1207,7 +1207,7 @@ fn add_previous_devices(
             debug!("{} awaiting repair: {}", device.display(), awaiting_repair);
             // So this never trips because the database thinks this disk is still good
             if !awaiting_repair {
-                devices.push(BlockDevice {
+                let b = BlockDevice {
                     device: block_utils::Device {
                         id: None,
                         name: device.file_name().unwrap().to_string_lossy().into_owned(),
@@ -1217,14 +1217,16 @@ fn add_previous_devices(
                         serial_number: None,
                     },
                     dev_path: device.clone(),
-                    device_database_id: None,
+                    device_database_id: Some(dev_id),
                     mount_point: None,
                     partitions: vec![],
                     scsi_info: ScsiInfo::default(),
                     state: State::WaitingForReplacement,
                     storage_detail_id: host_mapping.storage_detail_id,
                     operation_id: None,
-                });
+                };
+                save_state(pool, &b, State::WaitingForReplacement)?;
+                devices.push(b);
             }
         }
     }
@@ -1302,22 +1304,7 @@ pub fn check_all_disks(
             debug!("thread {} device: {:?}", process::id(), device);
             let mut s = StateMachine::new(device.clone(), scsi_info, false);
             s.setup_state_machine();
-            // I think this is the problem.  This restores the previous state
-            // but this is old information that disagrees with the host
-            // Check if the device exists
-            s.block_device.state = match get_device_info(&device.dev_path) {
-                Ok(_) => {
-                    // Device seems to be present
-                    get_state(pool, &s.block_device)?
-                }
-                Err(_) => {
-                    error!(
-                        "Unable to find device: {}. Marking as WaitingForReplacement",
-                        &device.dev_path.display(),
-                    );
-                    State::WaitingForReplacement
-                }
-            };
+            s.block_device.state = get_state(pool, &s.block_device)?;
             s.run();
             // Save the state to database after state machine finishes its run
             save_state(pool, &s.block_device, s.block_device.state)?;

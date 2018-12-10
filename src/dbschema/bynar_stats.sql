@@ -60,7 +60,7 @@ $BODY$
 
 DECLARE
     new_row INTEGER; 
-    new_rev INTEGER := 1;
+    new_rev INTEGER := 2;
     current_revision INTEGER;
 BEGIN
     
@@ -122,7 +122,6 @@ BEGIN
                 device_name VARCHAR NOT NULL,
                 device_path VARCHAR NOT NULL,
                 mount_path VARCHAR, -- can be null if device not mounted
-                serial_number VARCHAR, --disk serial number if we can find it
                 state VARCHAR, -- refers to device state in the state machine
                 smart_passed boolean, -- refers to whether smart checks passed
                 UNIQUE (device_path, detail_id)
@@ -176,11 +175,11 @@ BEGIN
             );
     END IF;
 
-    -- Add next revisoin here
-    -- IF (current_revision < new_rev)
-    -- THEN
-    --      do stuff
-    -- END IF;
+    -- Add next revision here
+    IF (current_revision < 2)
+    THEN
+        alter table devices add column serial_number VARCHAR; --disk serial number if we can find it
+    END IF;
 
     -- Update revision
     UPDATE schema_mgmt SET revision = new_rev;
