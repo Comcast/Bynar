@@ -11,8 +11,8 @@
 extern crate mocktopus;
 
 use crate::in_progress::{
-    add_disk_detail, add_or_update_operation, get_devices_from_db, get_state, is_disk_waiting_repair,
-    save_state, HostDetailsMapping, OperationInfo,
+    add_disk_detail, add_or_update_operation, get_devices_from_db, get_state,
+    is_disk_waiting_repair, save_state, HostDetailsMapping, OperationInfo,
 };
 use blkid::BlkId;
 use block_utils::{
@@ -1194,7 +1194,16 @@ fn add_previous_devices(
                 let b = BlockDevice {
                     device: block_utils::Device {
                         id: None,
-                        name: device.file_name().unwrap().to_string_lossy().into_owned(),
+                        name: device
+                            .file_name()
+                            .ok_or_else(|| {
+                                BynarError::new(format!(
+                                    "device {} missing filename",
+                                    device.display()
+                                ))
+                            })?
+                            .to_string_lossy()
+                            .into_owned(),
                         media_type: block_utils::MediaType::Unknown,
                         capacity: 0,
                         fs_type: block_utils::FilesystemType::Unknown,
