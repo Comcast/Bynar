@@ -107,21 +107,24 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                 .long("host")
                 .required(false)
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("port")
                 .default_value("5555")
                 .help("The port to call for service")
                 .required(false)
                 .short("p")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("server_key")
                 .default_value(default_server_key)
                 .help("The public key for the disk-manager service.")
                 .required(false)
                 .long("serverkey")
                 .takes_value(true),
-        ).subcommand(
+        )
+        .subcommand(
             SubCommand::with_name("add")
                 .about("Add a disk into the cluster")
                 .arg(
@@ -129,7 +132,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                         .help("The disk path to add: Ex: /dev/sda")
                         .required(true)
                         .takes_value(true),
-                ).arg(
+                )
+                .arg(
                     Arg::with_name("id")
                         .help("An optional id to set for the disk.  Used for ceph osds")
                         .long("id")
@@ -139,7 +143,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                             Ok(_) => Ok(()),
                             Err(_) => Err("id must be a valid u64".to_string()),
                         }),
-                ).arg(
+                )
+                .arg(
                     Arg::with_name("simulate")
                         .default_value("false")
                         .help("Simulate the operation")
@@ -148,7 +153,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                         .required(false)
                         .takes_value(true),
                 ),
-        ).subcommand(SubCommand::with_name("list").about("List all disks on a server"))
+        )
+        .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -157,7 +163,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                         .help("The disk path to add: Ex: /dev/sda")
                         .required(true)
                         .takes_value(true),
-                ).arg(
+                )
+                .arg(
                     Arg::with_name("id")
                         .help("An optional id to set for the disk.  Used for ceph osds")
                         .long("id")
@@ -167,7 +174,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                             Ok(_) => Ok(()),
                             Err(_) => Err("id must be a valid u64".to_string()),
                         }),
-                ).arg(
+                )
+                .arg(
                     Arg::with_name("simulate")
                         .default_value("false")
                         .help("Simulate the operation")
@@ -176,12 +184,14 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches {
                         .required(false)
                         .takes_value(true),
                 ),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        ).get_matches()
+        )
+        .get_matches()
 }
 
 fn main() {

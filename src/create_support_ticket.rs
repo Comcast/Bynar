@@ -15,7 +15,6 @@ pub fn create_support_ticket(
     settings: &ConfigSettings,
     title: &str,
     description: &str,
-    environment: &str,
 ) -> BynarResult<String> {
     let issue_description = CreateIssue {
         fields: Fields {
@@ -26,12 +25,8 @@ pub fn create_support_ticket(
                 name: "Ceph".into(),
             }],
             description: description.into(),
-            environment: environment.into(),
             issuetype: IssueType {
                 id: settings.jira_issue_type.clone(),
-            },
-            reporter: Assignee {
-                name: settings.jira_user.clone(),
             },
             priority: Priority {
                 id: settings.jira_priority.clone(),
