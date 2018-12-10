@@ -11,7 +11,7 @@
 extern crate mocktopus;
 
 use crate::in_progress::{
-    add_disk_detail, add_or_update_operation, get_devices, get_state, is_disk_waiting_repair,
+    add_disk_detail, add_or_update_operation, get_devices_from_db, get_state, is_disk_waiting_repair,
     save_state, HostDetailsMapping, OperationInfo,
 };
 use blkid::BlkId;
