@@ -1,7 +1,7 @@
 2019 Roadmap
 
 - Provide documentation on Bynar
-   - What is bynar
+   - What is Bynar
    - What is NOT Bynar
    - Current release features and future release enhancements
    - Testing results of everything done (on the fence about this one, but for some folks could prove valuable?)
