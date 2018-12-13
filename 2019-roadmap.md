@@ -12,3 +12,4 @@
 - Safe to add disk trait
   - Sometimes it's safe to remove a disk but not safe to add one.
 - HP Raid controller support.  We've gotten far without needing this but eventually the time will come when bynar has to talk to the raid controller and change the configuration.  (what about Dell servers here? I believe SIO is a mix of both)??
+- Redfish support for storage/ilo/bios  
