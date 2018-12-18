@@ -264,6 +264,7 @@ fn add_repaired_disks(
 
     info!("Getting outstanding repair tickets");
     let tickets = in_progress::get_outstanding_repair_tickets(&pool, storage_detail_id)?;
+    debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         match ticket_resolved(config, &ticket.ticket_id.to_string()) {
