@@ -249,7 +249,7 @@ impl Display for OperationType {
             OperationType::DiskAdd => "diskadd",
             OperationType::DiskReplace => "diskreplace",
             OperationType::DiskRemove => "diskremove",
-            OperationType::WaitingForReplacement => "waitingforreplacement",
+            OperationType::WaitingForReplacement => "waiting_for_replacement",
             OperationType::Evaluation => "evaluation",
         };
         write!(f, "{}", message)
@@ -1038,8 +1038,9 @@ pub fn get_outstanding_repair_tickets(
 
 /// Sets status=Complete for the record that has the given ticket_id.
 /// Equivalent to calling add_or_update_operation_detail() with appropriate fields set
-pub fn resolve_ticket(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
+pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
+    debug!("Attempting to resolve ticket {}", ticket_id);
 
     // TODO[SD]: make sure there is one ticket with this ID
     let stmt = format!(

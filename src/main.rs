@@ -285,13 +285,13 @@ fn add_repaired_disks(
                     ) {
                         Ok(_) => {
                             debug!("Disk added successfully. Updating database record");
-                            match in_progress::resolve_ticket(pool, &ticket.ticket_id) {
+                            match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
                                 Ok(_) => {
                                     debug!("Database updated");
                                 }
                                 Err(e) => {
                                     error!(
-                                        "Failed to delete record for {}.  {:?}",
+                                        "Failed to resolve ticket {}.  {:?}",
                                         ticket.ticket_id, e
                                     );
                                 }
@@ -305,7 +305,7 @@ fn add_repaired_disks(
             }
             Err(e) => {
                 error!(
-                    "Error gatting resolved ticket status for {}.  {:?}",
+                    "Error getting resolved ticket status for {}.  {:?}",
                     &ticket.ticket_id, e
                 );
             }
