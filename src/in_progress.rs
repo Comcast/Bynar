@@ -249,7 +249,7 @@ impl Display for OperationType {
             OperationType::DiskAdd => "diskadd",
             OperationType::DiskReplace => "diskreplace",
             OperationType::DiskRemove => "diskremove",
-            OperationType::WaitingForReplacement => "waitingforreplacement",
+            OperationType::WaitingForReplacement => "waiting_for_replacement",
             OperationType::Evaluation => "evaluation",
         };
         write!(f, "{}", message)
@@ -995,16 +995,26 @@ pub fn get_outstanding_repair_tickets(
     let conn = get_connection_from_pool(pool)?;
 
     // Get all tickets of myself with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
-    let stmt = format!("SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
+    let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
      JOIN devices USING (device_id) WHERE 
-     (status = '{}' OR status = '{}') AND 
-     type_id = (SELECT type_id FROM operation_types WHERE op_name= '{}') AND 
-     devices.state='{}' AND 
-     detail_id = {} AND  
-     tracking_id IS NOT NULL ORDER BY operations.start_time", OperationStatus::InProgress, OperationStatus::Pending,
-    OperationType::WaitingForReplacement, State::WaitingForReplacement, storage_detail_id);
+     (status = in ($1, $2) AND 
+     type_id = (SELECT type_id FROM operation_types WHERE op_name= $3) AND 
+     devices.state in ($4, $5) AND 
+     detail_id = $6 AND  
+     tracking_id IS NOT NULL ORDER BY operations.start_time";
 
-    let stmt_query = conn.query(&stmt, &[])?;
+    let detail_id = storage_detail_id as i32;
+    let stmt_query = conn.query(
+        &stmt,
+        &[
+            &OperationStatus::InProgress.to_string(),
+            &OperationStatus::Pending.to_string(),
+            &OperationType::WaitingForReplacement.to_string(),
+            &State::WaitingForReplacement.to_string(),
+            &State::Good.to_string(),
+            &detail_id,
+        ],
+    )?;
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
     if stmt_query.is_empty() {
         debug!(
@@ -1028,8 +1038,9 @@ pub fn get_outstanding_repair_tickets(
 
 /// Sets status=Complete for the record that has the given ticket_id.
 /// Equivalent to calling add_or_update_operation_detail() with appropriate fields set
-pub fn resolve_ticket(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
+pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
+    debug!("Attempting to resolve ticket {}", ticket_id);
 
     // TODO[SD]: make sure there is one ticket with this ID
     let stmt = format!(

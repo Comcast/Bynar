@@ -264,6 +264,7 @@ fn add_repaired_disks(
 
     info!("Getting outstanding repair tickets");
     let tickets = in_progress::get_outstanding_repair_tickets(&pool, storage_detail_id)?;
+    debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         match ticket_resolved(config, &ticket.ticket_id.to_string()) {
@@ -284,13 +285,13 @@ fn add_repaired_disks(
                     ) {
                         Ok(_) => {
                             debug!("Disk added successfully. Updating database record");
-                            match in_progress::resolve_ticket(pool, &ticket.ticket_id) {
+                            match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
                                 Ok(_) => {
                                     debug!("Database updated");
                                 }
                                 Err(e) => {
                                     error!(
-                                        "Failed to delete record for {}.  {:?}",
+                                        "Failed to resolve ticket {}.  {:?}",
                                         ticket.ticket_id, e
                                     );
                                 }
@@ -304,7 +305,7 @@ fn add_repaired_disks(
             }
             Err(e) => {
                 error!(
-                    "Error gatting resolved ticket status for {}.  {:?}",
+                    "Error getting resolved ticket status for {}.  {:?}",
                     &ticket.ticket_id, e
                 );
             }

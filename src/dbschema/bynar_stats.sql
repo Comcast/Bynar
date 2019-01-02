@@ -60,7 +60,7 @@ $BODY$
 
 DECLARE
     new_row INTEGER; 
-    new_rev INTEGER := 2;
+    new_rev INTEGER := 3;
     current_revision INTEGER;
 BEGIN
     
@@ -175,11 +175,21 @@ BEGIN
             );
     END IF;
 
-    -- Add next revision here
     IF (current_revision < 2)
     THEN
-        alter table devices add column serial_number VARCHAR; --disk serial number if we can find it
+        ALTER TABLE devices ADD COLUMN serial_number VARCHAR; --disk serial number if we can find it
     END IF;
+
+    IF (current_revision < 3)
+    THEN
+        UPDATE TABLE operation_types SET op_name='waiting_for_replacement' WHERE op_name='waitingforreplacement';
+    END IF;
+
+    -- Add next revision here
+    -- IF (current_revision < 4)
+    -- THEN
+    --      SQL statements
+    -- END IF;
 
     -- Update revision
     UPDATE schema_mgmt SET revision = new_rev;
