@@ -10,6 +10,7 @@ extern crate serde_derive;
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
+mod test_hardware;
 
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
@@ -29,6 +30,14 @@ pub struct ConfigSettings {
     db_location: String,
     manager_host: String,
     manager_port: u16,
+    /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)
+    redfish_ip: Option<String>,
+    /// Redfish credentials
+    redfish_username: Option<String>,
+    /// Redfish credentials
+    redfish_password: Option<String>,
+    /// The port redfish is listening on
+    redfish_port: Option<u16>,
     slack_webhook: Option<String>,
     slack_channel: Option<String>,
     slack_botname: Option<String>,
@@ -253,6 +262,53 @@ fn check_for_failed_disks(
     Ok(())
 }
 
+fn evaluate(results: Vec<BynarResult<()>>, error_string: &mut String) -> bool {
+    let mut error_found = false;
+    for result in results {
+        if let Err(e) = result {
+            error_string.push_str(&format!("{}\n", e));
+            error_found = true;
+        }
+    }
+    error_found
+}
+
+fn check_for_failed_hardware(
+    config: &ConfigSettings,
+    host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
+    simulate: bool,
+) -> BynarResult<()> {
+    info!("Checking hardware");
+    let mut description = String::new();
+    description.push_str(&format!(
+        "\nHostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
+        host_info.hostname,
+        host_info.server_type,
+        host_info.serial_number,
+        host_info.machine_architecture,
+        host_info.kernel,
+    ));
+    let results = test_hardware::check_hardware(&config, &host_info, &pool, &host_mapping)?;
+    if !simulate {
+        // Check if evaluate found any errors
+        if evaluate(results.disk_drives, &mut description)
+            || evaluate(results.manager, &mut description)
+            || evaluate(results.power, &mut description)
+            || evaluate(results.storage_enclosures, &mut description)
+            || evaluate(results.thermals, &mut description)
+        {
+            //file a ticket
+            debug!("Creating support ticket");
+            let ticket_id = create_support_ticket(config, "Bynar: Hardware Failure", &description)?;
+            debug!("Recording ticket id {} in database", ticket_id);
+        }
+    }
+
+    Ok(())
+}
+
 fn add_repaired_disks(
     config: &ConfigSettings,
     host_info: &Host,
@@ -433,6 +489,20 @@ fn main() {
         }
         _ => {
             info!("Check for failed disks completed");
+        }
+    };
+    match check_for_failed_hardware(
+        &config,
+        &host_info,
+        &db_pool,
+        &host_details_mapping,
+        simulate,
+    ) {
+        Err(e) => {
+            error!("Check for failed hardware failed with error: {}", e);
+        }
+        _ => {
+            info!("Check for failed hardware completed");
         }
     };
     match add_repaired_disks(

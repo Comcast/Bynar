@@ -330,7 +330,7 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
         .iter()
         .map(|part| {
             let mut p = Partition::new();
-            p.set_uuid(part.part_guid.hyphenated().to_string());
+            p.set_uuid(part.part_guid.to_hyphenated().to_string());
             p.set_first_lba(part.first_lba);
             p.set_last_lba(part.last_lba);
             p.set_flags(part.flags);
