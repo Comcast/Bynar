@@ -28,6 +28,13 @@ pub enum BynarError {
     BlockUtilsError(BlockUtilsError),
     Error(String),
     GojiError(GojiError),
+    HardwareError {
+        error: String,
+        name: String,
+        location: Option<String>,
+        location_format: Option<String>,
+        serial_number: Option<String>,
+    },
     IoError(IOError),
     LvmError(LvmError),
     NixError(NixError),
@@ -48,58 +55,48 @@ pub enum BynarError {
 
 impl fmt::Display for BynarError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.description())
-    }
-}
-
-impl err for BynarError {
-    fn description(&self) -> &str {
         match *self {
-            BynarError::BlockUtilsError(ref e) => e.description(),
-            BynarError::Error(ref e) => &e,
-            BynarError::GojiError(ref e) => e.description(),
-            BynarError::IoError(ref e) => e.description(),
-            BynarError::LvmError(ref e) => e.description(),
-            BynarError::NixError(ref e) => e.description(),
-            BynarError::ParseIntError(ref e) => e.description(),
-            BynarError::PostgresError(ref e) => e.description(),
-            BynarError::ProtobufError(ref e) => e.description(),
+            BynarError::BlockUtilsError(ref e) => write!(f, "{}", e.description()),
+            BynarError::Error(ref e) => write!(f, "{}", e),
+            BynarError::GojiError(ref e) => write!(f, "{}", e),
+            BynarError::HardwareError {
+                ref name,
+                ref location,
+                ref location_format,
+                ref error,
+                ref serial_number,
+            } => {
+                let mut err = format!("Error: {}. {}", error, name);
+                if let Some(serial) = serial_number {
+                    err.push_str(&format!(" with serial {}", serial));
+                }
+                if let Some(lo) = location {
+                    err.push_str(&format!(" at location {} ", lo));
+                }
+                if let Some(lo_fmt) = location_format {
+                    err.push_str(&format!(" with format {} ", lo_fmt));
+                }
+                write!(f, "{}", err)
+            }
+            BynarError::IoError(ref e) => write!(f, "{}", e),
+            BynarError::LvmError(ref e) => write!(f, "{}", e),
+            BynarError::NixError(ref e) => write!(f, "{}", e),
+            BynarError::ParseIntError(ref e) => write!(f, "{}", e),
+            BynarError::PostgresError(ref e) => write!(f, "{}", e),
+            BynarError::ProtobufError(ref e) => write!(f, "{}", e),
             BynarError::PwdError(ref e) => match e {
-                PwdError::StringConvError(s) => &s,
-                PwdError::NullPtr => "nullptr",
+                PwdError::StringConvError(s) => write!(f, "{}", s),
+                PwdError::NullPtr => write!(f, "Null pointer err"),
             },
-            BynarError::R2d2Error(ref e) => e.description(),
-            BynarError::RadosError(ref e) => e.description(),
-            BynarError::ReqwestError(ref e) => e.description(),
-            BynarError::SerdeJsonError(ref e) => e.description(),
-            BynarError::SlackError(ref e) => e.description(),
-            BynarError::SqliteError(ref e) => e.description(),
-            BynarError::UuidError(ref e) => e.description(),
-            BynarError::VaultError(ref e) => e.description(),
-            BynarError::ZmqError(ref e) => e.description(),
-        }
-    }
-    fn cause(&self) -> Option<&dyn err> {
-        match *self {
-            BynarError::BlockUtilsError(ref e) => e.cause(),
-            BynarError::Error(_) => None,
-            BynarError::GojiError(ref e) => e.cause(),
-            BynarError::IoError(ref e) => e.cause(),
-            BynarError::LvmError(ref e) => e.cause(),
-            BynarError::NixError(ref e) => e.cause(),
-            BynarError::ParseIntError(ref e) => e.cause(),
-            BynarError::PostgresError(ref e) => e.cause(),
-            BynarError::ProtobufError(ref e) => e.cause(),
-            BynarError::PwdError(_) => None,
-            BynarError::R2d2Error(ref e) => e.cause(),
-            BynarError::RadosError(ref e) => e.cause(),
-            BynarError::ReqwestError(ref e) => e.cause(),
-            BynarError::SerdeJsonError(ref e) => e.cause(),
-            BynarError::SlackError(ref e) => e.cause(),
-            BynarError::SqliteError(ref e) => e.cause(),
-            BynarError::UuidError(ref e) => e.cause(),
-            BynarError::VaultError(ref e) => e.cause(),
-            BynarError::ZmqError(ref e) => e.cause(),
+            BynarError::R2d2Error(ref e) => write!(f, "{}", e),
+            BynarError::RadosError(ref e) => write!(f, "{}", e),
+            BynarError::ReqwestError(ref e) => write!(f, "{}", e),
+            BynarError::SerdeJsonError(ref e) => write!(f, "{}", e),
+            BynarError::SlackError(ref e) => write!(f, "{}", e),
+            BynarError::SqliteError(ref e) => write!(f, "{}", e),
+            BynarError::UuidError(ref e) => write!(f, "{}", e),
+            BynarError::VaultError(ref e) => write!(f, "{}", e),
+            BynarError::ZmqError(ref e) => write!(f, "{}", e),
         }
     }
 }
@@ -116,6 +113,25 @@ impl BynarError {
             BynarError::BlockUtilsError(ref err) => err.to_string(),
             BynarError::Error(ref err) => err.to_string(),
             BynarError::GojiError(ref err) => err.to_string(),
+            BynarError::HardwareError {
+                ref name,
+                ref location,
+                ref location_format,
+                ref error,
+                ref serial_number,
+            } => {
+                let mut err = format!("Error: {}. {}", error, name);
+                if let Some(serial) = serial_number {
+                    err.push_str(&format!(" with serial {}", serial));
+                }
+                if let Some(lo) = location {
+                    err.push_str(&format!(" at location {} ", lo));
+                }
+                if let Some(lo_fmt) = location_format {
+                    err.push_str(&format!(" with format {} ", lo_fmt));
+                }
+                err
+            }
             BynarError::IoError(ref err) => err.to_string(),
             BynarError::LvmError(ref err) => err.to_string(),
             BynarError::NixError(ref err) => err.to_string(),

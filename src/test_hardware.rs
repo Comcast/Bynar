@@ -1,17 +1,15 @@
-use crate::in_progress::HostDetailsMapping;
 use crate::ConfigSettings;
-use helpers::{error::BynarError, error::BynarResult, host_information::Host};
+use helpers::{error::BynarError, error::BynarResult};
 use libredfish::{
     manager::Manager, power::Power, storage::ArrayController, storage::DiskDrive,
     storage::StorageEnclosure, thermal::Thermal, *,
 };
 use log::debug;
-use r2d2::Pool;
-use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use reqwest::Client;
 
 /// Summary of all the hardware status information
 pub struct HardwareHealthSummary {
+    pub array_controllers: Vec<BynarResult<()>>,
     /// Physical disk drive status
     pub disk_drives: Vec<BynarResult<()>>,
     /// iLo status
@@ -32,6 +30,7 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
     if config.redfish_ip.is_none() {
         debug!("Redfish ip address not specified.  Skipping checks");
         return Ok(HardwareHealthSummary {
+            array_controllers: vec![],
             disk_drives: vec![],
             manager: vec![],
             power: vec![],
@@ -77,13 +76,17 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
             )?);
         }
     }
+    let controller_results = array_controllers
+        .into_iter()
+        .map(evaluate_array_controller)
+        .collect();
     let enclosure_results = storage_enclosures
-        .iter()
-        .map(|e| evaluate_enclosure(&e))
+        .into_iter()
+        .map(evaluate_enclosure)
         .collect();
     let disk_drive_results = disk_drives
-        .iter()
-        .map(|drive| evaluate_drive(drive))
+        .into_iter()
+        .map(evaluate_drive)
         .collect();
     let manager = get_manager_status(&client, &redfish_config)?;
     let manager_result = evaluate_manager(&manager);
@@ -95,6 +98,7 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
     let power_result = evaluate_power(&power);
 
     Ok(HardwareHealthSummary {
+        array_controllers: controller_results,
         disk_drives: disk_drive_results,
         manager: manager_result,
         power: power_result,
@@ -103,33 +107,45 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
     })
 }
 
-pub fn check_hardware(
-    config: &ConfigSettings,
-    host_info: &Host,
-    pool: &Pool<ConnectionManager>,
-    host_mapping: &HostDetailsMapping,
-) -> BynarResult<HardwareHealthSummary> {
+pub fn check_hardware(config: &ConfigSettings) -> BynarResult<HardwareHealthSummary> {
     collect_redfish_info(&config)
 }
 
-fn evaluate_drive(drive: &DiskDrive) -> BynarResult<()> {
-    if drive.status.health != "OK" {
-        let err = format!(
-            "Disk model: {} serial: {} at {} {} has failed",
-            drive.model, drive.serial_number, drive.location, drive.location_format
-        );
-        return Err(BynarError::new(err));
+fn evaluate_array_controller(controller: ArrayController) -> BynarResult<()> {
+    if controller.status.health != "OK" {
+        return Err(BynarError::HardwareError {
+            name: controller.model,
+            location: Some(controller.location),
+            location_format: Some(controller.location_format),
+            error: "Array controller has failed".to_string(),
+            serial_number: Some(controller.serial_number),
+        });
     }
     Ok(())
 }
 
-fn evaluate_enclosure(enclosure: &StorageEnclosure) -> BynarResult<()> {
+fn evaluate_drive(drive: DiskDrive) -> BynarResult<()> {
+    if drive.status.health != "OK" {
+        return Err(BynarError::HardwareError {
+            name: drive.model,
+            location: Some(drive.location),
+            location_format: Some(drive.location_format),
+            error: "Disk has failed".to_string(),
+            serial_number: Some(drive.serial_number),
+        });
+    }
+    Ok(())
+}
+
+fn evaluate_enclosure(enclosure: StorageEnclosure) -> BynarResult<()> {
     if enclosure.status.health != "OK" {
-        let err = format!(
-            "Storage Enclosure {} serial {} has failed. Location: {} {}",
-            enclosure.id, enclosure.serial_number, enclosure.location, enclosure.location_format
-        );
-        return Err(BynarError::new(err));
+        return Err(BynarError::HardwareError {
+            name: enclosure.model,
+            location: Some(enclosure.location),
+            location_format: Some(enclosure.location_format),
+            error: "Storage enclosure has failed".to_string(),
+            serial_number: Some(enclosure.serial_number),
+        });
     }
 
     Ok(())

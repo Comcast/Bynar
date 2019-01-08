@@ -1085,3 +1085,38 @@ pub fn is_disk_waiting_repair(
         Ok(true)
     }
 }
+
+pub fn is_hardware_waiting_repair(
+    pool: &Pool<ConnectionManager>,
+    storage_detail_id: u32,
+    device_name: &str,
+    serial_number: Option<&str>,
+) -> BynarResult<bool> {
+    let conn = get_connection_from_pool(pool)?;
+    // is there is any operation for this hardware that is waiting for replacement
+    let mut stmt = "SELECT status FROM operation_details 
+    JOIN operations USING (operation_id) 
+    JOIN hardware USING (device_id) 
+    WHERE device_name=$1 AND 
+    detail_id=$2 AND 
+    type_id = (SELECT type_id FROM operation_types WHERE op_name=$3) AND 
+    state=$4"
+        .to_string();
+    let detail_id = storage_detail_id as i32;
+    let operation_type = OperationType::WaitingForReplacement.to_string();
+    let state_type = State::WaitingForReplacement.to_string();
+    let mut params: Vec<&postgres::types::ToSql> =
+        vec![&device_name, &detail_id, &operation_type, &state_type];
+    // Add the serial_number to the query if given
+    if let Some(ref serial) = serial_number {
+        stmt.push_str(" and serial_number=$5");
+        params.push(serial);
+    }
+
+    let stmt_query = conn.query(&stmt, &params)?;
+    if stmt_query.is_empty() {
+        Ok(false)
+    } else {
+        Ok(true)
+    }
+}

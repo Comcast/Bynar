@@ -60,7 +60,7 @@ $BODY$
 
 DECLARE
     new_row INTEGER; 
-    new_rev INTEGER := 3;
+    new_rev INTEGER := 4;
     current_revision INTEGER;
 BEGIN
     
@@ -185,8 +185,34 @@ BEGIN
         UPDATE TABLE operation_types SET op_name='waiting_for_replacement' WHERE op_name='waitingforreplacement';
     END IF;
 
+    IF (current_revision < 4)
+    THEN
+        -- Captures the detail of each hardware replacement operation 
+        -- for the server
+        CREATE TABLE IF NOT EXISTS hardware (
+                device_id SERIAL NOT NULL UNIQUE,
+                detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
+                device_name VARCHAR NOT NULL,
+                device_location VARCHAR, --some devices have location data
+                state VARCHAR, -- refers to device state in the state machine
+                serial_number VARCHAR, -- some hardware devices have serial numbers
+                UNIQUE (device_name, detail_id)
+                );
+        CREATE TABLE IF NOT EXISTS hardware_types (
+                hardware_id SERIAL NOT NULL UNIQUE,
+                hardware_type VARCHAR (256) PRIMARY KEY NOT NULL
+                );
+        INSERT INTO hardware_types (hardware_type) VALUES ('array_controller');
+        INSERT INTO hardware_types (hardware_type) VALUES ('disk');
+        INSERT INTO hardware_types (hardware_type) VALUES ('fan');
+        INSERT INTO hardware_types (hardware_type) VALUES ('ilo_manager');
+        INSERT INTO hardware_types (hardware_type) VALUES ('power_supply');
+        INSERT INTO hardware_types (hardware_type) VALUES ('storage_controller');
+    END IF;
+
+
     -- Add next revision here
-    -- IF (current_revision < 4)
+    -- IF (current_revision < 5)
     -- THEN
     --      SQL statements
     -- END IF;

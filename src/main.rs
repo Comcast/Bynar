@@ -262,15 +262,57 @@ fn check_for_failed_disks(
     Ok(())
 }
 
-fn evaluate(results: Vec<BynarResult<()>>, error_string: &mut String) -> bool {
-    let mut error_found = false;
+fn evaluate(
+    results: Vec<BynarResult<()>>,
+    config: &ConfigSettings,
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
+) -> BynarResult<()> {
     for result in results {
         if let Err(e) = result {
-            error_string.push_str(&format!("{}\n", e));
-            error_found = true;
+            match e {
+                // This is the error we're after
+                BynarError::HardwareError { ref name, ref serial_number, .. } => {
+                    let serial = serial_number.as_ref().map(|s| &**s);
+                    let in_progress = in_progress::is_hardware_waiting_repair(
+                        pool,
+                        host_mapping.storage_detail_id,
+                        name,
+                        serial,
+                    )?;
+                    if !in_progress {
+                        //file a ticket
+                        debug!("Creating support ticket");
+                        let mut op_info = OperationInfo::new(host_mapping.entry_id, 0);
+                        add_or_update_operation(pool, &mut op_info)?;
+                        let ticket_id = create_support_ticket(
+                            config,
+                            "Bynar: Hardware Failure",
+                            &format!("{}", e),
+                        )?;
+                        let op_id = match op_info.operation_id {
+                            None => {
+                                error!("Operation not recorded for {}", "",);
+                                0
+                            }
+                            Some(i) => i,
+                        };
+                        debug!("Recording ticket id {} in database", ticket_id);
+                        let mut operation_detail =
+                            OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                        operation_detail.set_tracking_id(ticket_id);
+                        add_or_update_operation_detail(pool, &mut operation_detail)?;
+                    }
+                }
+                _ => {
+                    //Ignore other error types?
+                    error!("evaluate error: {:?}", e);
+                    return Err(e);
+                }
+            };
         }
     }
-    error_found
+    Ok(())
 }
 
 fn check_for_failed_hardware(
@@ -290,19 +332,23 @@ fn check_for_failed_hardware(
         host_info.machine_architecture,
         host_info.kernel,
     ));
-    let results = test_hardware::check_hardware(&config, &host_info, &pool, &host_mapping)?;
+    let results = test_hardware::check_hardware(&config)?;
     if !simulate {
-        // Check if evaluate found any errors
-        if evaluate(results.disk_drives, &mut description)
-            || evaluate(results.manager, &mut description)
-            || evaluate(results.power, &mut description)
-            || evaluate(results.storage_enclosures, &mut description)
-            || evaluate(results.thermals, &mut description)
-        {
-            //file a ticket
-            debug!("Creating support ticket");
-            let ticket_id = create_support_ticket(config, "Bynar: Hardware Failure", &description)?;
-            debug!("Recording ticket id {} in database", ticket_id);
+        // Check if evaluate found any errors and log anything other then hardware errors
+        if let Err(e) = evaluate(results.disk_drives, config, pool, host_mapping) {
+            error!("Disk drive evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.manager, config, pool, host_mapping) {
+            error!("Hardware manager evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.power, config, pool, host_mapping) {
+            error!("Power supply evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.storage_enclosures, config, pool, host_mapping) {
+            error!("Storage enclosures evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.thermals, config, pool, host_mapping) {
+            error!("Thermal evaluation error: {:?}", e);
         }
     }
 
