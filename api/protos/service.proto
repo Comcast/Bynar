@@ -18,17 +18,17 @@ message Osd {
 }
 
 // This will be added in a future version
-//message RepairResponse {
-  //required bool corrupted = 1;
-  //required bool repaired = 2;
-  //required bool in_progress = 3;
-  //required string tracking_ticket_id = 4;
-  //required Disk disk = 5;
-  //optional string mount_path = 6;
+// message RepairResponse {
+// required bool corrupted = 1;
+// required bool repaired = 2;
+// required bool in_progress = 3;
+// required string tracking_ticket_id = 4;
+// required Disk disk = 5;
+// optional string mount_path = 6;
 //}
 
 // GPT partition information
-message Partition{
+message Partition {
   required string uuid = 1;
   required uint64 first_lba = 2;
   required uint64 last_lba = 3;
@@ -36,9 +36,7 @@ message Partition{
   optional string name = 5;
 }
 
-message PartitionInfo{
-  repeated Partition partition = 1;
-}
+message PartitionInfo { repeated Partition partition = 1; }
 
 message Disk {
   required DiskType type = 1;
@@ -64,16 +62,14 @@ enum DiskType {
   UNKNOWN = 8;
 }
 
-message Disks {
-  repeated Disk disk = 1;
-}
+message Disks { repeated Disk disk = 1; }
 
 message OpResult {
   required ResultType result = 1;
   optional string error_msg = 2;
 }
 
-enum ResultType{
+enum ResultType {
   OK = 0;
   ERR = 1;
 }
@@ -95,16 +91,16 @@ message OpStringResult {
 }
 
 enum Op {
-   // Generic Add Disk.  Returns OpResult
-   Add = 1;
-   //returns OpResult
-   AddPartition = 6;
-   // Returns Disks
-   List = 3;
-   //Returns OpResult
-   Remove = 4;
-   //Returns bool
-   SafeToRemove = 5;
+  // Generic Add Disk.  Returns OpResult
+  Add = 1;
+  // returns OpResult
+  AddPartition = 6;
+  // Returns Disks
+  List = 3;
+  // Returns OpResult
+  Remove = 4;
+  // Returns bool
+  SafeToRemove = 5;
 }
 
 // Datacenter related API's
@@ -134,19 +130,15 @@ message Operation {
   // Used for Add, Remove and SafeToRemove
   optional bool simulate = 3;
 
-  //Optional AddPartition fields
+  // Optional AddPartition fields
   optional uint64 partition_start = 4;
   optional uint64 partition_end = 5;
   optional string partition_name = 6;
 
-  //Optional Ceph related fields
+  // Optional Ceph related fields
   optional uint64 osd_id = 7;
-  // Ceph journal device
-  optional string osd_journal = 8;
-  // For ceph osd's you can give an optional journal partition id
-  optional uint32 osd_journal_partition = 9;
 
-  //Optional gluster related fields
-  //Host:/dev/disk strings for gluster replica sets
+  // Optional gluster related fields
+  // Host:/dev/disk strings for gluster replica sets
   repeated string replica_set = 10;
 }

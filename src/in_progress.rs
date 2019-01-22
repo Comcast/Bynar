@@ -19,6 +19,7 @@ mod tests {
     use super::super::ConfigSettings;
     use block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
     use simplelog::{Config, TermLogger};
+    use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
 
@@ -62,7 +63,7 @@ mod tests {
             dev_path: PathBuf::from(path),
             device_database_id: None,
             mount_point: None,
-            partitions: vec![],
+            partitions: BTreeMap::new(),
             scsi_info: ScsiInfo::default(),
             state: crate::test_disk::State::Unscanned,
             storage_detail_id: result.storage_detail_id,

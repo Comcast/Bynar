@@ -1,3 +1,4 @@
+use blkid::BlkidError;
 use block_utils::BlockUtilsError;
 use ceph::error::RadosError;
 use goji::Error as GojiError;
@@ -25,6 +26,7 @@ pub type BynarResult<T> = Result<T, BynarError>;
 /// Custom error handling
 #[derive(Debug)]
 pub enum BynarError {
+    BlkidError(BlkidError),
     BlockUtilsError(BlockUtilsError),
     Error(String),
     GojiError(GojiError),
@@ -56,6 +58,7 @@ pub enum BynarError {
 impl fmt::Display for BynarError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            BynarError::BlkidError(ref e) => write!(f, "{}", e),
             BynarError::BlockUtilsError(ref e) => write!(f, "{}", e.description()),
             BynarError::Error(ref e) => write!(f, "{}", e),
             BynarError::GojiError(ref e) => write!(f, "{}", e),
@@ -110,6 +113,7 @@ impl BynarError {
     /// Convert a BynarError into a String representation.
     pub fn to_string(&self) -> String {
         match *self {
+            BynarError::BlkidError(ref err) => err.to_string(),
             BynarError::BlockUtilsError(ref err) => err.to_string(),
             BynarError::Error(ref err) => err.to_string(),
             BynarError::GojiError(ref err) => err.to_string(),
@@ -149,6 +153,12 @@ impl BynarError {
             BynarError::VaultError(ref err) => err.to_string(),
             BynarError::ZmqError(ref err) => err.to_string(),
         }
+    }
+}
+
+impl From<BlkidError> for BynarError {
+    fn from(err: BlkidError) -> BynarError {
+        BynarError::BlkidError(err)
     }
 }
 

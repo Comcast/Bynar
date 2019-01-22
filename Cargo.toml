@@ -49,7 +49,7 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~1.0"
 goji = { git = "https://github.com/cholcombe973/goji.git" }
-gpt = { git = "https://github.com/Quyzi/gpt"}
+gpt = { git = "https://github.com/Quyzi/gpt", branch="id_bug"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 hostname = "~0.1"
 init-daemon = "~0.1"
@@ -59,7 +59,7 @@ libc = "~0.2"
 libredfish = {git = "https://github.com/cholcombe973/libredfish"}
 log = "~0.4"
 lvm = "~0.3"
-nix = "~0.11"
+nix = "~0.13"
 petgraph = "~0.4"
 pnet = "~0.21"
 postgres = "~0.15"

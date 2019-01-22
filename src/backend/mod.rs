@@ -17,13 +17,10 @@ pub trait Backend {
     /// For gluster or other services it might be much easier
     /// If simulate is passed no action should be taken
     /// An optional osd_id can be provided to ensure the osd is set to that
-    /// An optional journal and partition id can be set
     fn add_disk(
         &self,
         device: &Path,
         id: Option<u64>,
-        journal: Option<&str>,
-        journal_partition: Option<u32>,
         simulate: bool,
     ) -> BynarResult<()>;
 

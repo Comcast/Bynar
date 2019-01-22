@@ -30,7 +30,7 @@ use petgraph::Directed;
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::OpenOptions;
@@ -52,7 +52,7 @@ pub struct BlockDevice {
     // None means disk is not in the database
     pub device_database_id: Option<u32>,
     pub mount_point: Option<PathBuf>,
-    pub partitions: Vec<Partition>,
+    pub partitions: BTreeMap<u32, Partition>,
     pub scsi_info: ScsiInfo,
     pub state: State,
     pub storage_detail_id: u32,
@@ -67,6 +67,7 @@ impl BlockDevice {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -169,7 +170,7 @@ mod tests {
             dev_path: PathBuf::from(""),
             device_database_id: None,
             mount_point: None,
-            partitions: vec![],
+            partitions: BTreeMap::new(),
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
             storage_detail_id: 1,
@@ -224,7 +225,7 @@ mod tests {
             dev_path: PathBuf::from(""),
             device_database_id: None,
             mount_point: None,
-            partitions: vec![],
+            partitions: BTreeMap::new(),
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
             storage_detail_id: 1,
@@ -278,7 +279,7 @@ mod tests {
             dev_path: PathBuf::from(""),
             device_database_id: None,
             mount_point: None,
-            partitions: vec![],
+            partitions: BTreeMap::new(),
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Unscanned,
             storage_detail_id: 1,
@@ -323,7 +324,7 @@ mod tests {
             dev_path: PathBuf::from(""),
             device_database_id: None,
             mount_point: None,
-            partitions: vec![],
+            partitions: BTreeMap::new(),
             scsi_info: super::ScsiInfo::default(),
             state: super::State::Replaced,
             storage_detail_id: 1,
@@ -1108,9 +1109,9 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
             let partitions =
                 if let Ok(disk_header) = read_header(&dev_path, disk::DEFAULT_SECTOR_SIZE) {
                     read_partitions(&dev_path, &disk_header, disk::DEFAULT_SECTOR_SIZE)
-                        .unwrap_or_else(|_| vec![])
+                        .unwrap_or_else(|_| BTreeMap::new())
                 } else {
-                    vec![]
+                    BTreeMap::new()
                 };
             if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
                 if let Some(mount) = mount_res {
@@ -1212,7 +1213,7 @@ fn add_previous_devices(
                     dev_path: device_path.clone(),
                     device_database_id: Some(dev_id),
                     mount_point: None,
-                    partitions: vec![],
+                    partitions: BTreeMap::new(),
                     scsi_info: ScsiInfo::default(),
                     state: State::WaitingForReplacement,
                     storage_detail_id: host_mapping.storage_detail_id,
