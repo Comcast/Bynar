@@ -94,14 +94,17 @@ BEGIN
                 region_name VARCHAR (256) PRIMARY KEY NOT NULL 
                 );
 
-        CREATE TABLE IF NOT EXISTS storage_types (
-                storage_id SERIAL NOT NULL UNIQUE,
-                storage_type VARCHAR (256) PRIMARY KEY NOT NULL
-                );
-        INSERT INTO storage_types (storage_type) vALUES ('ceph');
-        INSERT INTO storage_types (storage_type) vALUES ('sio');
-        INSERT INTO storage_types (storage_type) vALUES ('solidfire');
-        INSERT INTO storage_types (storage_type) VALUES ('hitachi');
+        IF NOT table_exists('public', 'storage_types')
+        THEN
+            CREATE TABLE storage_types (
+                    storage_id SERIAL NOT NULL UNIQUE,
+                    storage_type VARCHAR (256) PRIMARY KEY NOT NULL
+                    );
+            INSERT INTO storage_types (storage_type) vALUES ('ceph');
+            INSERT INTO storage_types (storage_type) vALUES ('sio');
+            INSERT INTO storage_types (storage_type) vALUES ('solidfire');
+            INSERT INTO storage_types (storage_type) VALUES ('hitachi');
+        END IF;
 
         CREATE TABLE IF NOT EXISTS storage_details (
                 detail_id SERIAL NOT NULL UNIQUE,
@@ -127,20 +130,23 @@ BEGIN
                 UNIQUE (device_path, detail_id)
                 );
 
-        CREATE TABLE IF NOT EXISTS operation_types (
+        IF NOT table_exists('public', 'operation_types')
+        THEN
+            CREATE TABLE operation_types (
                 type_id SERIAL NOT NULL UNIQUE,
                 op_name VARCHAR (128) PRIMARY KEY NOT NULL
                 );
 
-        INSERT INTO operation_types (op_name) VALUES ('diskadd');
-        INSERT INTO operation_types (op_name) VALUES ('diskreplace');
-        INSERT INTO operation_types (op_name) VALUES ('diskremove');
-        INSERT INTO operation_types (op_name) VALUES ('clusteradd');
-        INSERT INTO operation_types (op_name) VALUES ('clusterdelete');
-        INSERT INTO operation_types (op_name) VALUES ('waitingforreplacement');
-        -- Evaluation combines all the internal work like checking 
-        -- file system for corruption, attempting repair etc.
-        INSERT INTO operation_types (op_name) VALUES ('evaluation');
+            INSERT INTO operation_types (op_name) VALUES ('diskadd');
+            INSERT INTO operation_types (op_name) VALUES ('diskreplace');
+            INSERT INTO operation_types (op_name) VALUES ('diskremove');
+            INSERT INTO operation_types (op_name) VALUES ('clusteradd');
+            INSERT INTO operation_types (op_name) VALUES ('clusterdelete');
+            INSERT INTO operation_types (op_name) VALUES ('waitingforreplacement');
+            -- Evaluation combines all the internal work like checking 
+            -- file system for corruption, attempting repair etc.
+            INSERT INTO operation_types (op_name) VALUES ('evaluation');
+        END IF;
 
         -- This table will hold one record per (device_id, entry_id)
         -- Sub operations for each record here should be added to 
@@ -182,32 +188,38 @@ BEGIN
 
     IF (current_revision < 3)
     THEN
-        UPDATE TABLE operation_types SET op_name='waiting_for_replacement' WHERE op_name='waitingforreplacement';
+        UPDATE operation_types SET op_name='waiting_for_replacement' WHERE op_name='waitingforreplacement';
     END IF;
 
     IF (current_revision < 4)
     THEN
-        -- Captures the detail of each hardware replacement operation 
-        -- for the server
-        CREATE TABLE IF NOT EXISTS hardware (
-                device_id SERIAL NOT NULL UNIQUE,
-                detail_id INTEGER REFERENCES storage_details(detail_id) ON DELETE CASCADE,
-                device_name VARCHAR NOT NULL,
-                device_location VARCHAR, --some devices have location data
-                state VARCHAR, -- refers to device state in the state machine
-                serial_number VARCHAR, -- some hardware devices have serial numbers
-                UNIQUE (device_name, detail_id)
-                );
-        CREATE TABLE IF NOT EXISTS hardware_types (
+        -- Added during redfish support which monitors different hardwares other 
+        -- than just disks.
+        IF NOT table_exists('public', 'hardware_types')
+        THEN
+            CREATE TABLE hardware_types (
                 hardware_id SERIAL NOT NULL UNIQUE,
                 hardware_type VARCHAR (256) PRIMARY KEY NOT NULL
                 );
-        INSERT INTO hardware_types (hardware_type) VALUES ('array_controller');
-        INSERT INTO hardware_types (hardware_type) VALUES ('disk');
-        INSERT INTO hardware_types (hardware_type) VALUES ('fan');
-        INSERT INTO hardware_types (hardware_type) VALUES ('ilo_manager');
-        INSERT INTO hardware_types (hardware_type) VALUES ('power_supply');
-        INSERT INTO hardware_types (hardware_type) VALUES ('storage_controller');
+            INSERT INTO hardware_types (hardware_type) VALUES ('array_controller');
+            INSERT INTO hardware_types (hardware_type) VALUES ('disk');
+            INSERT INTO hardware_types (hardware_type) VALUES ('fan');
+            INSERT INTO hardware_types (hardware_type) VALUES ('ilo_manager');
+            INSERT INTO hardware_types (hardware_type) VALUES ('power_supply');
+            INSERT INTO hardware_types (hardware_type) VALUES ('storage_controller');
+        END IF;
+        
+        -- Rename devices table to hardware. Add a type column to it 
+        -- to indicate hardware_types. Make device_name and detail_id unique instead
+        -- of device_path. Add fields needed for other hardware.
+        IF table_exists('public', 'devices')
+        THEN
+            ALTER TABLE devices ADD COLUMN hardware_type INTEGER REFERENCES hardware_types(hardware_id);
+            ALTER TABLE devices DROP CONSTRAINT IF EXISTS devices_device_path_detail_id_key;
+            ALTER TABLE devices ALTER COLUMN device_path DROP NOT NULL;
+            ALTER TABLE devices ADD CONSTRAINT device_name_detail_id UNIQUE(device_name, detail_id);
+            ALTER TABLE devices RENAME TO hardware;
+        END IF;
     END IF;
 
 
