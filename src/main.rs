@@ -132,6 +132,8 @@ fn check_for_failed_disks(
                     state_machine.block_device.device.name, state_machine
                 );
                 let mut dev_path = PathBuf::from("/dev");
+                let dev_name = state_machine.block_device.device.name.clone();
+
                 dev_path.push(state_machine.block_device.device.name);
 
                 if state_machine.block_device.state == State::WaitingForReplacement {
@@ -151,10 +153,10 @@ fn check_for_failed_disks(
                         state_machine.block_device.scsi_info.vendor
                     ));
                     info!("Connecting to database to check if disk is in progress");
-                    let in_progress = in_progress::is_disk_waiting_repair(
+                    let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,
                         host_mapping.storage_detail_id,
-                        &dev_path,
+                        &dev_name, None
                     )?;
                     if !simulate {
                         if !in_progress {
