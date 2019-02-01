@@ -243,7 +243,7 @@ dependencies = [
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gluster 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "goji 0.2.4 (git+https://github.com/cholcombe973/goji.git)",
- "gpt 0.5.0 (git+https://github.com/Quyzi/gpt?branch=id_bug)",
+ "gpt 0.6.0 (git+https://github.com/Quyzi/gpt)",
  "hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)",
  "hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "init-daemon 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -780,8 +780,8 @@ dependencies = [
 
 [[package]]
 name = "gpt"
-version = "0.5.0"
-source = "git+https://github.com/Quyzi/gpt?branch=id_bug#0e6b736d17aa4ae23eb1afb64d3762d7032c479f"
+version = "0.6.0"
+source = "git+https://github.com/Quyzi/gpt#15c70bba8bdd972a48ca32f19f829508e6072e22"
 dependencies = [
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "crc 1.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3065,7 +3065,7 @@ dependencies = [
 "checksum glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
 "checksum gluster 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "8516db589dba029de463a7edd2b3cad838d760281cf350ef746cbc6358d5ad8c"
 "checksum goji 0.2.4 (git+https://github.com/cholcombe973/goji.git)" = "<none>"
-"checksum gpt 0.5.0 (git+https://github.com/Quyzi/gpt?branch=id_bug)" = "<none>"
+"checksum gpt 0.6.0 (git+https://github.com/Quyzi/gpt)" = "<none>"
 "checksum h2 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)" = "ddb2b25a33e231484694267af28fec74ac63b5ccf51ee2065a5e313b834d836e"
 "checksum hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)" = "<none>"
 "checksum hex 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d6a22814455d41612f41161581c2883c0c6a1c41852729b17d5ed88f01e153aa"

@@ -49,7 +49,7 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~1.0"
 goji = { git = "https://github.com/cholcombe973/goji.git" }
-gpt = { git = "https://github.com/Quyzi/gpt", branch="id_bug"}
+gpt = { git = "https://github.com/Quyzi/gpt"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 hostname = "~0.1"
 init-daemon = "~0.1"
