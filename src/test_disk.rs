@@ -12,7 +12,7 @@ extern crate mocktopus;
 
 use crate::in_progress::{
     add_disk_detail, add_or_update_operation, get_devices_from_db, get_state,
-    is_disk_waiting_repair, save_state, HostDetailsMapping, OperationInfo,
+    is_hardware_waiting_repair, save_state, HostDetailsMapping, OperationInfo,
 };
 use blkid::BlkId;
 use block_utils::{
@@ -1180,26 +1180,26 @@ fn add_previous_devices(
     // longer find them. This will dig up previously known devices
     let previously_known_devices = get_devices_from_db(&pool, host_mapping.storage_detail_id)?;
     // Add back in missing devices here
-    for (dev_id, device) in previously_known_devices {
-        if !devices.iter().any(|b| b.dev_path == device) {
+    for (dev_id, device_name, device_path) in previously_known_devices {
+        if !devices.iter().any(|b| b.dev_path == device_path) {
             // Ok so if the host doesn't know about the device
             // but the database does, what do we do about this?
             // we can't check anything because there's nothing to check
             // do we just mark it for replacement?
             let awaiting_repair =
-                is_disk_waiting_repair(&pool, host_mapping.storage_detail_id, &device)?;
-            debug!("{} awaiting repair: {}", device.display(), awaiting_repair);
+                is_hardware_waiting_repair(&pool, host_mapping.storage_detail_id, &device_name, None)?;
+            debug!("{} awaiting repair: {}", device_path.display(), awaiting_repair);
             // So this never trips because the database thinks this disk is still good
             if !awaiting_repair {
                 let b = BlockDevice {
                     device: block_utils::Device {
                         id: None,
-                        name: device
+                        name: device_path
                             .file_name()
                             .ok_or_else(|| {
                                 BynarError::new(format!(
                                     "device {} missing filename",
-                                    device.display()
+                                    device_path.display()
                                 ))
                             })?
                             .to_string_lossy()
@@ -1209,7 +1209,7 @@ fn add_previous_devices(
                         fs_type: block_utils::FilesystemType::Unknown,
                         serial_number: None,
                     },
-                    dev_path: device.clone(),
+                    dev_path: device_path.clone(),
                     device_database_id: Some(dev_id),
                     mount_point: None,
                     partitions: vec![],

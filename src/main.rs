@@ -10,6 +10,7 @@ extern crate serde_derive;
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
+mod test_hardware;
 
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
@@ -26,9 +27,16 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
-    db_location: String,
     manager_host: String,
     manager_port: u16,
+    /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)
+    redfish_ip: Option<String>,
+    /// Redfish credentials
+    redfish_username: Option<String>,
+    /// Redfish credentials
+    redfish_password: Option<String>,
+    /// The port redfish is listening on
+    redfish_port: Option<u16>,
     slack_webhook: Option<String>,
     slack_channel: Option<String>,
     slack_botname: Option<String>,
@@ -123,6 +131,8 @@ fn check_for_failed_disks(
                     state_machine.block_device.device.name, state_machine
                 );
                 let mut dev_path = PathBuf::from("/dev");
+                let dev_name = state_machine.block_device.device.name.clone();
+
                 dev_path.push(state_machine.block_device.device.name);
 
                 if state_machine.block_device.state == State::WaitingForReplacement {
@@ -142,10 +152,10 @@ fn check_for_failed_disks(
                         state_machine.block_device.scsi_info.vendor
                     ));
                     info!("Connecting to database to check if disk is in progress");
-                    let in_progress = in_progress::is_disk_waiting_repair(
+                    let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,
                         host_mapping.storage_detail_id,
-                        &dev_path,
+                        &dev_name, None
                     )?;
                     if !simulate {
                         if !in_progress {
@@ -250,6 +260,99 @@ fn check_for_failed_disks(
             }
         };
     }
+    Ok(())
+}
+
+fn evaluate(
+    results: Vec<BynarResult<()>>,
+    config: &ConfigSettings,
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
+) -> BynarResult<()> {
+    for result in results {
+        if let Err(e) = result {
+            match e {
+                // This is the error we're after
+                BynarError::HardwareError { ref name, ref serial_number, .. } => {
+                    let serial = serial_number.as_ref().map(|s| &**s);
+                    let in_progress = in_progress::is_hardware_waiting_repair(
+                        pool,
+                        host_mapping.storage_detail_id,
+                        name,
+                        serial,
+                    )?;
+                    if !in_progress {
+                        //file a ticket
+                        debug!("Creating support ticket");
+                        let mut op_info = OperationInfo::new(host_mapping.entry_id, 0);
+                        add_or_update_operation(pool, &mut op_info)?;
+                        let ticket_id = create_support_ticket(
+                            config,
+                            "Bynar: Hardware Failure",
+                            &format!("{}", e),
+                        )?;
+                        let op_id = match op_info.operation_id {
+                            None => {
+                                error!("Operation not recorded for {}", "",);
+                                0
+                            }
+                            Some(i) => i,
+                        };
+                        debug!("Recording ticket id {} in database", ticket_id);
+                        let mut operation_detail =
+                            OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                        operation_detail.set_tracking_id(ticket_id);
+                        add_or_update_operation_detail(pool, &mut operation_detail)?;
+                    }
+                }
+                _ => {
+                    //Ignore other error types?
+                    error!("evaluate error: {:?}", e);
+                    return Err(e);
+                }
+            };
+        }
+    }
+    Ok(())
+}
+
+fn check_for_failed_hardware(
+    config: &ConfigSettings,
+    host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
+    simulate: bool,
+) -> BynarResult<()> {
+    info!("Checking hardware");
+    let mut description = String::new();
+    description.push_str(&format!(
+        "\nHostname: {}\nServer type: {}\nServer Serial: {}\nMachine Architecture: {}\nKernel: {}",
+        host_info.hostname,
+        host_info.server_type,
+        host_info.serial_number,
+        host_info.machine_architecture,
+        host_info.kernel,
+    ));
+    let results = test_hardware::check_hardware(&config)?;
+    if !simulate {
+        // Check if evaluate found any errors and log anything other then hardware errors
+        if let Err(e) = evaluate(results.disk_drives, config, pool, host_mapping) {
+            error!("Disk drive evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.manager, config, pool, host_mapping) {
+            error!("Hardware manager evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.power, config, pool, host_mapping) {
+            error!("Power supply evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.storage_enclosures, config, pool, host_mapping) {
+            error!("Storage enclosures evaluation error: {:?}", e);
+        }
+        if let Err(e) = evaluate(results.thermals, config, pool, host_mapping) {
+            error!("Thermal evaluation error: {:?}", e);
+        }
+    }
+
     Ok(())
 }
 
@@ -433,6 +536,20 @@ fn main() {
         }
         _ => {
             info!("Check for failed disks completed");
+        }
+    };
+    match check_for_failed_hardware(
+        &config,
+        &host_info,
+        &db_pool,
+        &host_details_mapping,
+        simulate,
+    ) {
+        Err(e) => {
+            error!("Check for failed hardware failed with error: {}", e);
+        }
+        _ => {
+            info!("Check for failed hardware completed");
         }
     };
     match add_repaired_disks(

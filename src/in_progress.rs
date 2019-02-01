@@ -9,7 +9,7 @@ use postgres::{params::ConnectParams, params::Host, rows::Row, transaction::Tran
 use r2d2::{Pool, PooledConnection};
 use r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
 use std::fmt::{Display, Formatter, Result as fResult};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::id;
 use std::str::FromStr;
 use std::time::Duration;
@@ -164,12 +164,16 @@ mod tests {
         println!("All open tickets {:#?}", tickets);
 
         let is_repair_needed =
-            super::is_disk_waiting_repair(&pool, result.storage_detail_id, &d.dev_path).unwrap();
+            super::is_hardware_waiting_repair(&pool, result.storage_detail_id, &d.device.name, None).unwrap();
         println!(
             "disk {} needs repair {}",
             d.dev_path.display(),
             is_repair_needed
         );
+
+        let all_devices = super::get_devices_from_db(&pool, result.storage_detail_id).unwrap();
+        println!("All devices {:#?}", all_devices);
+
         //TODO: add failure tests
         // 1. set entry_id = 0
     }
@@ -523,15 +527,16 @@ fn update_storage_details(
     Ok(storage_detail_id)
 }
 
-// Inserts disk informatation record into bynar.devices and adds the device_database_id to struct
+// Inserts disk informatation record into bynar.hardware and adds the device_database_id to struct
 pub fn add_disk_detail(
     pool: &Pool<ConnectionManager>,
     disk_info: &mut BlockDevice,
 ) -> BynarResult<()> {
     let conn = get_connection_from_pool(pool)?;
     let detail_id = disk_info.storage_detail_id as i32;
+
     let stmt_query = conn.query(
-        "SELECT device_id FROM devices WHERE device_path=$1
+        "SELECT device_id FROM hardware WHERE device_path=$1
             AND detail_id=$2 AND device_name=$3",
         &[
             &format!("{}", disk_info.dev_path.display()),
@@ -542,7 +547,16 @@ pub fn add_disk_detail(
     if stmt_query.is_empty() {
         // A record doesn't exist, insert
         let mut stmt = String::new();
-        stmt.push_str("INSERT INTO devices(detail_id, device_path, device_name, state");
+
+        let mut hardware_type: i32 = 2; // this is the usual value added to DB for disk type
+
+        // Get hardware_type id from DB
+        let stmt2 = conn.query("SELECT hardware_id FROM hardware_types WHERE hardware_type='disk'", &[])?;
+        if let Some(res) = stmt2.into_iter().next() {
+            hardware_type = res.get("hardware_id");
+        } 
+        
+        stmt.push_str("INSERT INTO hardware(detail_id, device_path, device_name, state, hardware_type");
         if disk_info.mount_point.is_some() {
             stmt.push_str(", mount_path");
         }
@@ -555,11 +569,12 @@ pub fn add_disk_detail(
         }
 
         stmt.push_str(&format!(
-            ") VALUES ({}, '{}', '{}', '{}'",
+            ") VALUES ({}, '{}', '{}', '{}', {}",
             disk_info.storage_detail_id,
             disk_info.dev_path.display(),
             disk_info.device.name,
-            disk_info.state
+            disk_info.state,
+            hardware_type
         ));
 
         if let Some(ref mount) = disk_info.mount_point {
@@ -807,7 +822,7 @@ pub fn save_state(
         // transaction rolls back by default.
         let transaction = conn.transaction()?;
         let stmt = format!(
-            "UPDATE devices SET state = '{}' WHERE device_id={}",
+            "UPDATE hardware SET state = '{}' WHERE device_id={}",
             state, dev_id
         );
         let stmt_query = transaction.execute(&stmt, &[])?;
@@ -852,7 +867,7 @@ pub fn save_smart_result(
         // transaction rolls back by default.
         let transaction = conn.transaction()?;
         let stmt = format!(
-            "UPDATE devices SET smart_passed = {} WHERE device_id={}",
+            "UPDATE hardware SET smart_passed = {} WHERE device_id={}",
             smart_passed, dev_id
         );
         let stmt_query = transaction.execute(&stmt, &[])?;
@@ -881,25 +896,26 @@ pub fn save_smart_result(
     }
 }
 
-// Returns the currently known devices from the database.
+// Returns the currently known disks from the database.
 pub fn get_devices_from_db(
     pool: &Pool<ConnectionManager>,
     storage_detail_id: u32,
-) -> BynarResult<Vec<(u32, PathBuf)>> {
+) -> BynarResult<Vec<(u32, String, PathBuf)>> {
     debug!("Retrieving devices from DB",);
     let conn = get_connection_from_pool(pool)?;
 
     let detail_id = storage_detail_id as i32;
     let stmt_query = conn.query(
-        "select device_id, device_path from devices where detail_id=$1",
+        "select device_id, device_name, device_path from hardware where detail_id=$1 AND hardware_type=(SELECT hardware_id FROM hardware_types WHERE hardware_type='disk')",
         &[&detail_id],
     )?;
 
-    let mut devices: Vec<(u32, PathBuf)> = Vec::new();
+    let mut devices: Vec<(u32, String, PathBuf)> = Vec::new();
     for row in stmt_query.iter() {
         let dev_id: i32 = row.get(0);
-        let dev_path: String = row.get(1);
-        devices.push((dev_id as u32, PathBuf::from(dev_path)));
+        let dev_name: String = row.get(1);
+        let dev_path: String = row.get(2);
+        devices.push((dev_id as u32, dev_name, PathBuf::from(dev_path)));
     }
     Ok(devices)
 }
@@ -921,7 +937,7 @@ pub fn get_state(
         Some(dev_id) => {
             let dev_id = dev_id as i32;
             let stmt_query =
-                conn.query("SELECT state FROM devices WHERE device_id = $1", &[&dev_id])?;
+                conn.query("SELECT state FROM hardware WHERE device_id = $1", &[&dev_id])?;
             if stmt_query.len() != 1 || stmt_query.is_empty() {
                 // Database doesn't know about the device.  Must be new disk.
                 Ok(State::Unscanned)
@@ -956,7 +972,7 @@ pub fn get_smart_result(
 
     if let Some(dev_id) = device_detail.device_database_id {
         let stmt = format!(
-            "SELECT smart_passed FROM devices WHERE device_id = {}",
+            "SELECT smart_passed FROM hardware WHERE device_id = {}",
             dev_id
         );
         let stmt_query = conn.query(&stmt, &[])?;
@@ -996,13 +1012,13 @@ pub fn get_outstanding_repair_tickets(
 
     // Get all tickets of myself with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
     let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
-     JOIN devices USING (device_id) WHERE 
-     (status = in ($1, $2) AND 
+     JOIN hardware USING (device_id) WHERE 
+     (status=$1 OR status=$2) AND 
      type_id = (SELECT type_id FROM operation_types WHERE op_name= $3) AND 
-     devices.state in ($4, $5) AND 
+     hardware.state in ($4, $5) AND 
      detail_id = $6 AND  
      tracking_id IS NOT NULL ORDER BY operations.start_time";
-
+    
     let detail_id = storage_detail_id as i32;
     let stmt_query = conn.query(
         &stmt,
@@ -1056,29 +1072,34 @@ pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> 
     Ok(())
 }
 
-/// Checks the status of the operation_detail corresponding to this device, and returns true if pending/in_progress
-pub fn is_disk_waiting_repair(
+pub fn is_hardware_waiting_repair(
     pool: &Pool<ConnectionManager>,
     storage_detail_id: u32,
-    dev_path: &Path,
+    device_name: &str,
+    serial_number: Option<&str>,
 ) -> BynarResult<bool> {
     let conn = get_connection_from_pool(pool)?;
-
-    // is there is any operation for this device that is waiting for replacement
-    let stmt = format!(
-        "SELECT status FROM operation_details 
+    // is there is any operation for this hardware that is waiting for replacement
+    let mut stmt = "SELECT status FROM operation_details 
     JOIN operations USING (operation_id) 
-    JOIN devices USING (device_id) 
-    WHERE device_path='{}' AND 
-    detail_id={} AND 
-    type_id = (SELECT type_id FROM operation_types WHERE op_name='{}') AND 
-    state='{}'",
-        dev_path.display(),
-        storage_detail_id,
-        OperationType::WaitingForReplacement,
-        State::WaitingForReplacement
-    );
-    let stmt_query = conn.query(&stmt, &[])?;
+    JOIN hardware USING (device_id) 
+    WHERE device_name=$1 AND 
+    detail_id=$2 AND 
+    type_id = (SELECT type_id FROM operation_types WHERE op_name=$3) AND 
+    state=$4"
+        .to_string();
+    let detail_id = storage_detail_id as i32;
+    let operation_type = OperationType::WaitingForReplacement.to_string();
+    let state_type = State::WaitingForReplacement.to_string();
+    let mut params: Vec<&postgres::types::ToSql> =
+        vec![&device_name, &detail_id, &operation_type, &state_type];
+    // Add the serial_number to the query if given
+    if let Some(ref serial) = serial_number {
+        stmt.push_str(" AND device_uuid=$5");
+        params.push(serial);
+    }
+
+    let stmt_query = conn.query(&stmt, &params)?;
     if stmt_query.is_empty() {
         Ok(false)
     } else {

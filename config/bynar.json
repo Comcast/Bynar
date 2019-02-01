@@ -13,6 +13,10 @@
     "jira_priority": "4",
     "jira_project_id": "MyProject",
     "jira_ticket_assignee": "assignee_username",
+    "redfish_ip": "localhost",
+    "redfish_username": "redfish_user",
+    "redfish_password": "redfish_passwd",
+    "redfish_port": 443,
     "vault_endpoint": "https://my_vault.com",
     "vault_token": "token_98706420",
     "database": {
