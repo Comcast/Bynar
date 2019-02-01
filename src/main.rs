@@ -27,7 +27,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
-    db_location: String,
     manager_host: String,
     manager_port: u16,
     /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)

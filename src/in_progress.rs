@@ -1019,7 +1019,6 @@ pub fn get_outstanding_repair_tickets(
      detail_id = $6 AND  
      tracking_id IS NOT NULL ORDER BY operations.start_time";
     
-    println!("{}", stmt);
     let detail_id = storage_detail_id as i32;
     let stmt_query = conn.query(
         &stmt,
@@ -1072,38 +1071,6 @@ pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> 
     );
     Ok(())
 }
-
-/*
-/// Checks the status of the operation_detail corresponding to this device, and returns true if pending/in_progress
-pub fn is_disk_waiting_repair(
-    pool: &Pool<ConnectionManager>,
-    storage_detail_id: u32,
-    dev_path: &Path,
-) -> BynarResult<bool> {
-    let conn = get_connection_from_pool(pool)?;
-
-    // is there is any operation for this device that is waiting for replacement
-    let stmt = format!(
-        "SELECT status FROM operation_details 
-    JOIN operations USING (operation_id) 
-    JOIN hardware USING (device_id) 
-    WHERE device_path='{}' AND 
-    detail_id={} AND 
-    type_id = (SELECT type_id FROM operation_types WHERE op_name='{}') AND 
-    state='{}'",
-        dev_path.display(),
-        storage_detail_id,
-        OperationType::WaitingForReplacement,
-        State::WaitingForReplacement
-    );
-    let stmt_query = conn.query(&stmt, &[])?;
-    if stmt_query.is_empty() {
-        Ok(false)
-    } else {
-        Ok(true)
-    }
-}
-*/
 
 pub fn is_hardware_waiting_repair(
     pool: &Pool<ConnectionManager>,
