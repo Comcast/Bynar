@@ -5,14 +5,15 @@ addons:
     sources:
     packages:
       # Dependencies for this package
-      - libzmq3-dev
+      - libatasmart-dev
+      - libblkid-dev
+      - liblvm2-dev
       - libprotobuf-dev
       - librados2
-      - libatasmart-dev
-      - libssl-dev
-      - libblkid-dev
-      - libudev-dev
       - librados-dev
+      - libssl-dev
+      - libudev-dev
+      - libzmq3-dev
 
 rust:
   - stable
