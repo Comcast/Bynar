@@ -1,0 +1,35 @@
+language: rust
+dist: xenial
+addons:
+  apt:
+    sources:
+    packages:
+      # Dependencies for this package
+      - libzmq3-dev
+      - libprotobuf-dev
+      - librados2
+      - libatasmart-dev
+      - libssl-dev
+      - libblkid-dev
+      - libudev
+      - librados-dev
+
+rust:
+  - stable
+  - beta
+  - nightly
+
+matrix:
+  allow_failures:
+    - rust: nightly
+
+before_script:
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "$CLIPPY_RUST_VERSION" ]]; then
+      rustup component add clippy;
+    fi'
+
+script:
+  - cargo check
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "$CLIPPY_RUST_VERSION" ]]; then
+      cargo clippy -- -D warnings;
+    fi'
