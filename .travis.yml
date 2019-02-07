@@ -11,7 +11,7 @@ addons:
       - libatasmart-dev
       - libssl-dev
       - libblkid-dev
-      - libudev
+      - libudev-dev
       - librados-dev
 
 rust:
