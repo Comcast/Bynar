@@ -32,7 +32,7 @@ conf-files = [
 
 [dev-dependencies]
 lazy_static = "~1.2"
-mocktopus = "0.5.0"
+mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch="get_type_id" }
 rand = "~0.5"
 
 [dependencies]

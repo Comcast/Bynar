@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{
@@ -38,65 +37,27 @@ pub struct CephBackend {
     version: CephVersion,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 struct JournalDevice {
     device: PathBuf,
     partition_id: Option<u32>,
     partition_uuid: Option<uuid::Uuid>,
+    num_partitions: Option<usize>,
 }
 
 impl JournalDevice {
-    fn num_partitions(&self) -> BynarResult<usize> {
-        let num_partitions = gpt::GptConfig::new()
+    /// Discover the number of partitions on the device and 
+    /// update the num_partitions field
+    fn update_num_partitions(&mut self) -> BynarResult<()> {
+        let num_parts = gpt::GptConfig::new()
             .writable(false)
             .initialized(true)
             .open(&self.device)?
             .partitions()
             .len();
+        self.num_partitions = Some(num_parts);
 
-        Ok(num_partitions)
-    }
-}
-
-impl Ord for JournalDevice {
-    fn cmp(&self, other: &JournalDevice) -> Ordering {
-        let self_partitions = self.num_partitions().unwrap_or_else(|_| {
-            panic!(
-                "Error finding number of partitions on {}",
-                self.device.display()
-            )
-        });
-        let other_partitions = other.num_partitions().unwrap_or_else(|_| {
-            panic!(
-                "Error finding number of partitions on {}",
-                other.device.display()
-            )
-        });
-        self_partitions.cmp(&other_partitions)
-    }
-}
-
-impl PartialOrd for JournalDevice {
-    fn partial_cmp(&self, other: &JournalDevice) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for JournalDevice {
-    fn eq(&self, other: &JournalDevice) -> bool {
-        let self_partitions = self.num_partitions().unwrap_or_else(|_| {
-            panic!(
-                "Error finding number of partitions on {}",
-                self.device.display(),
-            )
-        });
-        let other_partitions = other.num_partitions().unwrap_or_else(|_| {
-            panic!(
-                "Error finding number of partitions on {}",
-                self.device.display(),
-            )
-        });
-        self_partitions == other_partitions
+        Ok(())
     }
 }
 
@@ -107,6 +68,28 @@ impl fmt::Display for JournalDevice {
             None => write!(f, "{}", self.device.display()),
         }
     }
+}
+
+#[test]
+fn test_journal_sorting() {
+    let a = JournalDevice{
+        device: PathBuf::from("/dev/sda"),
+        partition_id: None,
+        partition_uuid: None,
+        num_partitions: Some(2),
+    };
+    let b = JournalDevice {
+        device: PathBuf::from("/dev/sdb"),
+        partition_id: None,
+        partition_uuid: None,
+        num_partitions: Some(1),
+    };
+    let mut journal_devices = vec![a.clone(), b.clone()];
+    journal_devices.sort_by_key(|j| j.num_partitions);
+    println!("journal_devices: {:?}", journal_devices);
+    // Journal devicess should be sorted from least to greatest number 
+    // of partitions
+    assert_eq!(journal_devices, vec![b, a]);
 }
 
 #[derive(Deserialize, Debug)]
@@ -672,7 +655,7 @@ impl CephBackend {
             .clone()
             .unwrap_or_else(|| vec![]);
         // Sort by number of partitions
-        journal_devices.sort();
+        journal_devices.sort_by_key(|j| j.num_partitions);
         // Clear any space that we can
         //remove_unused_journals(&journal_devices)?;
         let journal: Option<&JournalDevice> = journal_devices
@@ -1144,16 +1127,20 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                             device: journal.to_path_buf(),
                             partition_id: Some(part_id),
                             partition_uuid: None,
+                            num_partitions: Some(1),
                         });
                     } else {
                         // Create a new partition because the old one is in use
                         let partition_info =
                             create_journal("ceph_journal", journal_size, &journal)?;
-                        return Ok(JournalDevice {
+                        let mut j = JournalDevice {
                             device: journal.to_path_buf(),
                             partition_id: Some(partition_info.0),
                             partition_uuid: Some(partition_info.1),
-                        });
+                            num_partitions: None,
+                        };
+                        j.update_num_partitions()?;
+                        return Ok(j);
                     }
                 }
             }
@@ -1168,15 +1155,20 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
             // Got just a journal device
             // Create a new journal partition on there
             let partition_info = create_journal("ceph_journal", journal_size, &journal)?;
-            Ok(JournalDevice {
+            let mut j = JournalDevice {
                 device: journal.to_path_buf(),
                 partition_id: Some(partition_info.0),
                 partition_uuid: Some(partition_info.1),
-            })
+                num_partitions: None,
+            };
+            j.update_num_partitions()?;
+            Ok(j)
         }
     }
 }
 
+// NOTE: This function is currently unused because I don't have complete trust 
+// in it yet.
 // Checks all osd drives on the system against the journals and deletes all
 // unused partitions.
 fn remove_unused_journals(journals: &[JournalDevice]) -> BynarResult<()> {
@@ -1252,6 +1244,10 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
     }
 }
 
+// This macro from the nix crate crates an ioctl to call the linux kernel 
+// and ask it to update its internal partition cache. Without this the 
+// partitions don't show up after being created on the disks which then
+// breaks parts of bynar later.  
 ioctl_none! {
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95
