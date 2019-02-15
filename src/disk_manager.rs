@@ -128,16 +128,6 @@ fn listen(
                 } else {
                     None
                 };
-                let journal = if operation.has_osd_journal() {
-                    Some(operation.get_osd_journal())
-                } else {
-                    None
-                };
-                let journal_partition = if operation.has_osd_journal_partition() {
-                    Some(operation.get_osd_journal_partition())
-                } else {
-                    None
-                };
                 if !operation.has_disk() {
                     error!("Add operation must include disk field.  Ignoring request");
                     // We still have to respond with an error message
@@ -155,8 +145,6 @@ fn listen(
                     operation.get_disk(),
                     &backend_type,
                     id,
-                    journal,
-                    journal_partition,
                     config_dir,
                 ) {
                     Ok(_) => {
@@ -256,8 +244,6 @@ fn add_disk(
     d: &str,
     backend: &BackendType,
     id: Option<u64>,
-    journal: Option<&str>,
-    journal_partition: Option<u32>,
     config_dir: &Path,
 ) -> BynarResult<()> {
     let mut result = OpResult::new();
@@ -274,7 +260,7 @@ fn add_disk(
     };
 
     //Send back OpResult
-    match backend.add_disk(&Path::new(d), id, journal, journal_partition, false) {
+    match backend.add_disk(&Path::new(d), id, false) {
         Ok(_) => {
             result.set_result(ResultType::OK);
         }
@@ -330,11 +316,11 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
         .iter()
         .map(|part| {
             let mut p = Partition::new();
-            p.set_uuid(part.part_guid.to_hyphenated().to_string());
-            p.set_first_lba(part.first_lba);
-            p.set_last_lba(part.last_lba);
-            p.set_flags(part.flags);
-            p.set_name(part.name.clone());
+            p.set_uuid(part.1.part_guid.to_hyphenated().to_string());
+            p.set_first_lba(part.1.first_lba);
+            p.set_last_lba(part.1.last_lba);
+            p.set_flags(part.1.flags);
+            p.set_name(part.1.name.clone());
             p
         })
         .collect();

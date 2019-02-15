@@ -28,8 +28,6 @@ impl Backend for GlusterBackend {
         &self,
         _device: &Path,
         _id: Option<u64>,
-        _journal: Option<&str>,
-        _journal_partition: Option<u32>,
         _simulate: bool,
     ) -> BynarResult<()> {
         Ok(())

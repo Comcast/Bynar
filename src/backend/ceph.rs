@@ -1,12 +1,17 @@
-use std::fs::{create_dir, read_to_string, remove_dir_all, File};
+use std::collections::BTreeMap;
+use std::fmt;
+use std::fs::{
+    create_dir, read_dir, read_to_string, remove_dir_all, symlink_metadata, File, OpenOptions,
+};
 use std::io::Write;
-use std::os::unix::fs::symlink;
+use std::os::unix::{fs::symlink, io::AsRawFd};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
 use crate::backend::Backend;
 
+use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
 use ceph::cmd::*;
 use ceph::CephVersion;
@@ -15,9 +20,10 @@ use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
 use init_daemon::{detect_daemon, Daemon};
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use lvm::*;
 use nix::{
+    convert_ioctl_res, ioc, ioctl_none, request_code_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
@@ -27,7 +33,63 @@ use tempdir::TempDir;
 /// Ceph cluster
 pub struct CephBackend {
     cluster_handle: Rados,
+    config: CephConfig,
     version: CephVersion,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct JournalDevice {
+    device: PathBuf,
+    partition_id: Option<u32>,
+    partition_uuid: Option<uuid::Uuid>,
+    num_partitions: Option<usize>,
+}
+
+impl JournalDevice {
+    /// Discover the number of partitions on the device and 
+    /// update the num_partitions field
+    fn update_num_partitions(&mut self) -> BynarResult<()> {
+        let num_parts = gpt::GptConfig::new()
+            .writable(false)
+            .initialized(true)
+            .open(&self.device)?
+            .partitions()
+            .len();
+        self.num_partitions = Some(num_parts);
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for JournalDevice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.partition_id {
+            Some(id) => write!(f, "{}{}", self.device.display(), id),
+            None => write!(f, "{}", self.device.display()),
+        }
+    }
+}
+
+#[test]
+fn test_journal_sorting() {
+    let a = JournalDevice{
+        device: PathBuf::from("/dev/sda"),
+        partition_id: None,
+        partition_uuid: None,
+        num_partitions: Some(2),
+    };
+    let b = JournalDevice {
+        device: PathBuf::from("/dev/sdb"),
+        partition_id: None,
+        partition_uuid: None,
+        num_partitions: Some(1),
+    };
+    let mut journal_devices = vec![a.clone(), b.clone()];
+    journal_devices.sort_by_key(|j| j.num_partitions);
+    println!("journal_devices: {:?}", journal_devices);
+    // Journal devicess should be sorted from least to greatest number 
+    // of partitions
+    assert_eq!(journal_devices, vec![b, a]);
 }
 
 #[derive(Deserialize, Debug)]
@@ -36,6 +98,10 @@ struct CephConfig {
     config_file: String,
     /// The cephx user to connect to the Ceph service with
     user_id: String,
+    /// The /dev/xxx devices to use for journal partitions.
+    /// Bynar will create new partitions on these devices as needed
+    /// if no journal_partition_id is given
+    journal_devices: Option<Vec<JournalDevice>>,
 }
 
 fn choose_ceph_config(config_dir: Option<&Path>) -> BynarResult<PathBuf> {
@@ -80,6 +146,7 @@ impl CephBackend {
         let version: CephVersion = version_str.parse()?;
         Ok(CephBackend {
             cluster_handle,
+            config: deserialized,
             version,
         })
     }
@@ -94,11 +161,15 @@ impl CephBackend {
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
             */
+        // Create the journal device if requested
+        let journal = self.select_journal()?;
+
         // Create a new osd id
         let new_osd_id = osd_create(&self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
         let osd_fsid = uuid::Uuid::new_v4();
-        let (lv_dev_name, vg_size) = self.create_lvm(&osd_fsid, new_osd_id, &dev_path)?;
+        let (lv_dev_name, vg_size) =
+            self.create_lvm(&osd_fsid, new_osd_id, &dev_path, journal.as_ref())?;
 
         // Mount the drive
         let mount_point = Path::new("/var/lib/ceph/osd").join(&format!("ceph-{}", new_osd_id));
@@ -126,6 +197,16 @@ impl CephBackend {
             mount_point.join("block").display()
         );
         symlink(&lv_dev_name, mount_point.join("block"))?;
+        // Optionally symlink the journal if using one
+        if let Some(journal) = &journal {
+            symlink(
+                &Path::new(&format!("{}", journal)),
+                mount_point.join("block.wal"),
+            )?;
+            let ceph_user = Passwd::from_name("ceph")?
+                .ok_or_else(|| BynarError::from("ceph user id not found"))?;
+            self.change_permissions(&[&Path::new(&format!("{}", journal))], &ceph_user)?;
+        }
 
         // Write activate monmap out
         debug!("Getting latest monmap from ceph");
@@ -151,7 +232,7 @@ impl CephBackend {
         // Format the osd with the osd filesystem
         ceph_mkfs(
             new_osd_id,
-            None,
+            journal.as_ref(),
             true,
             Some(&activate_path),
             Some(&mount_point),
@@ -236,9 +317,19 @@ impl CephBackend {
             block_utils::mount_device(&info, &mount_point)?;
         }
 
+        let journal = self.select_journal()?;
+
         // Format the osd with the osd filesystem
         ceph_mkfs(
-            new_osd_id, None, false, None, None, None, None, None, simulate,
+            new_osd_id,
+            journal.as_ref(),
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            simulate,
         )?;
         debug!("Creating ceph authorization entry");
         osd_auth_add(&self.cluster_handle, new_osd_id, simulate)?;
@@ -284,6 +375,7 @@ impl CephBackend {
         osd_fsid: &uuid::Uuid,
         new_osd_id: u64,
         dev_path: &Path,
+        journal_device: Option<&JournalDevice>,
     ) -> BynarResult<(PathBuf, u64)> {
         debug!("udev Probing device {:?}", dev_path);
         let info = block_utils::get_device_info(dev_path)?;
@@ -309,7 +401,14 @@ impl CephBackend {
         // TODO: Why does this magic number work but using the entire size doesn't?
         let lv = vg.create_lv_linear(&lv_name, vg.get_size() - 10_485_760)?;
 
-        self.create_lvm_tags(&lv, &lv_dev_name, &osd_fsid, new_osd_id, &info)?;
+        self.create_lvm_tags(
+            &lv,
+            &lv_dev_name,
+            &osd_fsid,
+            new_osd_id,
+            &info,
+            journal_device,
+        )?;
         Ok((lv_dev_name.to_path_buf(), vg.get_size()))
     }
 
@@ -321,6 +420,7 @@ impl CephBackend {
         osd_fsid: &uuid::Uuid,
         new_osd_id: u64,
         info: &block_utils::Device,
+        journal_device: Option<&JournalDevice>,
     ) -> BynarResult<()> {
         debug!("Creating lvm tags");
         let mut tags = vec![
@@ -335,6 +435,21 @@ impl CephBackend {
             "ceph.cephx_lockbox_secret=".to_string(),
             format!("ceph.block_uuid={}", lv.get_uuid()),
         ];
+        if let Some(journal_dev) = journal_device {
+            tags.push(format!("ceph.wal_device={}", journal_dev));
+            let uuid = match journal_dev.partition_uuid {
+                Some(uuid) => uuid,
+                None => {
+                    debug!("Discovering {} partition uuid", journal_dev);
+                    let blkid = BlkId::new(&Path::new(&format!("{}", journal_dev)))?;
+                    blkid.do_probe()?;
+                    uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?
+                }
+            };
+            // Get the partition uuid from the device
+            tags.push(format!("ceph.wal_uuid={}", uuid));
+        }
+
         // Tell ceph what type of underlying media this is
         match info.media_type {
             block_utils::MediaType::SolidState => {
@@ -528,17 +643,47 @@ impl CephBackend {
             Ok(tmp)
         }
     }
+
+    // Find the journal device that has enough free space
+    fn select_journal(&self) -> BynarResult<Option<JournalDevice>> {
+        let journal_size = u64::from_str(&self.cluster_handle.config_get("osd_journal_size")?)?;
+        // The config file uses MB as the journal size
+        let journal_size_mb = journal_size * 1024 * 1024;
+        let mut journal_devices = self
+            .config
+            .journal_devices
+            .clone()
+            .unwrap_or_else(|| vec![]);
+        // Sort by number of partitions
+        journal_devices.sort_by_key(|j| j.num_partitions);
+        // Clear any space that we can
+        //remove_unused_journals(&journal_devices)?;
+        let journal: Option<&JournalDevice> = journal_devices
+            .iter()
+            // Remove any devices without enough free space
+            .filter(|d| match enough_free_space(&d.device, journal_size_mb) {
+                Ok(enough) => enough,
+                Err(e) => {
+                    error!(
+                        "Finding free space on {} failed: {:?}",
+                        d.device.display(),
+                        e
+                    );
+                    false
+                }
+            })
+            // Take the first one
+            .take(1)
+            .next();
+        match journal {
+            Some(ref j) => Ok(Some(evaluate_journal(j, journal_size_mb)?)),
+            None => Ok(None),
+        }
+    }
 }
 
 impl Backend for CephBackend {
-    fn add_disk(
-        &self,
-        device: &Path,
-        id: Option<u64>,
-        _journal: Option<&str>,
-        _journal_partition: Option<u32>,
-        simulate: bool,
-    ) -> BynarResult<()> {
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
         debug!("ceph version: {:?}", self.version,);
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
@@ -658,6 +803,66 @@ fn add_osd_to_fstab(
     Ok(())
 }
 
+// Look through all the /var/lib/ceph/osd/ directories and try to find
+// a partition id that matches this one.
+fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
+    // Check every osd on the system
+    for osd_dir in read_dir("/var/lib/ceph/osd/")? {
+        let osd_dir = osd_dir?;
+        trace!("Locating journal symlink in {}", osd_dir.path().display());
+        // Ceph Jewel and older uses journal as the journal symlink name
+        let old_journal_path = osd_dir.path().join("journal");
+        // Ceph Luminous and newer users block.wal as the journal device symlink name
+        let new_journal_path = osd_dir.path().join("block.wal");
+
+        let journal_path = match (old_journal_path.exists(), new_journal_path.exists()) {
+            (true, true) => {
+                // Ok this isn't possible
+                return Err(BynarError::new(format!(
+                    "Unable to determine which journal path to use.  Both {} and {} exist.",
+                    old_journal_path.display(),
+                    new_journal_path.display(),
+                )));
+            }
+            (true, false) => {
+                // Old Ceph
+                old_journal_path
+            }
+            (false, true) => {
+                // New Ceph
+                new_journal_path
+            }
+            (false, false) => {
+                // No journal
+                return Ok(false);
+            }
+        };
+        debug!("Journal path: {}", journal_path.display());
+        let meta = symlink_metadata(&journal_path)?;
+        if !meta.file_type().is_symlink() {
+            // Whoops.  Symlink pointer missing.  Can't proceed
+            // TODO: Is this always true?
+            return Err(BynarError::new(format!(
+                "Journal {} is not a symlink. Unable to find the device this journal points to",
+                journal_path.display(),
+            )));
+        }
+
+        // Resolve the device the symlink points to
+        let dev = journal_path.read_link()?;
+        let blkid = BlkId::new(&dev)?;
+        blkid.do_probe()?;
+        // Get the partition uuid from the device
+        let dev_partition_uuid = uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?;
+        debug!("Journal partition uuid: {}", dev_partition_uuid);
+        if partition_uuid == &dev_partition_uuid {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 fn systemctl_disable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> BynarResult<()> {
     if !simulate {
         let args: Vec<String> = vec![
@@ -761,7 +966,7 @@ fn settle_udev() -> BynarResult<()> {
 // Run ceph-osd --mkfs and return the osd UUID
 fn ceph_mkfs(
     osd_id: u64,
-    journal: Option<&Path>,
+    journal: Option<&JournalDevice>,
     bluestore: bool,
     monmap: Option<&Path>,
     osd_data: Option<&Path>,
@@ -778,9 +983,9 @@ fn ceph_mkfs(
         osd_id.to_string(),
         "--mkfs".to_string(),
     ];
-    if let Some(journal_path) = journal {
-        args.push("--journal".to_string());
-        args.push(journal_path.to_string_lossy().into_owned());
+    if let Some(journal) = journal {
+        args.push("--osd-journal".to_string());
+        args.push(format!("{}", journal));
     }
     if bluestore {
         args.extend_from_slice(&["--osd-objectstore".to_string(), "bluestore".to_string()]);
@@ -851,6 +1056,153 @@ fn ceph_bluestore_tool(device: &Path, mount_path: &Path, simulate: bool) -> Byna
     Ok(())
 }
 
+/// Create a new ceph journal on a given deivce with name + size in bytes
+fn create_journal(name: &str, size: u64, path: &Path) -> BynarResult<(u32, uuid::Uuid)> {
+    debug!("Creating journal on {} of size: {}", path.display(), size);
+    let cfg = gpt::GptConfig::new().writable(true).initialized(true);
+    let mut disk = cfg.open(path)?;
+    let part_id = disk.add_partition(name, size, gpt::partition_types::CEPH_JOURNAL, 0)?;
+    // Write it out
+    disk.write()?;
+    update_partition_cache(&path)?;
+
+    // Read it back in
+    let cfg = gpt::GptConfig::new().writable(false).initialized(true);
+    let disk = cfg.open(path)?;
+    let partition = {
+        let part = disk.partitions().get(&part_id);
+        match part {
+            Some(part) => part,
+            None => {
+                return Err(BynarError::new(format!(
+                    "Added partition {} to {} but partition not found",
+                    part_id,
+                    path.display()
+                )));
+            }
+        }
+    };
+
+    Ok((part_id, partition.part_guid))
+}
+
+// Returns true if there's enough free space on the disk to fit a given
+// partition size request.
+fn enough_free_space(device: &Path, size: u64) -> BynarResult<bool> {
+    let cfg = gpt::GptConfig::new().writable(false).initialized(true);
+    let disk = cfg.open(device)?;
+    let free_spots = disk.find_free_sectors();
+    for (_, length_lba) in free_spots {
+        let lba_size: u64 = match disk.logical_block_size() {
+            gpt::disk::LogicalBlockSize::Lb512 => 512,
+            gpt::disk::LogicalBlockSize::Lb4096 => 4096,
+        };
+        if (length_lba * lba_size) > size {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+// A JournalDevice and size is given and this function will:
+// 1. Attempt to discover if a device exists at that journal path
+// 2. Create a journal partition if needed.
+// 3. Returns a path to use for the journal
+fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<JournalDevice> {
+    match (&journal.device, journal.partition_id) {
+        (journal, Some(part_id)) => {
+            // Got both a journal device and a partition id
+            // Check if it exists and whether it's in use by another osd
+            let cfg = gpt::GptConfig::new().writable(false).initialized(true);
+            let disk = cfg.open(&journal)?;
+            //Locate the partition the user requested to use
+            for partition in disk.partitions() {
+                if partition.0 == &part_id {
+                    // How do we know if another ceph osd is using this partition?
+                    // Check all other osds for this partition_id
+                    if !partition_in_use(&partition.1.part_guid)? {
+                        // It's ok to use this
+                        return Ok(JournalDevice {
+                            device: journal.to_path_buf(),
+                            partition_id: Some(part_id),
+                            partition_uuid: None,
+                            num_partitions: Some(1),
+                        });
+                    } else {
+                        // Create a new partition because the old one is in use
+                        let partition_info =
+                            create_journal("ceph_journal", journal_size, &journal)?;
+                        let mut j = JournalDevice {
+                            device: journal.to_path_buf(),
+                            partition_id: Some(partition_info.0),
+                            partition_uuid: Some(partition_info.1),
+                            num_partitions: None,
+                        };
+                        j.update_num_partitions()?;
+                        return Ok(j);
+                    }
+                }
+            }
+            // User has asked to use a particular device but we can't find it
+            Err(BynarError::new(format!(
+                "{}{} not found for journal device",
+                journal.display(),
+                part_id
+            )))
+        }
+        (journal, None) => {
+            // Got just a journal device
+            // Create a new journal partition on there
+            let partition_info = create_journal("ceph_journal", journal_size, &journal)?;
+            let mut j = JournalDevice {
+                device: journal.to_path_buf(),
+                partition_id: Some(partition_info.0),
+                partition_uuid: Some(partition_info.1),
+                num_partitions: None,
+            };
+            j.update_num_partitions()?;
+            Ok(j)
+        }
+    }
+}
+
+// NOTE: This function is currently unused because I don't have complete trust 
+// in it yet.
+// Checks all osd drives on the system against the journals and deletes all
+// unused partitions.
+fn remove_unused_journals(journals: &[JournalDevice]) -> BynarResult<()> {
+    for journal in journals {
+        let cfg = gpt::GptConfig::new().writable(true).initialized(true);
+        debug!("Checking for unused journal partitions on {}", journal);
+        let mut disk = cfg.open(&journal.device)?;
+        let mut changed = false;
+        let mut partitions: BTreeMap<u32, gpt::partition::Partition> = disk.partitions().clone();
+        for part in partitions.iter_mut() {
+            trace!("Checking if {:?} is in use", part);
+            let partition_used = match partition_in_use(&part.1.part_guid) {
+                Ok(used) => used,
+                Err(e) => {
+                    error!("partition_in_use error: {:?}. Not modifying partition", e);
+                    true
+                }
+            };
+            if !partition_used {
+                // mark as unused
+                changed = true;
+                part.1.part_type_guid = gpt::partition_types::UNUSED;
+            }
+        }
+        if changed {
+            trace!("Saving partitions: {:?}", partitions);
+            disk.update_partitions(partitions)?;
+            disk.write()?;
+        }
+    }
+
+    Ok(())
+}
+
 fn is_filestore(dev_path: &Path) -> BynarResult<bool> {
     let mount_point = match block_utils::get_mountpoint(&dev_path)? {
         Some(osd_path) => osd_path,
@@ -872,4 +1224,31 @@ fn is_filestore(dev_path: &Path) -> BynarResult<bool> {
     }
 
     Ok(false)
+}
+
+// Linux specific ioctl to update the partition table cache.
+fn update_partition_cache(device: &Path) -> BynarResult<()> {
+    debug!(
+        "Requesting kernel to refresh partition cache for {} ",
+        device.display()
+    );
+    let device = OpenOptions::new().read(true).write(true).open(device)?;
+    let ret = unsafe { blkrrpart(device.as_raw_fd()) }?;
+    if ret != 0 {
+        Err(BynarError::new(format!(
+            "BLKRRPART ioctl failed with return code: {}",
+            ret,
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+// This macro from the nix crate crates an ioctl to call the linux kernel 
+// and ask it to update its internal partition cache. Without this the 
+// partitions don't show up after being created on the disks which then
+// breaks parts of bynar later.  
+ioctl_none! {
+    /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
+    blkrrpart, 0x12, 95
 }

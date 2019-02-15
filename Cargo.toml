@@ -32,7 +32,7 @@ conf-files = [
 
 [dev-dependencies]
 lazy_static = "~1.2"
-mocktopus = "0.5.0"
+mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch="get_type_id" }
 rand = "~0.5"
 
 [dependencies]
@@ -59,7 +59,7 @@ libc = "~0.2"
 libredfish = {git = "https://github.com/cholcombe973/libredfish"}
 log = "~0.4"
 lvm = "~0.3"
-nix = "~0.11"
+nix = "~0.13"
 petgraph = "~0.4"
 pnet = "~0.21"
 postgres = "~0.15"

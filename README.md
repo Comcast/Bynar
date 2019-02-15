@@ -88,9 +88,24 @@ where to look for ceph configuration, user details etc.
 ```
 {
   "config_file": "/etc/ceph/ceph.conf",
-  "user_id": "admin"
+  "user_id": "admin",
+  "journal_devices": [
+		{
+			"device": "/dev/sda"
+		},
+		{
+			"device": "/dev/sdb",
+			"partition_id": 1
+		}
+	]
 }
 ```
+Journal devices can optionally be specified for ceph to use.  Bynar will attempt
+to balance the number of partitions across the devices given.  If an explict 
+`partition_id` is also given Bynar will make use of that.  If no `partition_id`
+is given Bynar will create new partitions when disks are added.  The partition 
+size will be equal to the ceph.conf `osd journal size` configuration setting 
+which is given in megabytes.
 ### Directory layout:
 1. Top level is the dead disk detector
 2. api is the protobuf api create
