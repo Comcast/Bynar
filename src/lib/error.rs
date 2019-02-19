@@ -10,7 +10,6 @@ use protobuf::ProtobufError;
 use pwd::PwdError;
 use r2d2::Error as R2d2Error;
 use reqwest::Error as ReqwestError;
-use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJsonError;
 use slack_hook::Error as SlackError;
 use uuid::parser::ParseError as UuidError;
@@ -49,7 +48,6 @@ pub enum BynarError {
     ReqwestError(ReqwestError),
     SerdeJsonError(SerdeJsonError),
     SlackError(SlackError),
-    SqliteError(SqliteError),
     UuidError(UuidError),
     VaultError(VaultError),
     ZmqError(ZmqError),
@@ -96,7 +94,6 @@ impl fmt::Display for BynarError {
             BynarError::ReqwestError(ref e) => write!(f, "{}", e),
             BynarError::SerdeJsonError(ref e) => write!(f, "{}", e),
             BynarError::SlackError(ref e) => write!(f, "{}", e),
-            BynarError::SqliteError(ref e) => write!(f, "{}", e),
             BynarError::UuidError(ref e) => write!(f, "{}", e),
             BynarError::VaultError(ref e) => write!(f, "{}", e),
             BynarError::ZmqError(ref e) => write!(f, "{}", e),
@@ -148,7 +145,6 @@ impl BynarError {
             BynarError::ReqwestError(ref err) => err.to_string(),
             BynarError::SerdeJsonError(ref err) => err.to_string(),
             BynarError::SlackError(ref err) => err.to_string(),
-            BynarError::SqliteError(ref err) => err.to_string(),
             BynarError::UuidError(ref err) => err.to_string(),
             BynarError::VaultError(ref err) => err.to_string(),
             BynarError::ZmqError(ref err) => err.to_string(),
@@ -243,12 +239,6 @@ impl From<SerdeJsonError> for BynarError {
 impl From<SlackError> for BynarError {
     fn from(err: SlackError) -> BynarError {
         BynarError::SlackError(err)
-    }
-}
-
-impl From<SqliteError> for BynarError {
-    fn from(err: SqliteError) -> BynarError {
-        BynarError::SqliteError(err)
     }
 }
 
