@@ -1,6 +1,6 @@
 [package]
 name = "bynar"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 description = "Server remediation as a service"
 license = "Apache-2.0"
@@ -9,7 +9,8 @@ edition = '2018'
 
 [package.metadata.deb]
 maintainer = "Chris Holcombe <xfactor973@gmail.com>"
-depends = "$auto, systemd"
+# depends = "$auto, systemd"
+depends = "libstdc++6 (>= 5.4.0), libdevmapper-event1.02.1 (>= 2:1.02.110), libsodium18 (>= 1.0.8), zlib1g (>= 1:1.2.8.dfsg), libc6 (>= 2.23), libpcre3 (>= 2:8.38), libibverbs1 (>= 1.1.8), libnss3 (>= 2:3.28.4), libblkid1 (>= 2.27.1), liblvm2app2.2 (>= 2.02.133), libzmq5 (>= 4.1.4), systemd, libudev1 (>= 229), libgcc1 (>= 1:6.0.1), libuuid1 (>= 2.27.1), librados2 (>= 12.2.4), libnspr4 (>= 2:4.13.1), libselinux1 (>= 2.4), libatasmart4 (>= 0.19), libdevmapper1.02.1 (>= 2:1.02.110), libssl1.0.0 (>= 1.0.2g)"
 section = "utility"
 assets = [
 	["config/bynar.json", "/etc/bynar/bynar.json", "666"],
