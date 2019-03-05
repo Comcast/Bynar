@@ -103,7 +103,7 @@ fn listen(
 
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
-    setup_curve(&mut responder, config_dir, vault).unwrap();
+    setup_curve(&mut responder, config_dir, vault)?;
     assert!(responder
         .bind(&format!("tcp://{}:5555", listen_address))
         .is_ok());
@@ -491,8 +491,12 @@ fn main() {
         }
     }
     let log = Path::new(matches.value_of("log").unwrap());
-    let backend = BackendType::from_str(matches.value_of("backend").unwrap()).unwrap();
-    let vault_support = { bool::from_str(matches.value_of("vault").unwrap()).unwrap() };
+    let backend = BackendType::from_str(matches.value_of("backend").unwrap())
+        .expect("unable to convert backend option to BackendType");
+    let vault_support = {
+        bool::from_str(matches.value_of("vault").unwrap())
+            .expect("unable to convert vault option to bool")
+    };
     let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
     if let Some(term_logger) = TermLogger::new(level, Config::default()) {
         //systemd doesn't use a terminal
