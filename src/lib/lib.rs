@@ -63,8 +63,8 @@ pub fn add_disk_request(
     o.set_Op_type(Op::Add);
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
-    if id.is_some() {
-        o.set_osd_id(id.unwrap());
+    if let Some(id) = id {
+        o.set_osd_id(id);
     }
 
     let encoded = o.write_to_bytes().unwrap();

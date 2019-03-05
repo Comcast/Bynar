@@ -64,7 +64,11 @@ pub struct DBConfig {
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();
-    let slack = Slack::new(c.slack_webhook.unwrap().as_ref())?;
+    let slack = Slack::new(
+        c.slack_webhook
+            .expect("slack webhook option is None")
+            .as_ref(),
+    )?;
     let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
     let bot_name = c.slack_botname.unwrap_or_else(|| "".to_string());
     let p = PayloadBuilder::new()
@@ -86,8 +90,16 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     // Otherwise we need to know where the public_key is located?
     if config.vault_endpoint.is_some() && config.vault_token.is_some() {
         let key = helpers::get_vault_token(
-            config.vault_endpoint.clone().unwrap().as_ref(),
-            config.vault_token.clone().unwrap().as_ref(),
+            config
+                .vault_endpoint
+                .clone()
+                .expect("vault endpoint is None")
+                .as_ref(),
+            config
+                .vault_token
+                .clone()
+                .expect("vault_token is None")
+                .as_ref(),
             &host_info.hostname,
         )?;
         Ok(key)
@@ -155,7 +167,8 @@ fn check_for_failed_disks(
                     let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,
                         host_mapping.storage_detail_id,
-                        &dev_name, None
+                        &dev_name,
+                        None,
                     )?;
                     if !simulate {
                         if !in_progress {
@@ -273,7 +286,11 @@ fn evaluate(
         if let Err(e) = result {
             match e {
                 // This is the error we're after
-                BynarError::HardwareError { ref name, ref serial_number, .. } => {
+                BynarError::HardwareError {
+                    ref name,
+                    ref serial_number,
+                    ..
+                } => {
                     let serial = serial_number.as_ref().map(|s| &**s);
                     let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,

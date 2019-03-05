@@ -29,7 +29,6 @@ use petgraph::graphmap::GraphMap;
 use petgraph::Directed;
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
-use rayon::prelude::*;
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt;
@@ -496,7 +495,10 @@ impl Transition for Eval {
             device.mount_point = Some(mnt_dir.into_path());
         }
         debug!("thread {} Checking if mount is writable", process::id());
-        let mnt = device.mount_point.clone().unwrap();
+        let mnt = device
+            .mount_point
+            .clone()
+            .expect("drive.mount_point is None but it cannot be");
         match check_writable(&mnt) {
             // Mount point is writeable, smart passed.  Good to go
             Ok(_) => {
@@ -597,9 +599,13 @@ impl Transition for Reformat {
                 debug!(
                     "thread {} drive_uuid: {}",
                     process::id(),
-                    Uuid::parse_str(&drive_uuid).unwrap()
+                    Uuid::parse_str(&drive_uuid)
+                        .unwrap_or_else(|_| panic!("Invalid drive_uuid: {}", drive_uuid))
                 );
-                device.device.id = Some(Uuid::parse_str(&drive_uuid).unwrap());
+                device.device.id = Some(
+                    Uuid::parse_str(&drive_uuid)
+                        .unwrap_or_else(|_| panic!("Invalid drive_uuid: {}", drive_uuid)),
+                );
 
                 to_state
             }
@@ -682,7 +688,12 @@ impl Transition for Scan {
             match raid_backed.1 {
                 Vendor::Hp => {
                     // is_raid_backed unpacks the Option so this should be safe
-                    match scsi_info.clone().unwrap().0.state {
+                    match scsi_info
+                        .clone()
+                        .expect("scsi_info is None but cannot be")
+                        .0
+                        .state
+                    {
                         Some(state) => {
                             debug!("thread {} scsi device state: {}", process::id(), state);
                             if state == DeviceState::Running {
@@ -1187,9 +1198,17 @@ fn add_previous_devices(
             // but the database does, what do we do about this?
             // we can't check anything because there's nothing to check
             // do we just mark it for replacement?
-            let awaiting_repair =
-                is_hardware_waiting_repair(&pool, host_mapping.storage_detail_id, &device_name, None)?;
-            debug!("{} awaiting repair: {}", device_path.display(), awaiting_repair);
+            let awaiting_repair = is_hardware_waiting_repair(
+                &pool,
+                host_mapping.storage_detail_id,
+                &device_name,
+                None,
+            )?;
+            debug!(
+                "{} awaiting repair: {}",
+                device_path.display(),
+                awaiting_repair
+            );
             // So this never trips because the database thinks this disk is still good
             if !awaiting_repair {
                 let b = BlockDevice {
@@ -1274,37 +1293,37 @@ pub fn check_all_disks(
     }
     //TODO: Add nvme devices to block-utils
 
-    // Create 1 state machine per Device and evaulate all devices in parallel
-    let disk_states: Vec<BynarResult<StateMachine>> = device_info
-        .clone()
-        .into_par_iter()
-        .map(|device| {
-            let scsi_info = scsi_info
-                .iter()
-                .find(|r| {
-                    if let Some(ref dev_name) = r.0.block_device {
-                        if let Some(file_name) = dev_name.file_name() {
-                            if file_name == OsStr::new(&device.device.name) {
-                                return true;
-                            }
-                        } else {
-                            return false;
+    // Create 1 state machine per Device
+    // TODO: This could be evaulated in parallel but LVM usage is preventing this
+    // There's a bug in LVM that segfaults if more than 1 is started at the same
+    // time.
+    let mut disk_states: Vec<BynarResult<StateMachine>> = Vec::new();
+    for device in device_info {
+        let scsi_info = scsi_info
+            .iter()
+            .find(|r| {
+                if let Some(ref dev_name) = r.0.block_device {
+                    if let Some(file_name) = dev_name.file_name() {
+                        if file_name == OsStr::new(&device.device.name) {
+                            return true;
                         }
+                    } else {
+                        return false;
                     }
-                    false
-                })
-                .and_then(|r| Some(r.clone()));
-            debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
-            debug!("thread {} device: {:?}", process::id(), device);
-            let mut s = StateMachine::new(device.clone(), scsi_info, false);
-            s.setup_state_machine();
-            s.block_device.state = get_state(pool, &s.block_device)?;
-            s.run();
-            // Save the state to database after state machine finishes its run
-            save_state(pool, &s.block_device, s.block_device.state)?;
-            Ok(s)
-        })
-        .collect();
+                }
+                false
+            })
+            .and_then(|r| Some(r.clone()));
+        debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
+        debug!("thread {} device: {:?}", process::id(), device);
+        let mut s = StateMachine::new(device.clone(), scsi_info, false);
+        s.setup_state_machine();
+        s.block_device.state = get_state(pool, &s.block_device)?;
+        s.run();
+        // Save the state to database after state machine finishes its run
+        save_state(pool, &s.block_device, s.block_device.state)?;
+        disk_states.push(Ok(s));
+    }
 
     Ok(disk_states)
 }
