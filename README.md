@@ -129,9 +129,10 @@ If you want to build Bynar:
 ```
 $ curl https://sh.rustup.rs -sSf | sh
 $ rustup override set nightly
-$ cargo build --release
+
 ```
 #### Dependencies for Ubuntu 18.04:
+Install the following packages: 
 1. libzmq3-dev  4.1 or higher
 2. libprotobuf-dev 2.5 or higher
 3. librados2  # ceph jewel or higher
@@ -146,6 +147,11 @@ Installing Bynar under Ubuntu 18.04:
 2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
 3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
 4. `apt update` && `apt install libzmq5`
+
+````
+#### To create executable binary
+Run:
+$ cargo build --release
 
 ## Hard Drive Workflow
 Hard drives die all the time as part of the regular cycle of things in servers.  Bynar
