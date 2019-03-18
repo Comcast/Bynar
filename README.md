@@ -131,10 +131,12 @@ This [community repository] hosts all information about
 building Bynar from source, how to contribute code
 and documentation, who to contact about what, etc.
 
-If you want to build Bynar:
+### Dependencies for Ubuntu 18.04:
+The following packages are required. Install using:
+``` 
+sudo apt install <package_name> 
+```
 
-#### Dependencies for Ubuntu 18.04:
-Install the following packages: 
 1.  libzmq3-dev  4.1 or higher
 2.  libprotobuf-dev 2.5 or higher
 3.  librados2  # ceph jewel or higher
@@ -151,7 +153,7 @@ Installing Bynar under Ubuntu 18.04:
 3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
 4. `apt update` && `apt install libzmq5`
 
-##### Working Rust environment
+### Working Rust environment
 
 Install Rust and point it to the nightly build. The stable version will not be
 sufficient to run the test cases it needs a feature only available on nightly build. 
@@ -162,8 +164,7 @@ $ rustup override set nightly
 
 ```
 
-````
-#### To create executable binary
+### To create executable binary
 Run:
 ```
 $ cargo build --release
