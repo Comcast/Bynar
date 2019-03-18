@@ -124,38 +124,44 @@ and documentation, who to contact about what, etc.
 
 If you want to build Bynar:
 
-##### You have a working [Rust environment].
-
-```
-$ curl https://sh.rustup.rs -sSf | sh
-$ rustup override set nightly
-
-```
 #### Dependencies for Ubuntu 18.04:
 Install the following packages: 
-1. libzmq3-dev  4.1 or higher
-2. libprotobuf-dev 2.5 or higher
-3. librados2  # ceph jewel or higher
-4. libatasmart-dev
-5. libssl-dev
-6. libblkid-dev
-7. libsqlite3-dev
-8. libudev # for building
-9. librados-dev # for building
+1.  libzmq3-dev  4.1 or higher
+2.  libprotobuf-dev 2.5 or higher
+3.  librados2  # ceph jewel or higher
+4.  libatasmart-dev
+5.  libssl-dev
+6.  libblkid-dev
+7.  libsqlite3-dev
+8.  libudev # for building
+9.  librados-dev # for building
+10. pkg-config # for building libudev
 Installing Bynar under Ubuntu 18.04:
 1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
 2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
 3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
 4. `apt update` && `apt install libzmq5`
 
+##### Working Rust environment
+
+Install Rust and point it to the nightly build. The stable version will not be
+sufficient to run the test cases it needs a feature only available on nightly build. 
+ 
+```
+$ curl https://sh.rustup.rs -sSf | sh
+$ rustup override set nightly
+
+```
+
 ````
 #### To create executable binary
 Run:
+```
 $ cargo build --release
-
-## Hard Drive Workflow
-Hard drives die all the time as part of the regular cycle of things in servers.  Bynar
-can nearly completely automate that maintenance except for the actual replacing of
+```
+## Bynar Workflow
+Hardware issues crop up all the time as part of the regular cycle of things in servers.  Bynar
+can nearly completely automate that maintenance of hard drive failure except for the actual replacing of
 the drive.  The typical workflow by a human would look something like this:
 1. Receive an alert about a drive failing
 2. SSH over to the server to investigate.  Try to rule out obvious things
