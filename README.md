@@ -20,10 +20,10 @@ without requiring more people to maintain them.
 
 The project is divided into different binaries that all communicate over protobuf:
 1. disk-manager: This program handles adding and the removal of disks from a server
-2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket
+2. bynar:  This program handles detection of failed hard drives, files a ticket
 for a datacenter technician to replace the drive, waits for the resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
-3. bynar-client: Enables you to manually make API calls against `disk-manager` and `dead-disk-detector`
+3. bynar-client: Enables you to manually make API calls against `disk-manager` and `bynar`
 
 
 ----
@@ -41,10 +41,11 @@ For extra security we highly recommend that you enable the vault integration.
 The disk-manager sits on a port and if an attacker gains access to it they can
 quickly wipe out your disks.  If you don't wish to enable vault integration
 set the disk-manager up to only listen on a loopback port.
-Fields for this file are:
+Fields for this file are listed below. A sample file can also be found under
+config/bynar.json.
+
 ```
 {
- "db_location": "/etc/bynar/disks.sqlite3",
  "proxy": "https://my.proxy",
  "manager_host": "localhost",
  "manager_port": 5555,
@@ -59,7 +60,15 @@ Fields for this file are:
  "jira_project_id": "MyProject",
  "jira_ticket_assignee": "assignee_username",
  "vault_endpoint": "https://my_vault.com",
- "vault_token": "token_98706420"
+ "vault_token": "token_98706420",
+ "database": {
+     "username": "postgres",
+     "password": "",
+     "port": "1234",
+     "dbname": "database_name",
+     "endpoint": "some.endpoint"
+ }
+
 }
 ```
 ## Disk Manager
@@ -107,13 +116,13 @@ is given Bynar will create new partitions when disks are added.  The partition
 size will be equal to the ceph.conf `osd journal size` configuration setting 
 which is given in megabytes.
 ### Directory layout:
-1. Top level is the dead disk detector
+1. Top level is the dead disk detector aka bynar
 2. api is the protobuf api create
 3. disk-manager is the service that handles the adding and removal of disks
 
 ### Launch the program
 1. After building Bynar from source or downloading prebuilt packages
-launch the `disk-manager`, `dead-disk-detector` service on every server you want
+launch the `disk-manager`, `bynar` service on every server you want
 maintained.
 
 ## To start developing Bynar
