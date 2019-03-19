@@ -1,5 +1,4 @@
 {
-    "db_location": "/etc/bynar/disks.sqlite3",
     "proxy": "https://my.proxy",
     "manager_host": "localhost",
     "manager_port": 5555,

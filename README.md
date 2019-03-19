@@ -20,10 +20,10 @@ without requiring more people to maintain them.
 
 The project is divided into different binaries that all communicate over protobuf:
 1. disk-manager: This program handles adding and the removal of disks from a server
-2. dead-disk-detector:  This program handles detection of failed hard drives, files a ticket
+2. bynar:  This program handles detection of failed hard drives, files a ticket
 for a datacenter technician to replace the drive, waits for the resolution of the ticket and
 then makes an API call to `disk-manager` to add the new disk back into the server.
-3. bynar-client: Enables you to manually make API calls against `disk-manager` and `dead-disk-detector`
+3. bynar-client: Enables you to manually make API calls against `disk-manager` and `bynar`
 
 
 ----
@@ -41,10 +41,11 @@ For extra security we highly recommend that you enable the vault integration.
 The disk-manager sits on a port and if an attacker gains access to it they can
 quickly wipe out your disks.  If you don't wish to enable vault integration
 set the disk-manager up to only listen on a loopback port.
-Fields for this file are:
+Fields for this file are listed below. A sample file can also be found under
+config/bynar.json.
+
 ```
 {
- "db_location": "/etc/bynar/disks.sqlite3",
  "proxy": "https://my.proxy",
  "manager_host": "localhost",
  "manager_port": 5555,
@@ -59,7 +60,15 @@ Fields for this file are:
  "jira_project_id": "MyProject",
  "jira_ticket_assignee": "assignee_username",
  "vault_endpoint": "https://my_vault.com",
- "vault_token": "token_98706420"
+ "vault_token": "token_98706420",
+ "database": {
+     "username": "postgres",
+     "password": "",
+     "port": "1234",
+     "dbname": "database_name",
+     "endpoint": "some.endpoint"
+ }
+
 }
 ```
 ## Disk Manager
@@ -107,13 +116,13 @@ is given Bynar will create new partitions when disks are added.  The partition
 size will be equal to the ceph.conf `osd journal size` configuration setting 
 which is given in megabytes.
 ### Directory layout:
-1. Top level is the dead disk detector
+1. Top level is the dead disk detector aka bynar
 2. api is the protobuf api create
 3. disk-manager is the service that handles the adding and removal of disks
 
 ### Launch the program
 1. After building Bynar from source or downloading prebuilt packages
-launch the `disk-manager`, `dead-disk-detector` service on every server you want
+launch the `disk-manager`, `bynar` service on every server you want
 maintained.
 
 ## To start developing Bynar
@@ -122,34 +131,54 @@ This [community repository] hosts all information about
 building Bynar from source, how to contribute code
 and documentation, who to contact about what, etc.
 
-If you want to build Bynar:
-
-##### You have a working [Rust environment].
-
+### Dependencies for Ubuntu 18.04:
+Ensure there is enough space on the root partition of your development system.
+Typical recommendation is that the root partition should be atleast 25GB.
+The following packages are required. Install using:
+``` 
+sudo apt install <package_name> 
 ```
-$ curl https://sh.rustup.rs -sSf | sh
-$ rustup override set nightly
-$ cargo build --release
-```
-#### Dependencies for Ubuntu 18.04:
-1. libzmq3-dev  4.1 or higher
-2. libprotobuf-dev 2.5 or higher
-3. librados2  # ceph jewel or higher
-4. libatasmart-dev
-5. libssl-dev
-6. libblkid-dev
-7. libsqlite3-dev
-8. libudev # for building
-9. librados-dev # for building
-Installing Bynar under Ubuntu 18.04:
+
+1.  libzmq3-dev  4.1 or higher
+2.  libprotobuf-dev 2.5 or higher
+3.  librados2  # ceph jewel or higher
+4.  libatasmart-dev
+5.  libssl-dev
+6.  libblkid-dev
+7.  libsqlite3-dev
+8.  libudev # for building
+9.  librados-dev # for building
+10. pkg-config # for building libudev
+11. libclang-dev
+
+### Installing Bynar under Ubuntu 18.04:
 1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
 2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
 3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
 4. `apt update` && `apt install libzmq5`
 
-## Hard Drive Workflow
-Hard drives die all the time as part of the regular cycle of things in servers.  Bynar
-can nearly completely automate that maintenance except for the actual replacing of
+### Working Rust environment
+
+Install Rust and point it to the nightly build. The stable version will not be
+sufficient to run the test cases it needs a feature only available on nightly build. 
+ 
+```
+$ curl https://sh.rustup.rs -sSf | sh
+$ rustup override set nightly
+
+```
+
+### Retrieving source
+Login to your github account, and checkout the latest source code from 
+this repository. Then, to create executable binary
+
+Run:
+```
+$ cargo build --release
+```
+## Bynar Workflow
+Hardware issues crop up all the time as part of the regular cycle of things in servers.  Bynar
+can nearly completely automate that maintenance of hard drive failure except for the actual replacing of
 the drive.  The typical workflow by a human would look something like this:
 1. Receive an alert about a drive failing
 2. SSH over to the server to investigate.  Try to rule out obvious things
