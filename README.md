@@ -145,17 +145,12 @@ sudo apt install <package_name>
 4.  libatasmart-dev
 5.  libssl-dev
 6.  libblkid-dev
-7.  libsqlite3-dev
-8.  libudev # for building
+8.  libudev-dev # for building
 9.  librados-dev # for building
 10. pkg-config # for building libudev
 11. libclang-dev
+12. libzmq5 
 
-### Installing Bynar under Ubuntu 18.04:
-1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
-2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
-3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
-4. `apt update` && `apt install libzmq5`
 
 ### Working Rust environment
 
