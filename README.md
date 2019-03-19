@@ -132,6 +132,8 @@ building Bynar from source, how to contribute code
 and documentation, who to contact about what, etc.
 
 ### Dependencies for Ubuntu 18.04:
+Ensure there is enough space on the root partition of your development system.
+Typical recommendation is that the root partition should be atleast 25GB.
 The following packages are required. Install using:
 ``` 
 sudo apt install <package_name> 
@@ -147,6 +149,7 @@ sudo apt install <package_name>
 8.  libudev # for building
 9.  librados-dev # for building
 10. pkg-config # for building libudev
+11. libclang
 Installing Bynar under Ubuntu 18.04:
 1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
 2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
