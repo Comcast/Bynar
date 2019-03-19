@@ -71,6 +71,7 @@ config/bynar.json.
 
 }
 ```
+
 ## Disk Manager
 This binary handles adding and removing disks from a server.  It uses
 protobuf serialization to allow RPC usage. Please check the
@@ -149,7 +150,18 @@ sudo apt install <package_name>
 9.  librados-dev # for building
 10. pkg-config # for building libudev
 11. libclang-dev
-12. libzmq5 
+12. libzmq5
+13. llvm
+14. libdevmapper-dev
+15. liblvm2-dev
+16. liblvm2app2.2
+17. gcc
+18. clang
+
+CLI command:
+```
+sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang
+```
 
 
 ### Working Rust environment
@@ -167,10 +179,16 @@ $ rustup override set nightly
 Login to your github account, and checkout the latest source code from 
 this repository. Then, to create executable binary
 
+To check your code without building the binary:
+```
+$ cargo check
+```
+
 Run:
 ```
 $ cargo build --release
 ```
+
 ## Bynar Workflow
 Hardware issues crop up all the time as part of the regular cycle of things in servers.  Bynar
 can nearly completely automate that maintenance of hard drive failure except for the actual replacing of
