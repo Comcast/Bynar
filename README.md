@@ -149,13 +149,8 @@ sudo apt install <package_name>
 9.  librados-dev # for building
 10. pkg-config # for building libudev
 11. libclang-dev
-12. Need zeromq, version 4.1 or greater. 
+12. libzmq5 
 
-#### To install zeromq
-1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
-2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
-3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
-4. `apt update` && `apt install libzmq5`
 
 ### Working Rust environment
 
