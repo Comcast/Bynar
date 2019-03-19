@@ -495,9 +495,9 @@ impl Transition for Eval {
             device.mount_point = Some(mnt_dir.into_path());
         }
         debug!("thread {} Checking if mount is writable", process::id());
-        let mnt = device
+        let mnt = &device
             .mount_point
-            .clone()
+            .as_ref()
             .expect("drive.mount_point is None but it cannot be");
         match check_writable(&mnt) {
             // Mount point is writeable, smart passed.  Good to go
@@ -688,15 +688,15 @@ impl Transition for Scan {
             match raid_backed.1 {
                 Vendor::Hp => {
                     // is_raid_backed unpacks the Option so this should be safe
-                    match scsi_info
-                        .clone()
+                    match &scsi_info
+                        .as_ref()
                         .expect("scsi_info is None but cannot be")
                         .0
                         .state
                     {
                         Some(state) => {
                             debug!("thread {} scsi device state: {}", process::id(), state);
-                            if state == DeviceState::Running {
+                            if *state == DeviceState::Running {
                                 to_state
                             } else {
                                 State::Fail
@@ -1229,7 +1229,7 @@ fn add_previous_devices(
                         fs_type: block_utils::FilesystemType::Unknown,
                         serial_number: None,
                     },
-                    dev_path: device_path.clone(),
+                    dev_path: device_path,
                     device_database_id: Some(dev_id),
                     mount_point: None,
                     partitions: BTreeMap::new(),
@@ -1264,7 +1264,7 @@ pub fn check_all_disks(
     // Gather info on all the currently mounted devices
     let mut mtab_devices: Vec<PathBuf> = block_utils::get_mounted_devices()?
         .iter()
-        .map(|d| PathBuf::from("/dev/").join(d.name.clone()))
+        .map(|d| PathBuf::from("/dev/").join(&d.name))
         .collect();
 
     // Remove any mtab_devices that udev already knows about leaving only ones
@@ -1316,7 +1316,7 @@ pub fn check_all_disks(
             .and_then(|r| Some(r.clone()));
         debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
         debug!("thread {} device: {:?}", process::id(), device);
-        let mut s = StateMachine::new(device.clone(), scsi_info, false);
+        let mut s = StateMachine::new(device, scsi_info, false);
         s.setup_state_machine();
         s.block_device.state = get_state(pool, &s.block_device)?;
         s.run();

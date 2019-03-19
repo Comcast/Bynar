@@ -164,8 +164,13 @@ mod tests {
             super::get_outstanding_repair_tickets(&pool, result.storage_detail_id).unwrap();
         println!("All open tickets {:#?}", tickets);
 
-        let is_repair_needed =
-            super::is_hardware_waiting_repair(&pool, result.storage_detail_id, &d.device.name, None).unwrap();
+        let is_repair_needed = super::is_hardware_waiting_repair(
+            &pool,
+            result.storage_detail_id,
+            &d.device.name,
+            None,
+        )
+        .unwrap();
         println!(
             "disk {} needs repair {}",
             d.dev_path.display(),
@@ -371,7 +376,7 @@ pub fn update_storage_info(
     let transaction = conn.transaction()?;
     info!("Started transaction to update storage information in database");
     let entry_id = register_to_process_manager(&transaction, &ip_address)?;
-    let region_id = update_region(&transaction, &s_info.region.clone())?;
+    let region_id = update_region(&transaction, &s_info.region)?;
     let detail_id = update_storage_details(&transaction, &s_info, region_id)?;
 
     let host_detail_mapping = if entry_id == 0 || region_id == 0 || detail_id == 0 {
@@ -552,12 +557,17 @@ pub fn add_disk_detail(
         let mut hardware_type: i32 = 2; // this is the usual value added to DB for disk type
 
         // Get hardware_type id from DB
-        let stmt2 = conn.query("SELECT hardware_id FROM hardware_types WHERE hardware_type='disk'", &[])?;
+        let stmt2 = conn.query(
+            "SELECT hardware_id FROM hardware_types WHERE hardware_type='disk'",
+            &[],
+        )?;
         if let Some(res) = stmt2.into_iter().next() {
             hardware_type = res.get("hardware_id");
-        } 
-        
-        stmt.push_str("INSERT INTO hardware(detail_id, device_path, device_name, state, hardware_type");
+        }
+
+        stmt.push_str(
+            "INSERT INTO hardware(detail_id, device_path, device_name, state, hardware_type",
+        );
         if disk_info.mount_point.is_some() {
             stmt.push_str(", mount_path");
         }
@@ -937,8 +947,10 @@ pub fn get_state(
     match device_detail.device_database_id {
         Some(dev_id) => {
             let dev_id = dev_id as i32;
-            let stmt_query =
-                conn.query("SELECT state FROM hardware WHERE device_id = $1", &[&dev_id])?;
+            let stmt_query = conn.query(
+                "SELECT state FROM hardware WHERE device_id = $1",
+                &[&dev_id],
+            )?;
             if stmt_query.len() != 1 || stmt_query.is_empty() {
                 // Database doesn't know about the device.  Must be new disk.
                 Ok(State::Unscanned)
@@ -1019,7 +1031,7 @@ pub fn get_outstanding_repair_tickets(
      hardware.state in ($4, $5) AND 
      detail_id = $6 AND  
      tracking_id IS NOT NULL ORDER BY operations.start_time";
-    
+
     let detail_id = storage_detail_id as i32;
     let stmt_query = conn.query(
         &stmt,
