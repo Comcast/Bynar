@@ -145,7 +145,8 @@ fn check_for_failed_disks(
                 let mut dev_path = PathBuf::from("/dev");
                 let dev_name = state_machine.block_device.device.name.clone();
 
-                dev_path.push(state_machine.block_device.device.name);
+               // dev_path.push(state_machine.block_device.device.name);
+                dev_path.push(&dev_name);
 
                 if state_machine.block_device.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
@@ -259,6 +260,7 @@ fn check_for_failed_disks(
                     }
                 // Handle the ones that ended up stuck in Fail
                 } else if state_machine.block_device.state == State::Fail {
+                    save_state(pool,&state_machine.block_device, state_machine.block_device.state)?;
                     error!("Disk {} ended in a Fail state", dev_path.display(),);
                 } else {
                     // The rest should be State::Good ?
