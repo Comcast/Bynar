@@ -168,7 +168,10 @@ $ rustup override set nightly
 
 ```
 
-### To create executable binary
+### Retrieving source
+Login to your github account, and checkout the latest source code from 
+this repository. Then, to create executable binary
+
 Run:
 ```
 $ cargo build --release
