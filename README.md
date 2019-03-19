@@ -149,7 +149,7 @@ sudo apt install <package_name>
 8.  libudev # for building
 9.  librados-dev # for building
 10. pkg-config # for building libudev
-11. libclang
+11. libclang-dev
 
 ### Installing Bynar under Ubuntu 18.04:
 1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
