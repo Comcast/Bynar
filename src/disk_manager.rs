@@ -226,9 +226,41 @@ fn listen(
                     }
                 };
             }
+
+            Op::SetMaintenance => {
+                match set_maintenance_mode(&mut responder) {
+                    Ok(_) => {
+                        info!("Set maintenance operation finished");
+                    }
+                    Err(e) => {
+                        error!("Error when setting to maintenance mode: {:?}", e);
+                    }
+                };
+            }
+
+            Op::UnsetMaintenance => {
+                match unset_maintenance_mode(&mut responder) {
+                    Ok(_) => {
+                        info!("Unset maintenance operation finished");
+                    }
+                    Err(e) => {
+                        error!("Error when unsetting the maintenance mode: {:?}", e);
+                    }
+                };
+            }
         };
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn set_maintenance_mode(sock: &mut Socket) -> BynarResult<()> {
+    //TODO implement the feature
+    Ok(())
+}
+
+fn unset_maintenance_mode(sock: &mut Socket) -> BynarResult<()> {
+    //TODO implement the feature
+    Ok(())
 }
 
 fn respond_to_client(result: &OpResult, s: &mut Socket) -> BynarResult<()> {

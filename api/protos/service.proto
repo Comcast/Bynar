@@ -101,6 +101,10 @@ enum Op {
   Remove = 4;
   // Returns bool
   SafeToRemove = 5;
+  // Sets to maintenance mode. Returns OpResult
+  SetMaintenance = 7;
+  // Unsets maintenance mode Returns OpResult
+  UnsetMaintenance = 8;
 }
 
 // Datacenter related API's
