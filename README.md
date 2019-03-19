@@ -131,10 +131,14 @@ This [community repository] hosts all information about
 building Bynar from source, how to contribute code
 and documentation, who to contact about what, etc.
 
-If you want to build Bynar:
+### Dependencies for Ubuntu 18.04:
+Ensure there is enough space on the root partition of your development system.
+Typical recommendation is that the root partition should be atleast 25GB.
+The following packages are required. Install using:
+``` 
+sudo apt install <package_name> 
+```
 
-#### Dependencies for Ubuntu 18.04:
-Install the following packages: 
 1.  libzmq3-dev  4.1 or higher
 2.  libprotobuf-dev 2.5 or higher
 3.  librados2  # ceph jewel or higher
@@ -145,13 +149,15 @@ Install the following packages:
 8.  libudev # for building
 9.  librados-dev # for building
 10. pkg-config # for building libudev
-Installing Bynar under Ubuntu 18.04:
+11. libclang-dev
+
+### Installing Bynar under Ubuntu 18.04:
 1. add `deb http://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/xUbuntu_18.04/ ./` to `/etc/apt/sources.list`
 2. `wget https://download.opensuse.org/repositories/network:/messaging:/zeromq:/release-stable/Debian_9.0/Release.key -O- | sudo apt-key add`
 3. enable universe: `deb http://archive.ubuntu.com/ubuntu bionic universe`
 4. `apt update` && `apt install libzmq5`
 
-##### Working Rust environment
+### Working Rust environment
 
 Install Rust and point it to the nightly build. The stable version will not be
 sufficient to run the test cases it needs a feature only available on nightly build. 
@@ -162,8 +168,10 @@ $ rustup override set nightly
 
 ```
 
-````
-#### To create executable binary
+### Retrieving source
+Login to your github account, and checkout the latest source code from 
+this repository. Then, to create executable binary
+
 Run:
 ```
 $ cargo build --release
