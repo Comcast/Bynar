@@ -84,10 +84,7 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
         .into_iter()
         .map(evaluate_enclosure)
         .collect();
-    let disk_drive_results = disk_drives
-        .into_iter()
-        .map(evaluate_drive)
-        .collect();
+    let disk_drive_results = disk_drives.into_iter().map(evaluate_drive).collect();
     let manager = get_manager_status(&client, &redfish_config)?;
     let manager_result = evaluate_manager(&manager);
 

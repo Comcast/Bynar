@@ -92,12 +92,12 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
         let key = helpers::get_vault_token(
             config
                 .vault_endpoint
-                .clone()
+                .as_ref()
                 .expect("vault endpoint is None")
                 .as_ref(),
             config
                 .vault_token
-                .clone()
+                .as_ref()
                 .expect("vault_token is None")
                 .as_ref(),
             &host_info.hostname,
@@ -143,9 +143,8 @@ fn check_for_failed_disks(
                     state_machine.block_device.device.name, state_machine
                 );
                 let mut dev_path = PathBuf::from("/dev");
-                let dev_name = state_machine.block_device.device.name.clone();
-
-                dev_path.push(state_machine.block_device.device.name);
+                let dev_name = &state_machine.block_device.device.name;
+                dev_path.push(&dev_name);
 
                 if state_machine.block_device.state == State::WaitingForReplacement {
                     description.push_str(&format!("\nDisk path: {}", dev_path.display()));

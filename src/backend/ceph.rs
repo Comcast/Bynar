@@ -183,7 +183,7 @@ impl CephBackend {
         // Write out osd fsid to a file
         let fsid_path = mount_point.join("fsid");
         debug!("opening {} for writing", fsid_path.display());
-        let mut activate_file = File::create(fsid_path.clone())?;
+        let mut activate_file = File::create(&fsid_path)?;
         activate_file
             .write_all(&format!("{}\n", osd_fsid.to_hyphenated().to_string()).as_bytes())?;
 
@@ -213,7 +213,7 @@ impl CephBackend {
         let activate_monmap = mon_getmap(&self.cluster_handle, None)?;
         let activate_path = mount_point.join("activate.monmap");
         debug!("opening {} for writing", activate_path.display());
-        let mut activate_file = File::create(activate_path.clone())?;
+        let mut activate_file = File::create(&activate_path)?;
         activate_file.write_all(&activate_monmap)?;
 
         debug!("Looking up ceph user id");
