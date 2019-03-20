@@ -620,11 +620,16 @@ pub fn add_disk_detail(
                     disk_info.set_device_database_id(id as u32);
                     Ok(())
                 }
-                Some(id) => Err(BynarError::new(format!(
-                    "Information about {} for storage id {} didn't match",
-                    disk_info.device.name, disk_info.storage_detail_id
-                ))),
-                Some(_) => Ok(()),
+                 Some(i) => {
+                    if i != id as u32 {
+                        Err(BynarError::new(format!(
+                            "Information about {} for storage id {} didn't match",
+                            disk_info.device.name, disk_info.storage_detail_id
+                        )))
+                    } else {
+                        Ok(())
+                    }
+                }
             }
         } else {
             // Query said something exists, but we couldn't find that
