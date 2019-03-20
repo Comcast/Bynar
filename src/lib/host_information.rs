@@ -104,35 +104,33 @@ fn get_ip() -> BynarResult<IpAddr> {
     let mut all_interfaces = datalink::interfaces();
     let default_iface = get_default_iface()?;
     if all_interfaces.is_empty() {
-        Err(BynarError::from("No network interface found"))
-    } else {
-        all_interfaces.retain(|iface: &NetworkInterface| iface.name == default_iface);
-        if all_interfaces.is_empty() {
-            Err(BynarError::from("No network interface found"))
-        } else {
-            if all_interfaces.len() > 1 {
-                debug!("More than one default network interface found");
-            }
-            match all_interfaces.get(0) {
-                Some(iface) => {
-                    let mut my_ip = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
-                    let mut found: bool = false;
-                    for ip in &iface.ips {
-                        if ip.is_ipv4() {
-                            my_ip = ip.ip();
-                            found = true;
-                            break;
-                        }
-                    }
-                    if found {
-                        Ok(my_ip)
-                    } else {
-                        Err(BynarError::from("IPv4 Address not found"))
-                    }
+        return Err(BynarError::from("No network interface found"));
+    }
+    all_interfaces.retain(|iface: &NetworkInterface| iface.name == default_iface);
+    if all_interfaces.is_empty() {
+        return Err(BynarError::from("No network interface found"));
+    }
+    if all_interfaces.len() > 1 {
+        debug!("More than one default network interface found");
+    }
+    match all_interfaces.get(0) {
+        Some(iface) => {
+            let mut my_ip = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+            let mut found: bool = false;
+            for ip in &iface.ips {
+                if ip.is_ipv4() {
+                    my_ip = ip.ip();
+                    found = true;
+                    break;
                 }
-                None => Err(BynarError::from("Default network interface does not exist")),
+            }
+            if found {
+                Ok(my_ip)
+            } else {
+                Err(BynarError::from("IPv4 Address not found"))
             }
         }
+        None => Err(BynarError::from("Default network interface does not exist")),
     }
 }
 
