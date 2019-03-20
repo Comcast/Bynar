@@ -1,6 +1,6 @@
 /var/log/bynar*.log {
-    # Keep 1 week worth of rotated logs
-    rotate 7
+    # Keep approx 1 month worth of rotated logs
+    rotate 30
     daily
     compress
     missingok
