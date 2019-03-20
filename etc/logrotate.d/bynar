@@ -1,0 +1,11 @@
+/var/log/bynar*.log {
+    # Keep approx 1 month worth of rotated logs
+    rotate 30
+    daily
+    compress
+    missingok
+    # This will prevent bynar from losing a file descriptor
+    copytruncate
+    # Skip if empty
+    notifempty
+}

@@ -16,6 +16,7 @@ assets = [
 	["config/bynar.json", "/etc/bynar/bynar.json", "666"],
 	["config/disk-manager.json", "/etc/bynar/disk-manager.json", "666"],
 	["config/ceph.json", "/etc/bynar/ceph.json", "666"],
+	["etc/logrotate.d/bynar", "/etc/logrotate.d/bynar", "644"],
 	["target/release/bynar", "usr/sbin/", "755"],
 	["target/release/bynar-client", "usr/bin/bynar-client", "755"],
 	["target/release/disk-manager", "usr/sbin/", "755"],
