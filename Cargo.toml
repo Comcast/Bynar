@@ -46,6 +46,7 @@ ceph = "~2.0"
 ceph-safe-disk = "~0.1"
 chrono = "~0.4"
 clap = "~2"
+derive-error = "0.0.4"
 dirs = "~1.0"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"

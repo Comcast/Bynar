@@ -1,5 +1,5 @@
 use crate::ConfigSettings;
-use helpers::{error::BynarError, error::BynarResult};
+use helpers::{error::BynarError, error::BynarResult, error::HardwareError};
 use libredfish::{
     manager::Manager, power::Power, storage::ArrayController, storage::DiskDrive,
     storage::StorageEnclosure, thermal::Thermal, *,
@@ -110,39 +110,39 @@ pub fn check_hardware(config: &ConfigSettings) -> BynarResult<HardwareHealthSumm
 
 fn evaluate_array_controller(controller: ArrayController) -> BynarResult<()> {
     if controller.status.health != "OK" {
-        return Err(BynarError::HardwareError {
+        return Err(BynarError::HardwareError(HardwareError{
             name: controller.model,
             location: Some(controller.location),
             location_format: Some(controller.location_format),
             error: "Array controller has failed".to_string(),
             serial_number: Some(controller.serial_number),
-        });
+        }));
     }
     Ok(())
 }
 
 fn evaluate_drive(drive: DiskDrive) -> BynarResult<()> {
     if drive.status.health != "OK" {
-        return Err(BynarError::HardwareError {
+        return Err(BynarError::HardwareError(HardwareError{
             name: drive.model,
             location: Some(drive.location),
             location_format: Some(drive.location_format),
             error: "Disk has failed".to_string(),
             serial_number: Some(drive.serial_number),
-        });
+        }));
     }
     Ok(())
 }
 
 fn evaluate_enclosure(enclosure: StorageEnclosure) -> BynarResult<()> {
     if enclosure.status.health != "OK" {
-        return Err(BynarError::HardwareError {
+        return Err(BynarError::HardwareError(HardwareError{
             name: enclosure.model,
             location: Some(enclosure.location),
             location_format: Some(enclosure.location_format),
             error: "Storage enclosure has failed".to_string(),
             serial_number: Some(enclosure.serial_number),
-        });
+        }));
     }
 
     Ok(())

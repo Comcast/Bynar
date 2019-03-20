@@ -288,11 +288,11 @@ fn evaluate(
         if let Err(e) = result {
             match e {
                 // This is the error we're after
-                BynarError::HardwareError {
+                BynarError::HardwareError(HardwareError{
                     ref name,
                     ref serial_number,
                     ..
-                } => {
+                }) => {
                     let serial = serial_number.as_ref().map(|s| &**s);
                     let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,
