@@ -30,6 +30,9 @@ then makes an API call to `disk-manager` to add the new disk back into the serve
 
 ## To start using Bynar
 
+### Infrastructure:
+Bynar requires a Postgres database to be setup.  Setting up a production ready Postgres is outside the scope of this document.  For testing Bynar a [docker postgres](https://hub.docker.com/_/postgres) container is quick to setup.  The database maintains information about hardware status and ongoing operations.
+
 ### Configuration:
 1. Create your configuration file.  The utility takes json config
 information.  Edit the `/etc/bynar/bynar.json` file to configure it.
