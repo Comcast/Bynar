@@ -175,28 +175,27 @@ fn listen(
                 }
                 let mut result = OpResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
-                    Ok(safe) => {
-                        if safe {
-                            match remove_disk(
-                                &mut responder,
-                                operation.get_disk(),
-                                &backend_type,
-                                config_dir,
-                            ) {
-                                Ok(_) => {
-                                    info!("Remove disk finished");
-                                }
-                                Err(e) => {
-                                    error!("Remove disk error: {:?}", e);
-                                }
-                            };
-                        } else {
-                            debug!("Disk is not safe to remove");
-                            //Response to client
-                            result.set_result(ResultType::ERR);
-                            result.set_error_msg("Not safe to remove disk".to_string());
-                            let _ = respond_to_client(&result, &mut responder);
-                        }
+                    Ok(true) => {
+                        match remove_disk(
+                            &mut responder,
+                            operation.get_disk(),
+                            &backend_type,
+                            config_dir,
+                        ) {
+                            Ok(_) => {
+                                info!("Remove disk finished");
+                            }
+                            Err(e) => {
+                                error!("Remove disk error: {:?}", e);
+                            }
+                        };
+                    }
+                    Ok(false) => {
+                        debug!("Disk is not safe to remove");
+                        //Response to client
+                        result.set_result(ResultType::ERR);
+                        result.set_error_msg("Not safe to remove disk".to_string());
+                        let _ = respond_to_client(&result, &mut responder);
                     }
                     Err(e) => {
                         error!("safe to remove failed: {:?}", e);
