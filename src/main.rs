@@ -169,8 +169,11 @@ fn check_for_failed_disks(
                         &dev_name,
                         None,
                     )?;
-                    if !simulate {
-                        if !in_progress {
+                    match (simulate, in_progress) {
+                        (false, true) => {
+                            debug!("Device is already in the repair queue");
+                        }
+                        (false, false) => {
                             debug!("Asking disk-manager if it's safe to remove disk");
                             // CALL RPC
                             let mut socket = helpers::connect(
@@ -178,61 +181,62 @@ fn check_for_failed_disks(
                                 &config.manager_port.to_string(),
                                 &public_key,
                             )?;
-                            match helpers::safe_to_remove_request(&mut socket, &dev_path) {
-                                Ok(result) => {
-                                    debug!("safe to remove: {}", result);
+                            match (
+                                helpers::safe_to_remove_request(&mut socket, &dev_path),
+                                config.slack_webhook.is_some(),
+                            ) {
+                                (Ok(true), true) => {
+                                    debug!("safe to remove: true");
                                     //Ok to remove the disk
-                                    if result {
-                                        if config.slack_webhook.is_some() {
-                                            let _ = notify_slack(
-                                                config,
-                                                &format!(
-                                                    "Removing disk: {} on host: {}",
-                                                    dev_path.display(),
-                                                    host_info.hostname
-                                                ),
-                                            );
+                                    let _ = notify_slack(
+                                        config,
+                                        &format!(
+                                            "Removing disk: {} on host: {}",
+                                            dev_path.display(),
+                                            host_info.hostname
+                                        ),
+                                    );
+
+                                    match helpers::remove_disk_request(
+                                        &mut socket,
+                                        &dev_path,
+                                        None,
+                                        false,
+                                    ) {
+                                        Ok(_) => {
+                                            debug!("Disk removal successful");
                                         }
-                                        match helpers::remove_disk_request(
-                                            &mut socket,
-                                            &dev_path,
-                                            None,
-                                            false,
-                                        ) {
-                                            Ok(_) => {
-                                                debug!("Disk removal successful");
-                                            }
-                                            Err(e) => {
-                                                error!("Disk removal failed: {}", e);
-                                            }
-                                        };
-                                    } else if config.slack_webhook.is_some() {
-                                        let _ = notify_slack(
-                                            config,
-                                            &format!(
-                                                "Need to remove disk {} but it's not safe \
-                                                 on host: {}. I need a human.  Filing a ticket",
-                                                dev_path.display(),
-                                                host_info.hostname,
-                                            ),
-                                        );
-                                    }
+                                        Err(e) => {
+                                            error!("Disk removal failed: {}", e);
+                                        }
+                                    };
                                 }
-                                Err(err) => {
+                                (Ok(false), true) => {
+                                    debug!("safe to remove: false");
+                                    let _ = notify_slack(
+                                        config,
+                                        &format!(
+                                            "Need to remove disk {} but it's not safe \
+                                             on host: {}. I need a human.  Filing a ticket",
+                                            dev_path.display(),
+                                            host_info.hostname,
+                                        ),
+                                    );
+                                }
+                                (Err(err), true) => {
                                     //Not ok to remove the disk but we need to
-                                    if config.slack_webhook.is_some() {
-                                        let _ = notify_slack(
-                                            &config,
-                                            &format!(
-                                                "Need to remove disk {} but can't tell if it's \
-                                                 safe on host: {}. Error: {:?}.  Filing a ticket",
-                                                dev_path.display(),
-                                                host_info.hostname,
-                                                err
-                                            ),
-                                        );
-                                    }
+                                    let _ = notify_slack(
+                                        &config,
+                                        &format!(
+                                            "Need to remove disk {} but can't tell if it's \
+                                             safe on host: {}. Error: {:?}.  Filing a ticket",
+                                            dev_path.display(),
+                                            host_info.hostname,
+                                            err
+                                        ),
+                                    );
                                 }
+                                (..) => {}
                             };
                             debug!("Creating support ticket");
                             let ticket_id =
@@ -252,9 +256,8 @@ fn check_for_failed_disks(
                                 OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                             operation_detail.set_tracking_id(ticket_id);
                             add_or_update_operation_detail(pool, &mut operation_detail)?;
-                        } else {
-                            debug!("Device is already in the repair queue");
                         }
+                        (..) => {}
                     }
                 // Handle the ones that ended up stuck in Fail
                 } else if state_machine.block_device.state == State::Fail {
@@ -387,41 +390,36 @@ fn add_repaired_disks(
     info!("Checking for resolved repair tickets");
     for ticket in tickets {
         match ticket_resolved(config, &ticket.ticket_id.to_string()) {
-            Ok(resolved) => {
-                if resolved {
-                    //CALL RPC
-                    debug!("Connecting to disk-manager");
-                    let mut socket = helpers::connect(
-                        &config.manager_host,
-                        &config.manager_port.to_string(),
-                        &public_key,
-                    )?;
-                    match helpers::add_disk_request(
-                        &mut socket,
-                        &Path::new(&ticket.device_path),
-                        None,
-                        simulate,
-                    ) {
-                        Ok(_) => {
-                            debug!("Disk added successfully. Updating database record");
-                            match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
-                                Ok(_) => {
-                                    debug!("Database updated");
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "Failed to resolve ticket {}.  {:?}",
-                                        ticket.ticket_id, e
-                                    );
-                                }
-                            };
-                        }
-                        Err(e) => {
-                            error!("Failed to add disk: {:?}", e);
-                        }
-                    };
-                }
+            Ok(true) => {
+                //CALL RPC
+                debug!("Connecting to disk-manager");
+                let mut socket = helpers::connect(
+                    &config.manager_host,
+                    &config.manager_port.to_string(),
+                    &public_key,
+                )?;
+
+                match helpers::add_disk_request(
+                    &mut socket,
+                    &Path::new(&ticket.device_path),
+                    None,
+                    simulate,
+                ) {
+                    Ok(_) => {
+                        debug!("Disk added successfully. Updating database record");
+                        match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
+                            Ok(_) => debug!("Database updated"),
+                            Err(e) => {
+                                error!("Failed to resolve ticket {}.  {:?}", ticket.ticket_id, e)
+                            }
+                        };
+                    }
+                    Err(e) => {
+                        error!("Failed to add disk: {:?}", e);
+                    }
+                };
             }
+            Ok(false) => {}
             Err(e) => {
                 error!(
                     "Error getting resolved ticket status for {}.  {:?}",
