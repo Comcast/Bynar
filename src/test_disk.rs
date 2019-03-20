@@ -683,45 +683,40 @@ impl Transition for Scan {
     ) -> State {
         debug!("thread {} running Scan transition", process::id());
         let raid_backed = is_raid_backed(&scsi_info);
-
-        if raid_backed.0 {
-            match raid_backed.1 {
-                Vendor::Hp => {
-                    // is_raid_backed unpacks the Option so this should be safe
-                    match &scsi_info
-                        .as_ref()
-                        .expect("scsi_info is None but cannot be")
-                        .0
-                        .state
-                    {
-                        Some(state) => {
-                            debug!("thread {} scsi device state: {}", process::id(), state);
-                            if *state == DeviceState::Running {
-                                to_state
-                            } else {
-                                State::Fail
-                            }
-                        }
-                        None => {
-                            // What can we conclude??
-                            State::Fail
-                        }
-                    }
-                }
-                _ => {
-                    // Don't know how to deal with these yet
-                    warn!("Skipping {:?} raid backed disk scanning", raid_backed.1);
-                    to_state
-                }
-            }
-        } else {
-            // Run a smart check on the base device without partition
-            match run_smart_checks(&Path::new(&device.dev_path)) {
+        match (raid_backed.0, raid_backed.1) {
+            (false, _) => match run_smart_checks(&Path::new(&device.dev_path)) {
                 Ok(_) => to_state,
                 Err(e) => {
                     error!("Smart test failed: {:?}", e);
                     State::Fail
                 }
+            },
+            (_, Vendor::Hp) => {
+                // is_raid_backed unpacks the Option so this should be safe
+                match &scsi_info
+                    .as_ref()
+                    .expect("scsi_info is None but cannot be")
+                    .0
+                    .state
+                {
+                    Some(state) => {
+                        debug!("thread {} scsi device state: {}", process::id(), state);
+                        if *state == DeviceState::Running {
+                            to_state
+                        } else {
+                            State::Fail
+                        }
+                    }
+                    None => {
+                        // What can we conclude??
+                        State::Fail
+                    }
+                }
+            }
+            (_, v) => {
+                // Don't know how to deal with these yet
+                warn!("Skipping {:?} raid backed disk scanning", v);
+                to_state
             }
         }
     }
@@ -798,26 +793,29 @@ impl StateMachine {
                     &e.1
                 );
                 let state = e.2(e.1, &mut self.block_device, &self.scsi_info, self.simulate);
-                if state == State::Fail {
-                    // Try the next transition if there is one
-                    debug!(
-                        "thread {} Transition failed. Trying next transition",
-                        process::id()
-                    );
-                    continue;
-                }
-                if state == State::WaitingForReplacement {
-                    // TODO: Is this the only state we shouldn't advance further from?
-                    debug!(
-                        "thread {} state==State::WaitingForReplacement",
-                        process::id()
-                    );
-                    self.block_device.state = state;
-                    break 'outer;
-                } else if state == State::Good {
-                    debug!("thread {} state==State::Good", process::id());
-                    self.block_device.state = state;
-                    break 'outer;
+                match state {
+                    State::Fail => {
+                        debug!(
+                            "thread {} Transition failed. Trying next transition",
+                            process::id()
+                        );
+                        continue;
+                    }
+                    State::WaitingForReplacement => {
+                        // TODO: Is this the only state we shouldn't advance further from?
+                        debug!(
+                            "thread {} state==State::WaitingForReplacement",
+                            process::id()
+                        );
+                        self.block_device.state = state;
+                        break 'outer;
+                    }
+                    State::Good => {
+                        debug!("thread {} state==State::Good", process::id());
+                        self.block_device.state = state;
+                        break 'outer;
+                    }
+                    _ => {}
                 }
                 // transition succeeded.  Save state and go around the loop again
                 // This won't detect if the transitions return something unexpected
@@ -1124,11 +1122,9 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                 } else {
                     BTreeMap::new()
                 };
-            if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
-                if let Some(mount) = mount_res {
-                    debug!("device mount: {}", mount.display());
-                    mount_point = Some(mount);
-                }
+            if let Ok(Some(mount)) = block_utils::get_mountpoint(&dev_path) {
+                debug!("device mount: {}", mount.display());
+                mount_point = Some(mount);
             }
 
             BlockDevice {
@@ -1165,14 +1161,12 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                     num = p.0 + 1
                 ));
                 debug!("partition_path: {}", partition_path.display());
-                if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path) {
-                    if let Some(mount) = mount_res {
-                        debug!("partition mount: {}", mount.display());
-                        // Found the root filesystem disk
-                        if mount == Path::new("/") {
-                            debug!("Found root disk. Skipping");
-                            return false;
-                        }
+                if let Ok(Some(mount)) = block_utils::get_mountpoint(&partition_path) {
+                    debug!("partition mount: {}", mount.display());
+                    // Found the root filesystem disk
+                    if mount == Path::new("/") {
+                        debug!("Found root disk. Skipping");
+                        return false;
                     }
                 }
             }
@@ -1525,11 +1519,9 @@ fn format_device(device: &Device) -> BynarResult<()> {
 
 fn is_device_mounted(dev_path: &Path) -> bool {
     // First check if the device itself is mounted
-    if let Ok(mount_res) = block_utils::get_mountpoint(&dev_path) {
-        if let Some(mount) = mount_res {
-            debug!("thread {} device mount: {}", process::id(), mount.display());
-            return true;
-        }
+    if let Ok(Some(mount)) = block_utils::get_mountpoint(&dev_path) {
+        debug!("thread {} device mount: {}", process::id(), mount.display());
+        return true;
     }
 
     // Then check if any of the partitions it contains are mounted
@@ -1561,15 +1553,13 @@ fn is_device_mounted(dev_path: &Path) -> bool {
             process::id(),
             partition_path.display()
         );
-        if let Ok(mount_res) = block_utils::get_mountpoint(&partition_path) {
-            if let Some(mount) = mount_res {
-                debug!(
-                    "thread {} partition mount: {}",
-                    process::id(),
-                    mount.display()
-                );
-                return true;
-            }
+        if let Ok(Some(mount)) = block_utils::get_mountpoint(&partition_path) {
+            debug!(
+                "thread {} partition mount: {}",
+                process::id(),
+                mount.display()
+            );
+            return true;
         }
     }
 
