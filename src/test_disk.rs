@@ -8,7 +8,7 @@
 //! See comments on the run() function for StateMachine and also
 //! the comments under setup_state_machine() to learn more about how it works.
 #[cfg(test)]
-extern crate mocktopus;
+use mocktopus::*;
 
 use crate::in_progress::{
     add_disk_detail, add_or_update_operation, get_devices_from_db, get_state,

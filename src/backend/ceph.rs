@@ -28,6 +28,7 @@ use nix::{
     unistd::{Gid, Uid},
 };
 use pwd::Passwd;
+use serde_derive::*;
 use tempdir::TempDir;
 
 /// Ceph cluster
@@ -46,7 +47,7 @@ struct JournalDevice {
 }
 
 impl JournalDevice {
-    /// Discover the number of partitions on the device and 
+    /// Discover the number of partitions on the device and
     /// update the num_partitions field
     fn update_num_partitions(&mut self) -> BynarResult<()> {
         let num_parts = gpt::GptConfig::new()
@@ -72,7 +73,7 @@ impl fmt::Display for JournalDevice {
 
 #[test]
 fn test_journal_sorting() {
-    let a = JournalDevice{
+    let a = JournalDevice {
         device: PathBuf::from("/dev/sda"),
         partition_id: None,
         partition_uuid: None,
@@ -87,7 +88,7 @@ fn test_journal_sorting() {
     let mut journal_devices = vec![a.clone(), b.clone()];
     journal_devices.sort_by_key(|j| j.num_partitions);
     println!("journal_devices: {:?}", journal_devices);
-    // Journal devicess should be sorted from least to greatest number 
+    // Journal devicess should be sorted from least to greatest number
     // of partitions
     assert_eq!(journal_devices, vec![b, a]);
 }
@@ -1167,7 +1168,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
     }
 }
 
-// NOTE: This function is currently unused because I don't have complete trust 
+// NOTE: This function is currently unused because I don't have complete trust
 // in it yet.
 // Checks all osd drives on the system against the journals and deletes all
 // unused partitions.
@@ -1244,10 +1245,10 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
     }
 }
 
-// This macro from the nix crate crates an ioctl to call the linux kernel 
-// and ask it to update its internal partition cache. Without this the 
+// This macro from the nix crate crates an ioctl to call the linux kernel
+// and ask it to update its internal partition cache. Without this the
 // partitions don't show up after being created on the disks which then
-// breaks parts of bynar later.  
+// breaks parts of bynar later.
 ioctl_none! {
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95

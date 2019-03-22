@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate serde_derive;
+use serde_derive::*;
 
 use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Write};
