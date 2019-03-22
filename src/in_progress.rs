@@ -797,24 +797,19 @@ pub fn add_or_update_operation_detail(
     }
 
     let stmt_query = conn.query(&stmt, &[])?;
-    match operation_detail.op_detail_id {
-        None => {
-            // insert.
-            if let Some(row) = stmt_query.into_iter().next() {
-                let oid: i32 = row.get("operation_detail_id");
-                operation_detail.set_operation_detail_id(oid as u32);
-                Ok(())
-            } else {
-                Err(BynarError::new(
-                    "Query to insert operation detail into database failed".to_string(),
-                ))
-            }
-        }
-        Some(_) => {
-            // update. even if query to update failed that's fine.
-            Ok(())
+    if operation_detail.op_detail_id.is_none() {
+        // insert.
+        if let Some(row) = stmt_query.into_iter().next() {
+            let oid: i32 = row.get("operation_detail_id");
+            operation_detail.set_operation_detail_id(oid as u32);
+        } else {
+            return Err(BynarError::new(
+                "Query to insert operation detail into database failed".to_string(),
+            ));
         }
     }
+    // update. even if query to update failed that's fine.
+    Ok(())
 }
 
 pub fn save_state(
@@ -1113,9 +1108,5 @@ pub fn is_hardware_waiting_repair(
     }
 
     let stmt_query = conn.query(&stmt, &params)?;
-    if stmt_query.is_empty() {
-        Ok(false)
-    } else {
-        Ok(true)
-    }
+    Ok(!stmt_query.is_empty())
 }

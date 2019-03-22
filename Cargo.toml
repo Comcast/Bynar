@@ -1,3 +1,4 @@
+
 [package]
 name = "bynar"
 version = "0.1.5"
@@ -34,7 +35,7 @@ conf-files = [
 
 [dev-dependencies]
 lazy_static = "~1.2"
-mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch="get_type_id" }
+mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
 rand = "~0.5"
 
 [dependencies]
@@ -46,6 +47,7 @@ ceph = "~2.0"
 ceph-safe-disk = "~0.1"
 chrono = "~0.4"
 clap = "~2"
+derive-error = "0.0.4"
 dirs = "~1.0"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
@@ -58,7 +60,7 @@ init-daemon = "~0.1"
 json = "~0.11"
 libatasmart = "~0.1"
 libc = "~0.2"
-libredfish = {git = "https://github.com/cholcombe973/libredfish"}
+libredfish = {git = "https://github.com/cholcombe973/libredfish", branch = "generic"}
 log = "~0.4"
 lvm = "~0.3"
 nix = "~0.13"

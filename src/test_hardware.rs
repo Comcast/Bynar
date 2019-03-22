@@ -1,8 +1,9 @@
+
 use crate::ConfigSettings;
-use helpers::{error::BynarError, error::BynarResult};
+use helpers::{error::BynarError, error::BynarResult, error::HardwareError};
 use libredfish::{
-    manager::Manager, power::Power, storage::ArrayController, storage::DiskDrive,
-    storage::StorageEnclosure, thermal::Thermal, *,
+    common::Status, manager::Manager, power::Power, storage::ArrayController, storage::DiskDrive,
+    storage::Hardware, storage::StorageEnclosure, thermal::Thermal, *,
 };
 use log::debug;
 use reqwest::Client;
@@ -44,54 +45,41 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
         endpoint: config.redfish_ip.clone().unwrap(),
         port: config.redfish_port,
     };
-
-    let controllers = get_array_controllers(&client, &redfish_config)?;
+    let redfish = Redfish::new(client, redfish_config);
+    let controllers = redfish.get_array_controllers()?; //get_array_controllers(&client, &redfish_config)?;
     let mut array_controllers: Vec<ArrayController> = Vec::new();
     let mut storage_enclosures: Vec<StorageEnclosure> = Vec::new();
     let mut disk_drives: Vec<DiskDrive> = Vec::new();
-    for controller_id in 1..=controllers.total {
-        array_controllers.push(get_array_controller(
-            &client,
-            &redfish_config,
-            controller_id as u64,
-        )?);
+    for controller_id in 1..=controllers.mult_hardware.total {
+        array_controllers.push(redfish.get_array_controller(controller_id as u64)?);
         // Grab all the enclosures attached to this array controller
-        let enclosures = get_storage_enclosures(&client, &redfish_config, controller_id as u64)?;
-        for enclosure_id in 1..=enclosures.total {
-            storage_enclosures.push(get_storage_enclosure(
-                &client,
-                &redfish_config,
-                controller_id as u64,
-                enclosure_id as u64,
-            )?);
+        let enclosures = redfish.get_storage_enclosures(controller_id as u64)?;
+        for enclosure_id in 1..=enclosures.mult_hardware.total {
+            storage_enclosures
+                .push(redfish.get_storage_enclosure(controller_id as u64, enclosure_id as u64)?);
         }
         //Grab all disks attached to this array controller
-        let disks = get_physical_drives(&client, &redfish_config, controller_id as u64)?;
-        for disk_id in 1..disks.total {
-            disk_drives.push(get_physical_drive(
-                &client,
-                &redfish_config,
-                disk_id as u64,
-                controller_id as u64,
-            )?);
+        let disks = redfish.get_physical_drives(controller_id as u64)?;
+        for disk_id in 1..disks.mult_hardware.total {
+            disk_drives.push(redfish.get_physical_drive(disk_id as u64, controller_id as u64)?);
         }
     }
     let controller_results = array_controllers
         .into_iter()
-        .map(evaluate_array_controller)
+        .map(evaluate_storage)
         .collect();
     let enclosure_results = storage_enclosures
         .into_iter()
-        .map(evaluate_enclosure)
+        .map(evaluate_storage)
         .collect();
-    let disk_drive_results = disk_drives.into_iter().map(evaluate_drive).collect();
-    let manager = get_manager_status(&client, &redfish_config)?;
+    let disk_drive_results = disk_drives.into_iter().map(evaluate_storage).collect();
+    let manager = redfish.get_manager_status()?;
     let manager_result = evaluate_manager(&manager);
 
-    let thermal = get_thermal_status(&client, &redfish_config)?;
+    let thermal = redfish.get_thermal_status()?;
     let thermal_result = evaluate_thermals(&thermal);
 
-    let power = get_power_status(&client, &redfish_config)?;
+    let power = redfish.get_power_status()?;
     let power_result = evaluate_power(&power);
 
     Ok(HardwareHealthSummary {
@@ -108,43 +96,19 @@ pub fn check_hardware(config: &ConfigSettings) -> BynarResult<HardwareHealthSumm
     collect_redfish_info(&config)
 }
 
-fn evaluate_array_controller(controller: ArrayController) -> BynarResult<()> {
-    if controller.status.health != "OK" {
-        return Err(BynarError::HardwareError {
-            name: controller.model,
-            location: Some(controller.location),
-            location_format: Some(controller.location_format),
-            error: "Array controller has failed".to_string(),
-            serial_number: Some(controller.serial_number),
-        });
+fn evaluate_storage<T>(hardware: T) -> BynarResult<()>
+where
+    T: Hardware + Status,
+{
+    if hardware.health() != "OK" {
+        return Err(BynarError::HardwareError(HardwareError {
+            name: hardware.model(),
+            location: Some(hardware.location()),
+            location_format: Some(hardware.location_format()),
+            error: format!("{:?} has failed", hardware.get_type()),
+            serial_number: Some(hardware.serial_number()),
+        }));
     }
-    Ok(())
-}
-
-fn evaluate_drive(drive: DiskDrive) -> BynarResult<()> {
-    if drive.status.health != "OK" {
-        return Err(BynarError::HardwareError {
-            name: drive.model,
-            location: Some(drive.location),
-            location_format: Some(drive.location_format),
-            error: "Disk has failed".to_string(),
-            serial_number: Some(drive.serial_number),
-        });
-    }
-    Ok(())
-}
-
-fn evaluate_enclosure(enclosure: StorageEnclosure) -> BynarResult<()> {
-    if enclosure.status.health != "OK" {
-        return Err(BynarError::HardwareError {
-            name: enclosure.model,
-            location: Some(enclosure.location),
-            location_format: Some(enclosure.location_format),
-            error: "Storage enclosure has failed".to_string(),
-            serial_number: Some(enclosure.serial_number),
-        });
-    }
-
     Ok(())
 }
 

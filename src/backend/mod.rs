@@ -5,6 +5,8 @@ pub mod gluster;
 use std::path::Path;
 use std::str::FromStr;
 
+
+use serde_derive::*;
 use self::ceph::CephBackend;
 use self::gluster::GlusterBackend;
 use helpers::error::*;
@@ -17,12 +19,7 @@ pub trait Backend {
     /// For gluster or other services it might be much easier
     /// If simulate is passed no action should be taken
     /// An optional osd_id can be provided to ensure the osd is set to that
-    fn add_disk(
-        &self,
-        device: &Path,
-        id: Option<u64>,
-        simulate: bool,
-    ) -> BynarResult<()>;
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()>;
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken

@@ -24,12 +24,7 @@ pub struct GlusterBackend;
 */
 
 impl Backend for GlusterBackend {
-    fn add_disk(
-        &self,
-        _device: &Path,
-        _id: Option<u64>,
-        _simulate: bool,
-    ) -> BynarResult<()> {
+    fn add_disk(&self, _device: &Path, _id: Option<u64>, _simulate: bool) -> BynarResult<()> {
         Ok(())
     }
 

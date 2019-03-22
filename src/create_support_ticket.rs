@@ -80,15 +80,9 @@ pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> BynarResult
     debug!("Fetching issue: {} for resolution information", issue_id);
     let results = issue.get(issue_id)?;
     match results.fields.get("resolutiondate") {
-        Some(v) => {
-            match *v {
-                //resolutiondate is null
-                Value::Null => Ok(false),
-                //resolutiondate is set.
-                Value::String(_) => Ok(true),
-                _ => Ok(false),
-            }
-        }
+        Some(Value::Null) => Ok(false),
+        Some(Value::String(_)) => Ok(true),
+        Some(_) => Ok(false),
         //resolutiondate doesn't exist
         None => Ok(false),
     }
