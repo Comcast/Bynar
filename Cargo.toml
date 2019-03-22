@@ -60,7 +60,7 @@ init-daemon = "~0.1"
 json = "~0.11"
 libatasmart = "~0.1"
 libc = "~0.2"
-libredfish = {git = "https://github.com/cholcombe973/libredfish"}
+libredfish = {git = "https://github.com/cholcombe973/libredfish", branch = "generic"}
 log = "~0.4"
 lvm = "~0.3"
 nix = "~0.13"

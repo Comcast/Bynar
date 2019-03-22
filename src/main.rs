@@ -4,13 +4,15 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
-#[macro_use]
-extern crate serde_derive;
+
+use serde_derive::*;
 
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 mod test_hardware;
+#[macro_use]
+mod util;
 
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
@@ -288,7 +290,7 @@ fn evaluate(
         if let Err(e) = result {
             match e {
                 // This is the error we're after
-                BynarError::HardwareError(HardwareError{
+                BynarError::HardwareError(HardwareError {
                     ref name,
                     ref serial_number,
                     ..
