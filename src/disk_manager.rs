@@ -169,14 +169,15 @@ fn listen(
                 //
             }
             Op::List => {
-                match list_disks(&mut responder) {
+                nout_match!(list_disks(&mut responder) , "List disks finished", "List disks error: {:?}");
+                /*match list_disks(&mut responder) {
                     Ok(_) => {
                         info!("List disks finished");
                     }
                     Err(e) => {
                         error!("List disks error: {:?}", e);
                     }
-                };
+                };*/
             }
             Op::Remove => {
                 if !operation.has_disk() {
