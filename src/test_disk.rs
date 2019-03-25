@@ -878,20 +878,25 @@ impl StateMachine {
     fn print_graph(&self) {
         // FIXME: Too simple.  Doesn't label the transitions
         // Walk the graph and create a Dot
+        let mut fs = OpenOptions::new().write(true).create(true).open("state.dot").unwrap();
         let mut states = HashSet::new();
         println!("digraph state_machine{{");
+        writeln!(fs, "digraph state_machine{{");
         for n in &self.dot_graph {
             states.insert(n.0);
             states.insert(n.1);
             println!("\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2);
+            writeln!(fs, "\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2);
         }
         for n in states {
             println!("\t{:?}[label=\"{:?}\"];", n, n);
+            writeln!(fs, "\t{:?}[label=\"{:?}\"];", n, n);
         }
         //for edge in self.graph.all_edges() {
         //println!("\t{:?} -> {:?}[label=\"\"];", edge.0, edge.1);
         //}
         println!("}}");
+        writeln!(fs, "}}");
     }
 
     // Add all the transition states here
