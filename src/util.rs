@@ -1,15 +1,35 @@
+#[macro_use]
+pub mod util {
+
     #[macro_export]
-    macro_rules! evaluate {
-    ($e: expr, $i: ident, $err: expr, $e_ident: ident) => {
-        let mut results: Vec<BynarResult<()>> = Vec::new();
-        for unit in &$e.$i {
-            if unit.health() != "OK" {
-                // unit failed
-                let err = format!($expr, unit.$e_ident);
-                results.push(Err(BynarError::new(err)));
+    macro_rules! eval {
+        ($results: expr, $e: expr, $err: expr, $e_ident: ident) => {
+            for unit in $e {
+                if unit.health() != "OK" {
+                    // unit failed
+                    let err = format!($err, unit.$e_ident);
+                    $results.push(Err(BynarError::new(err)));
+                }
             }
-        }
-        results
-    };
+        };
+        ($results: expr, $e: expr, $err: expr, $e_ident: ident, $e_ident2: ident) => {
+            for unit in $e {
+                if unit.health() != "OK" {
+                    // unit failed
+                    let err = format!($err, unit.$e_ident, unit.$e_ident2);
+                    $results.push(Err(BynarError::new(err)));
+                }
+            }
+        };
+        ($results: expr, $e: expr, $comp: expr, $err: expr, $e_ident: ident) => {
+            for unit in $e {
+                if unit.health() != "OK" && unit.health() != $comp {
+                    // unit failed
+                    let err = format!($err, unit.$e_ident);
+                    $results.push(Err(BynarError::new(err)));
+                }
+            }
+        };
+        
+    }
 }
-    

@@ -1,4 +1,4 @@
-
+use crate::util::*;
 use crate::ConfigSettings;
 use helpers::{error::BynarError, error::BynarResult, error::HardwareError};
 use libredfish::{
@@ -116,35 +116,59 @@ fn evaluate_manager(manager: &Manager) -> Vec<BynarResult<()>> {
     // Look through all the self test results
     // Check if this is an HP machine first?
     let mut results: Vec<BynarResult<()>> = Vec::new();
-
-    for res in &manager.oem.hp.i_lo_self_test_results {
+    eval!(
+        results, 
+        &manager.oem.hp.i_lo_self_test_results,
+        "Informational",
+        "Hp ilo error detected {}",
+        notes
+    );
+    /*for res in &manager.oem.hp.i_lo_self_test_results {
         if res.status != "OK" && res.status != "Informational" {
             // Found an error
             let err = format!("Hp ilo error detected: {}", res.notes);
             results.push(Err(BynarError::new(err)));
         }
-    }
+    }*/
 
     results
 }
 
 fn evaluate_power(power: &Power) -> Vec<BynarResult<()>> {
     let mut results: Vec<BynarResult<()>> = Vec::new();
-
-    for psu in &power.power_supplies {
+     eval!(
+         results,
+        &power.power_supplies,
+        "PSU serial # {} has failed",
+        serial_number
+    );
+    /*for psu in &power.power_supplies {
         if psu.status.health != "OK" {
             // Power supply failed
             let err = format!("PSU serial # {} has failed", psu.serial_number);
             results.push(Err(BynarError::new(err)));
         }
-    }
+    }*/
 
     results
 }
 
 fn evaluate_thermals(thermal: &Thermal) -> Vec<BynarResult<()>> {
     let mut results: Vec<BynarResult<()>> = Vec::new();
-    for fan in &thermal.fans {
+     eval!(
+         results,
+        &thermal.fans,
+        "Chassis fan {} has failed",
+        fan_name
+    );
+    eval!(
+        results,
+        &thermal.temperatures,
+        "Temperature reading for {} is failing.  Location: {}",
+        name,
+        physical_context
+    );
+    /*for fan in &thermal.fans {
         if let Some(fan_health) = &fan.status.health {
             if fan_health != "OK" {
                 // Fan failed
@@ -164,7 +188,6 @@ fn evaluate_thermals(thermal: &Thermal) -> Vec<BynarResult<()>> {
                 results.push(Err(BynarError::new(err)));
             }
         }
-    }
-
+    }*/
     results
 }

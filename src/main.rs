@@ -5,14 +5,12 @@
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
 
-use serde_derive::*;
-
+#[macro_use]
+mod util;
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
 mod test_hardware;
-#[macro_use]
-mod util;
 
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
@@ -22,6 +20,7 @@ use helpers::{error::*, host_information::Host};
 use log::{debug, error, info, warn};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
+use serde_derive::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};

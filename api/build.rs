@@ -6,5 +6,6 @@ fn main() {
         customize: protobuf_codegen_pure::Customize {
             ..Default::default()
         },
-    }).expect("protoc");
+    })
+    .expect("protoc");
 }
