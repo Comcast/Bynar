@@ -1,4 +1,3 @@
-
 use crate::ConfigSettings;
 use helpers::{error::BynarError, error::BynarResult, error::HardwareError};
 use libredfish::{
@@ -64,23 +63,21 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
             disk_drives.push(redfish.get_physical_drive(disk_id as u64, controller_id as u64)?);
         }
     }
-    let controller_results = array_controllers
-        .into_iter()
-        .map(evaluate_storage)
-        .collect();
-    let enclosure_results = storage_enclosures
-        .into_iter()
-        .map(evaluate_storage)
-        .collect();
-    let disk_drive_results = disk_drives.into_iter().map(evaluate_storage).collect();
-    let manager = redfish.get_manager_status()?;
-    let manager_result = evaluate_manager(&manager);
+    /*let controller_results = array_controllers
+    .into_iter()
+    .map(evaluate_storage)
+    .collect();*/
+    let controller_results = get_results!(array_controllers, evaluate_storage);
+    let enclosure_results = get_results!(storage_enclosures, evaluate_storage);
+    let disk_drive_results = get_results!(disk_drives, evaluate_storage);
+    //let manager = redfish.get_manager_status()?;
+    let manager_result = mult_results!(redfish, get_manager_status, evaluate_manager); //evaluate_manager(&manager);
 
-    let thermal = redfish.get_thermal_status()?;
-    let thermal_result = evaluate_thermals(&thermal);
+    //let thermal = redfish.get_thermal_status()?;
+    let thermal_result = mult_results!(redfish, get_thermal_status, evaluate_thermals);//evaluate_thermals(&thermal);
 
-    let power = redfish.get_power_status()?;
-    let power_result = evaluate_power(&power);
+    //let power = redfish.get_power_status()?;
+    let power_result = mult_results!(redfish, get_power_status, evaluate_power);//evaluate_power(&power);
 
     Ok(HardwareHealthSummary {
         array_controllers: controller_results,

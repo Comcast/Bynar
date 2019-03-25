@@ -28,3 +28,17 @@ macro_rules! eval {
         }
     };
 }
+
+#[macro_export]
+macro_rules! get_results {
+    ($v: expr, $i: ident) => {
+        $v.into_iter().map($i).collect()
+    };
+}
+
+#[macro_export]
+macro_rules! mult_results {
+($r: expr, $v: ident, $i: ident) => {
+        $i(&$r.$v()?)
+    };
+}
