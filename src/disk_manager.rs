@@ -1,3 +1,5 @@
+#[macro_use]
+mod util;
 use serde_derive::*;
 
 use std::fs::{create_dir, File};
@@ -10,8 +12,10 @@ use std::time::Duration;
 use api::service::{
     Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo, ResultType,
 };
+
 mod backend;
 use crate::backend::BackendType;
+use crate::util::*;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
@@ -139,7 +143,14 @@ fn listen(
                     let _ = respond_to_client(&result, &mut responder);
                     continue;
                 }
-                match add_disk(
+                 nout_match!( add_disk(
+                    &mut responder,
+                    operation.get_disk(),
+                    &backend_type,
+                    id,
+                    config_dir,
+                ), "Add disk finished", "Add disk error: {:?}");
+                /*match add_disk(
                     &mut responder,
                     operation.get_disk(),
                     &backend_type,
@@ -152,7 +163,7 @@ fn listen(
                     Err(e) => {
                         error!("Add disk error: {:?}", e);
                     }
-                };
+                };*/
             }
             Op::AddPartition => {
                 //
@@ -175,7 +186,13 @@ fn listen(
                 let mut result = OpResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
                     Ok(true) => {
-                        match remove_disk(
+                        nout_match!( remove_disk(
+                            &mut responder,
+                            operation.get_disk(),
+                            &backend_type,
+                            config_dir,
+                        ) , "Remove disk finished", "Remove disk error: {:?}");
+                        /*match remove_disk(
                             &mut responder,
                             operation.get_disk(),
                             &backend_type,
@@ -187,7 +204,7 @@ fn listen(
                             Err(e) => {
                                 error!("Remove disk error: {:?}", e);
                             }
-                        };
+                        };*/
                     }
                     Ok(false) => {
                         debug!("Disk is not safe to remove");
@@ -210,7 +227,13 @@ fn listen(
                     error!("SafeToRemove operation must include disk field.  Ignoring request");
                     continue;
                 }
-                match safe_to_remove_disk(
+                nout_match!( safe_to_remove_disk(
+                    &mut responder,
+                    operation.get_disk(),
+                    &backend_type,
+                    config_dir,
+                ), "Safe to remove disk finished", "Safe to remove error: {:?}");
+                /*match safe_to_remove_disk(
                     &mut responder,
                     operation.get_disk(),
                     &backend_type,
@@ -222,7 +245,7 @@ fn listen(
                     Err(e) => {
                         error!("Safe to remove error: {:?}", e);
                     }
-                };
+                };*/
             }
         };
         thread::sleep(Duration::from_millis(10));
