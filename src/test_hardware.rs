@@ -74,10 +74,10 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
     let manager_result = mult_results!(redfish, get_manager_status, evaluate_manager); //evaluate_manager(&manager);
 
     //let thermal = redfish.get_thermal_status()?;
-    let thermal_result = mult_results!(redfish, get_thermal_status, evaluate_thermals);//evaluate_thermals(&thermal);
+    let thermal_result = mult_results!(redfish, get_thermal_status, evaluate_thermals); //evaluate_thermals(&thermal);
 
     //let power = redfish.get_power_status()?;
-    let power_result = mult_results!(redfish, get_power_status, evaluate_power);//evaluate_power(&power);
+    let power_result = mult_results!(redfish, get_power_status, evaluate_power); //evaluate_power(&power);
 
     Ok(HardwareHealthSummary {
         array_controllers: controller_results,

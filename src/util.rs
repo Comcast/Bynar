@@ -38,7 +38,7 @@ macro_rules! get_results {
 
 #[macro_export]
 macro_rules! mult_results {
-($r: expr, $v: ident, $i: ident) => {
+    ($r: expr, $v: ident, $i: ident) => {
         $i(&$r.$v()?)
     };
 }

@@ -21,6 +21,7 @@ use block_utils::{
 };
 use gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
 use helpers::{error::*, host_information::Host};
+use lazy_static::*;
 use log::{debug, error, trace, warn};
 use lvm::*;
 #[cfg(test)]
@@ -39,6 +40,38 @@ use std::process::{self, Command};
 use std::str::FromStr;
 use tempdir::TempDir;
 use uuid::Uuid;
+
+lazy_static! {
+    pub static ref TRANSITIONS: Vec<(State, State, TransitionFn, &'static str)> = {
+        let mut v: Vec<(State, State, TransitionFn, &'static str)>  = Vec::new();
+        v.push((State::Unscanned, State::Scanned, Scan::transition, "Scan"));
+        v.push((State::Unscanned, State::Fail, Scan::transition, "Scan"));
+        v.push((State::NotMounted, State::Mounted, Mount::transition, "Mount"));
+        v.push((State::NotMounted, State::MountFailed, Mount::transition, "Mount"));
+        v.push((State::MountFailed, State::Corrupt, CheckForCorruption::transition, "CheckForCorruption"));
+        v.push((State::Scanned, State::Good, Eval::transition, "Eval"));
+        v.push((State::Scanned, State::NotMounted, Eval::transition, "Eval"));
+        v.push((State::Scanned, State::WriteFailed, Eval::transition, "Eval"));
+        v.push((State::Scanned, State::WornOut, CheckWearLeveling::transition, "CheckWearLeveling"));
+        v.push((State::Mounted, State::Scanned, NoOp::transition, "NoOp"));
+        v.push((State::ReadOnly, State::Mounted, Remount::transition, "Remount"));
+        v.push(( State::ReadOnly, State::MountFailed, Remount::transition, "Remount"));
+        v.push(( State::Corrupt, State::Repaired, AttemptRepair::transition, "AttemptRepair"));
+        v.push(( State::Corrupt, State::RepairFailed, NoOp::transition, "NoOp"));
+        v.push(( State::RepairFailed, State::Reformatted, Reformat::transition, "Reformat"));
+        v.push(( State::RepairFailed, State::ReformatFailed, NoOp::transition, "NoOp"));
+        v.push(( State::ReformatFailed, State::WaitingForReplacement, NoOp::transition, "NoOp"));
+        v.push(( State::Reformatted, State::Unscanned, NoOp::transition, "NoOp"));
+        v.push(( State::WornOut, State::WaitingForReplacement, MarkForReplacement::transition, "MarkForReplacement"));
+        v.push((State::Repaired, State::Good, NoOp::transition, "NoOp"));
+        v.push(( State::WaitingForReplacement, State::Replaced, Replace::transition, "Replace"));
+        v.push((State::Replaced, State::Unscanned, NoOp::transition, "NoOp"));
+        v.push(( State::WriteFailed, State::ReadOnly, CheckReadOnly::transition, "CheckReadOnly"));
+        // Fsck can either conclude here that everything is fine or the filesystem is corrupt
+        v.push(( State::WriteFailed, State::Corrupt, CheckForCorruption::transition, "CheckForCorruption"));
+        v
+    };
+}
 
 // Function pointer to the transition function
 type TransitionFn =
@@ -867,7 +900,10 @@ impl StateMachine {
         // If Unscanned has 2 edges it will run the first added one first
         // and then the second one.  To deal with this the
         // states are ordered from most to least ideal outcome.
-        self.add_transition(State::Unscanned, State::Scanned, Scan::transition, "Scan");
+        for transition in TRANSITIONS.iter() {
+            self.add_transition(transition.0, transition.1, transition.2, transition.3);
+        }
+        /*self.add_transition(State::Unscanned, State::Scanned, Scan::transition, "Scan");
         self.add_transition(State::Unscanned, State::Fail, Scan::transition, "Scan");
         self.add_transition(
             State::NotMounted,
@@ -980,7 +1016,7 @@ impl StateMachine {
             State::Corrupt,
             CheckForCorruption::transition,
             "CheckForCorruption",
-        );
+        );*/
     }
 }
 
