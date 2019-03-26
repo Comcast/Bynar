@@ -10,31 +10,40 @@ use hostname::get_hostname;
 use log::{error, info};
 use native_tls::{Identity, TlsAcceptor};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
-use websocket::r#async;
-use websocket::server::r#async::Server;
-use zmq::Socket;
+use websocket::client::sync::Client;
+use websocket::stream::sync::{TcpStream, TlsStream};
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+fn add_disk(
+    s: &mut Client<TlsStream<TcpStream>>,
+    path: &Path,
+    id: Option<u64>,
+    simulate: bool,
+) -> BynarResult<()> {
     helpers::add_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
-fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
+fn list_disks(s: &mut Client<TlsStream<TcpStream>>) -> BynarResult<Vec<Disk>> {
     let disks = helpers::list_disks_request(s)?;
     println!("disk list: {:?}", disks);
 
     Ok(disks)
 }
 
-fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+fn remove_disk(
+    s: &mut Client<TlsStream<TcpStream>>,
+    path: &Path,
+    id: Option<u64>,
+    simulate: bool,
+) -> BynarResult<()> {
     helpers::remove_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
-fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_add_disk(s: &mut Client<TlsStream<TcpStream>>, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -55,7 +64,7 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     };
 }
 
-fn handle_list_disks(s: &mut Socket) {
+fn handle_list_disks(s: &mut Client<TlsStream<TcpStream>>) {
     info!("Listing disks");
     match list_disks(s) {
         Ok(disks) => {
@@ -67,7 +76,7 @@ fn handle_list_disks(s: &mut Socket) {
     };
 }
 
-fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_remove_disk(s: &mut Client<TlsStream<TcpStream>>, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {

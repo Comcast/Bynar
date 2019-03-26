@@ -14,7 +14,8 @@ use reqwest::Error as ReqwestError;
 use serde_json::Error as SerdeJsonError;
 use slack_hook::Error as SlackError;
 use uuid::parser::ParseError as UuidError;
-use websocket::result::WebSocketError as WebSocketError;
+use websocket::client::builder::ParseError as WebSocketParseError;
+use websocket::result::WebSocketError;
 use zmq::Error as ZmqError;
 
 use std::fmt;
@@ -88,6 +89,7 @@ pub enum BynarError {
     UuidError(UuidError),
     VaultError(VaultError),
     WebSocketError(WebSocketError),
+    WebSocketParseError(WebSocketParseError),
     ZmqError(ZmqError),
 }
 
@@ -138,6 +140,7 @@ impl BynarError {
             BynarError::UuidError(ref err) => err.to_string(),
             BynarError::VaultError(ref err) => err.to_string(),
             BynarError::WebSocketError(ref err) => err.to_string(),
+            BynarError::WebSocketParseError(ref err) => err.to_string(),
             BynarError::ZmqError(ref err) => err.to_string(),
         }
     }
