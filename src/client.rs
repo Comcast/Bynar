@@ -8,7 +8,10 @@ use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
 use log::{error, info};
+use native_tls::{Identity, TlsAcceptor};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
+use websocket::r#async;
+use websocket::server::r#async::Server;
 use zmq::Socket;
 /*
     CLI client to call functions over RPC

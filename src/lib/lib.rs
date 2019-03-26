@@ -10,6 +10,9 @@ use log::{debug, error};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
+use websocket::message::Message as WMessage;
+use websocket::r#async::*;
+use websocket::server::r#async::Server;
 use zmq::{Message, Socket};
 
 pub mod error;
