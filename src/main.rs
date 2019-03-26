@@ -538,47 +538,37 @@ fn main() {
             d
         }
     };
-
-    match check_for_failed_disks(
-        &config,
-        &host_info,
-        &db_pool,
-        &host_details_mapping,
-        simulate,
-    ) {
-        Err(e) => {
-            error!("Check for failed disks failed with error: {}", e);
-        }
-        _ => {
-            info!("Check for failed disks completed");
-        }
-    };
-    match check_for_failed_hardware(
-        &config,
-        &host_info,
-        &db_pool,
-        &host_details_mapping,
-        simulate,
-    ) {
-        Err(e) => {
-            error!("Check for failed hardware failed with error: {}", e);
-        }
-        _ => {
-            info!("Check for failed hardware completed");
-        }
-    };
-    match add_repaired_disks(
-        &config,
-        &host_info,
-        &db_pool,
-        host_details_mapping.storage_detail_id,
-        simulate,
-    ) {
-        Err(e) => {
-            error!("Add repaired disks failed with error: {}", e);
-        }
-        _ => {
-            info!("Add repaired disks completed");
-        }
-    };
+    nout_match!(
+        check_for_failed_disks(
+            &config,
+            &host_info,
+            &db_pool,
+            &host_details_mapping,
+            simulate,
+        ),
+        "Check for failed disks completed",
+        "Check for failed disks failed with error: {}"
+    );
+    nout_match!(
+        check_for_failed_hardware(
+            &config,
+            &host_info,
+            &db_pool,
+            &host_details_mapping,
+            simulate,
+        ),
+        "Check for failed hardware completed",
+        "Check for failed hardware failed with error: {}"
+    );
+    nout_match!(
+        add_repaired_disks(
+            &config,
+            &host_info,
+            &db_pool,
+            host_details_mapping.storage_detail_id,
+            simulate,
+        ),
+        "Add repaired disks completed",
+        "Add repaired disks failed with error: {}"
+    );
 }

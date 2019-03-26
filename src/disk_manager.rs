@@ -143,41 +143,27 @@ fn listen(
                     let _ = respond_to_client(&result, &mut responder);
                     continue;
                 }
-                 nout_match!( add_disk(
-                    &mut responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    id,
-                    config_dir,
-                ), "Add disk finished", "Add disk error: {:?}");
-                /*match add_disk(
-                    &mut responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    id,
-                    config_dir,
-                ) {
-                    Ok(_) => {
-                        info!("Add disk finished");
-                    }
-                    Err(e) => {
-                        error!("Add disk error: {:?}", e);
-                    }
-                };*/
+                nout_match!(
+                    add_disk(
+                        &mut responder,
+                        operation.get_disk(),
+                        &backend_type,
+                        id,
+                        config_dir,
+                    ),
+                    "Add disk finished",
+                    "Add disk error: {:?}"
+                );
             }
             Op::AddPartition => {
                 //
             }
             Op::List => {
-                nout_match!(list_disks(&mut responder) , "List disks finished", "List disks error: {:?}");
-                /*match list_disks(&mut responder) {
-                    Ok(_) => {
-                        info!("List disks finished");
-                    }
-                    Err(e) => {
-                        error!("List disks error: {:?}", e);
-                    }
-                };*/
+                nout_match!(
+                    list_disks(&mut responder),
+                    "List disks finished",
+                    "List disks error: {:?}"
+                );
             }
             Op::Remove => {
                 if !operation.has_disk() {
@@ -187,25 +173,16 @@ fn listen(
                 let mut result = OpResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
                     Ok(true) => {
-                        nout_match!( remove_disk(
-                            &mut responder,
-                            operation.get_disk(),
-                            &backend_type,
-                            config_dir,
-                        ) , "Remove disk finished", "Remove disk error: {:?}");
-                        /*match remove_disk(
-                            &mut responder,
-                            operation.get_disk(),
-                            &backend_type,
-                            config_dir,
-                        ) {
-                            Ok(_) => {
-                                info!("Remove disk finished");
-                            }
-                            Err(e) => {
-                                error!("Remove disk error: {:?}", e);
-                            }
-                        };*/
+                        nout_match!(
+                            remove_disk(
+                                &mut responder,
+                                operation.get_disk(),
+                                &backend_type,
+                                config_dir,
+                            ),
+                            "Remove disk finished",
+                            "Remove disk error: {:?}"
+                        );
                     }
                     Ok(false) => {
                         debug!("Disk is not safe to remove");
@@ -228,25 +205,16 @@ fn listen(
                     error!("SafeToRemove operation must include disk field.  Ignoring request");
                     continue;
                 }
-                nout_match!( safe_to_remove_disk(
-                    &mut responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    config_dir,
-                ), "Safe to remove disk finished", "Safe to remove error: {:?}");
-                /*match safe_to_remove_disk(
-                    &mut responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    config_dir,
-                ) {
-                    Ok(_) => {
-                        info!("Safe to remove disk finished");
-                    }
-                    Err(e) => {
-                        error!("Safe to remove error: {:?}", e);
-                    }
-                };*/
+                nout_match!(
+                    safe_to_remove_disk(
+                        &mut responder,
+                        operation.get_disk(),
+                        &backend_type,
+                        config_dir,
+                    ),
+                    "Safe to remove disk finished",
+                    "Safe to remove error: {:?}"
+                );
             }
         };
         thread::sleep(Duration::from_millis(10));

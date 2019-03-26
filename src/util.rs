@@ -47,12 +47,12 @@ macro_rules! mult_results {
 macro_rules! nout_match {
     ($e: expr, $info: expr, $err: expr) => {
         match $e {
-                    Ok(_) => {
-                        info!($info);
-                    }
-                    Err(e) => {
-                        error!($err, e);
-                    }
-       }
-    }
+            Ok(_) => {
+                info!($info);
+            }
+            Err(e) => {
+                error!($err, e);
+            }
+        }
+    };
 }

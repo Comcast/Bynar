@@ -878,25 +878,30 @@ impl StateMachine {
     fn print_graph(&self) {
         // FIXME: Too simple.  Doesn't label the transitions
         // Walk the graph and create a Dot
-        let mut fs = OpenOptions::new().write(true).create(true).open("state.dot").unwrap();
+        let mut fs = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open("state.dot")
+            .unwrap();
         let mut states = HashSet::new();
         println!("digraph state_machine{{");
-        writeln!(fs, "digraph state_machine{{");
+        writeln!(fs, "digraph state_machine{{").expect("Unable to print graph to file");
         for n in &self.dot_graph {
             states.insert(n.0);
             states.insert(n.1);
             println!("\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2);
-            writeln!(fs, "\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2);
+            writeln!(fs, "\t{:?} -> {:?}[label=\"{}\"];", n.0, n.1, n.2)
+                .expect("Unable to print graph to file");
         }
         for n in states {
             println!("\t{:?}[label=\"{:?}\"];", n, n);
-            writeln!(fs, "\t{:?}[label=\"{:?}\"];", n, n);
+            writeln!(fs, "\t{:?}[label=\"{:?}\"];", n, n).expect("Unable to print graph to file");
         }
         //for edge in self.graph.all_edges() {
         //println!("\t{:?} -> {:?}[label=\"\"];", edge.0, edge.1);
         //}
         println!("}}");
-        writeln!(fs, "}}");
+        writeln!(fs, "}}").expect("Unable to print graph to file");
     }
 
     // Add all the transition states here
@@ -908,120 +913,6 @@ impl StateMachine {
         for transition in TRANSITIONS.iter() {
             self.add_transition(transition.0, transition.1, transition.2, transition.3);
         }
-        /*self.add_transition(State::Unscanned, State::Scanned, Scan::transition, "Scan");
-        self.add_transition(State::Unscanned, State::Fail, Scan::transition, "Scan");
-        self.add_transition(
-            State::NotMounted,
-            State::Mounted,
-            Mount::transition,
-            "Mount",
-        );
-        self.add_transition(
-            State::NotMounted,
-            State::MountFailed,
-            Mount::transition,
-            "Mount",
-        );
-        self.add_transition(
-            State::MountFailed,
-            State::Corrupt,
-            CheckForCorruption::transition,
-            "CheckForCorruption",
-        );
-
-        self.add_transition(State::Scanned, State::Good, Eval::transition, "Eval");
-        self.add_transition(State::Scanned, State::NotMounted, Eval::transition, "Eval");
-        self.add_transition(State::Scanned, State::WriteFailed, Eval::transition, "Eval");
-        self.add_transition(
-            State::Scanned,
-            State::WornOut,
-            CheckWearLeveling::transition,
-            "CheckWearLeveling",
-        );
-
-        self.add_transition(State::Mounted, State::Scanned, NoOp::transition, "NoOp");
-        self.add_transition(
-            State::ReadOnly,
-            State::Mounted,
-            Remount::transition,
-            "Remount",
-        );
-        self.add_transition(
-            State::ReadOnly,
-            State::MountFailed,
-            Remount::transition,
-            "Remount",
-        );
-
-        self.add_transition(
-            State::Corrupt,
-            State::Repaired,
-            AttemptRepair::transition,
-            "AttemptRepair",
-        );
-        self.add_transition(
-            State::Corrupt,
-            State::RepairFailed,
-            NoOp::transition,
-            "NoOp",
-        );
-
-        self.add_transition(
-            State::RepairFailed,
-            State::Reformatted,
-            Reformat::transition,
-            "Reformat",
-        );
-        self.add_transition(
-            State::RepairFailed,
-            State::ReformatFailed,
-            NoOp::transition,
-            "NoOp",
-        );
-
-        self.add_transition(
-            State::ReformatFailed,
-            State::WaitingForReplacement,
-            NoOp::transition,
-            "NoOp",
-        );
-
-        self.add_transition(
-            State::Reformatted,
-            State::Unscanned,
-            NoOp::transition,
-            "NoOp",
-        );
-
-        self.add_transition(
-            State::WornOut,
-            State::WaitingForReplacement,
-            MarkForReplacement::transition,
-            "MarkForReplacement",
-        );
-
-        self.add_transition(State::Repaired, State::Good, NoOp::transition, "NoOp");
-        self.add_transition(
-            State::WaitingForReplacement,
-            State::Replaced,
-            Replace::transition,
-            "Replace",
-        );
-        self.add_transition(State::Replaced, State::Unscanned, NoOp::transition, "NoOp");
-
-        self.add_transition(
-            State::WriteFailed,
-            State::ReadOnly,
-            CheckReadOnly::transition,
-            "CheckReadOnly",
-        );
-        // Fsck can either conclude here that everything is fine or the filesystem is corrupt
-        self.add_transition(
-            State::WriteFailed,
-            State::Corrupt,
-            CheckForCorruption::transition,
-            "CheckForCorruption",
-        );*/
     }
 }
 
