@@ -35,6 +35,172 @@ struct DiskManagerConfig {
     vault_endpoint: Option<String>,
 }
 
+struct ServerSocket {
+    pub socket: Socket,
+}
+
+impl ServerSocket {
+    pub fn new(socket: Socket) -> Self {
+        ServerSocket { socket }
+    }
+    fn setup_curve(&self, config_dir: &Path, vault: bool) -> BynarResult<()> {
+        // will raise EINVAL if not linked against libsodium
+        // The ubuntu package is linked so this shouldn't fail
+        self.socket.set_curve_server(true)?;
+        let keypair = zmq::CurveKeyPair::new()?;
+        let hostname =
+            get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
+        let key_file = config_dir.join(format!("{}.pem", hostname));
+        if vault {
+            //Connect to vault
+            let config: DiskManagerConfig = helpers::load_config(&config_dir, "disk-manager.json")?;
+            if config.vault_token.is_none() || config.vault_endpoint.is_none() {
+                error!("Vault support requested but vault_token or vault_endpoint aren't set");
+                return Err(BynarError::new(
+                    "vault_token or vault_endpoint must be set for vault support".to_string(),
+                ));
+            }
+            let endpoint = config.vault_endpoint.unwrap();
+            let token = config.vault_token.unwrap();
+            debug!(
+                "Connecting to vault to save the public key to /bynar/{}.pem",
+                hostname
+            );
+            let client = VaultClient::new(endpoint.as_str(), token)?;
+            client.set_secret(
+                format!("{}/{}.pem", config_dir.display(), hostname),
+                std::str::from_utf8(&keypair.public_key).unwrap(),
+            )?;
+            self.socket.set_curve_secretkey(&keypair.secret_key)?;
+        } else {
+            debug!("Creating new curve keypair");
+            self.socket.set_curve_secretkey(&keypair.secret_key)?;
+            let mut f = File::create(key_file)?;
+            f.write_all(&keypair.public_key)?;
+        }
+        debug!("Server mechanism: {:?}", self.socket.get_mechanism());
+        debug!("Curve server: {:?}", self.socket.is_curve_server());
+
+        Ok(())
+    }
+
+    fn respond_to_client(&self, result: &OpResult) -> BynarResult<()> {
+        let encoded = result.write_to_bytes()?;
+        let msg = Message::from_slice(&encoded);
+        debug!("Responding to client with msg len: {}", msg.len());
+        self.socket.send(msg, 0)?;
+        Ok(())
+    }
+
+    fn add_disk(
+        &self,
+        d: &str,
+        backend: &BackendType,
+        id: Option<u64>,
+        config_dir: &Path,
+    ) -> BynarResult<()> {
+        let mut result = OpResult::new();
+        let backend = match backend::load_backend(backend, Some(config_dir)) {
+            Ok(backend) => backend,
+            Err(e) => {
+                result.set_result(ResultType::ERR);
+                result.set_error_msg(e.to_string());
+
+                // Bail early.  We can't load the backend
+                let _ = self.respond_to_client(&result);
+                return Ok(());
+            }
+        };
+
+        //Send back OpResult
+        match backend.add_disk(&Path::new(d), id, false) {
+            Ok(_) => {
+                result.set_result(ResultType::OK);
+            }
+            Err(e) => {
+                result.set_result(ResultType::ERR);
+                result.set_error_msg(e.to_string());
+            }
+        };
+        let _ = self.respond_to_client(&result);
+
+        Ok(())
+    }
+
+    fn list_disks(&self) -> BynarResult<()> {
+        let disk_list: Vec<Disk> = get_disks()?;
+
+        let mut disks = Disks::new();
+        disks.set_disk(RepeatedField::from_vec(disk_list));
+        debug!("Encoding disk list");
+        let encoded = disks.write_to_bytes()?;
+
+        let msg = Message::from_slice(&encoded);
+        debug!("Responding to client with msg len: {}", msg.len());
+        self.socket.send(msg, 0)?;
+        Ok(())
+    }
+
+    fn remove_disk(&self, d: &str, backend: &BackendType, config_dir: &Path) -> BynarResult<()> {
+        //Returns OpResult
+        let mut result = OpResult::new();
+        let backend = match backend::load_backend(backend, Some(config_dir)) {
+            Ok(b) => b,
+            Err(e) => {
+                result.set_result(ResultType::ERR);
+                result.set_error_msg(e.to_string());
+
+                // Bail early.  We can't load the backend
+                let _ = self.respond_to_client(&result);
+                return Ok(());
+            }
+        };
+        match backend.remove_disk(&Path::new(d), false) {
+            Ok(_) => {
+                result.set_result(ResultType::OK);
+            }
+            Err(e) => {
+                result.set_result(ResultType::ERR);
+                result.set_error_msg(e.to_string());
+            }
+        };
+        let _ = self.respond_to_client(&result);
+        Ok(())
+    }
+
+    fn safe_to_remove_disk(
+        &self,
+        d: &str,
+        backend: &BackendType,
+        config_dir: &Path,
+    ) -> BynarResult<()> {
+        debug!("Checking if {} is safe to remove", d);
+        let mut result = OpBoolResult::new();
+        match safe_to_remove(&Path::new(d), &backend, &config_dir) {
+            Ok(val) => {
+                debug!("Safe to remove: {}", val);
+                result.set_result(ResultType::OK);
+                result.set_value(val);
+            }
+            Err(e) => {
+                debug!("Safe to remove err: {}", e);
+                result.set_result(ResultType::ERR);
+                result.set_error_msg(e.to_string());
+                let encoded = result.write_to_bytes()?;
+                let msg = Message::from_slice(&encoded);
+                debug!("Responding to client with msg len: {}", msg.len());
+                self.socket.send(msg, 0)?;
+                return Err(BynarError::new(format!("safe to remove error: {}", e)));
+            }
+        };
+        let encoded = result.write_to_bytes()?;
+        let msg = Message::from_slice(&encoded);
+        debug!("Responding to client with msg len: {}", msg.len());
+        self.socket.send(msg, 0)?;
+        Ok(())
+    }
+}
+
 fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
     match *m {
         MediaType::Loopback => DiskType::LOOPBACK,
@@ -49,47 +215,6 @@ fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
     }
 }
 
-fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
-    // will raise EINVAL if not linked against libsodium
-    // The ubuntu package is linked so this shouldn't fail
-    s.set_curve_server(true)?;
-    let keypair = zmq::CurveKeyPair::new()?;
-    let hostname =
-        get_hostname().ok_or_else(|| Error::new(ErrorKind::Other, "hostname not found"))?;
-    let key_file = config_dir.join(format!("{}.pem", hostname));
-    if vault {
-        //Connect to vault
-        let config: DiskManagerConfig = helpers::load_config(&config_dir, "disk-manager.json")?;
-        if config.vault_token.is_none() || config.vault_endpoint.is_none() {
-            error!("Vault support requested but vault_token or vault_endpoint aren't set");
-            return Err(BynarError::new(
-                "vault_token or vault_endpoint must be set for vault support".to_string(),
-            ));
-        }
-        let endpoint = config.vault_endpoint.unwrap();
-        let token = config.vault_token.unwrap();
-        debug!(
-            "Connecting to vault to save the public key to /bynar/{}.pem",
-            hostname
-        );
-        let client = VaultClient::new(endpoint.as_str(), token)?;
-        client.set_secret(
-            format!("{}/{}.pem", config_dir.display(), hostname),
-            std::str::from_utf8(&keypair.public_key).unwrap(),
-        )?;
-        s.set_curve_secretkey(&keypair.secret_key)?;
-    } else {
-        debug!("Creating new curve keypair");
-        s.set_curve_secretkey(&keypair.secret_key)?;
-        let mut f = File::create(key_file)?;
-        f.write_all(&keypair.public_key)?;
-    }
-    debug!("Server mechanism: {:?}", s.get_mechanism());
-    debug!("Curve server: {:?}", s.is_curve_server());
-
-    Ok(())
-}
-
 /*
 Server that manages disks
 */
@@ -101,17 +226,18 @@ fn listen(
 ) -> BynarResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
-    let responder = context.socket(zmq::REP)?;
+    let responder = ServerSocket::new(context.socket(zmq::REP)?);
 
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
-    setup_curve(&responder, config_dir, vault)?;
+    responder.setup_curve(config_dir, vault)?;
     assert!(responder
+        .socket
         .bind(&format!("tcp://{}:5555", listen_address))
         .is_ok());
 
     loop {
-        let msg = responder.recv_bytes(0)?;
+        let msg = responder.socket.recv_bytes(0)?;
         debug!("Got msg len: {}", msg.len());
         trace!("Parsing msg {:?} as hex", msg);
         let operation = match parse_from_bytes::<api::service::Operation>(&msg) {
@@ -139,17 +265,11 @@ fn listen(
                         "missing operation field in protocol. Ignoring request".to_string(),
                     );
 
-                    let _ = respond_to_client(&result, &responder);
+                    let _ = responder.respond_to_client(&result);
                     continue;
                 }
                 nout_match!(
-                    add_disk(
-                        &responder,
-                        operation.get_disk(),
-                        &backend_type,
-                        id,
-                        config_dir,
-                    ),
+                    responder.add_disk(operation.get_disk(), &backend_type, id, config_dir,),
                     "Add disk finished",
                     "Add disk error: {:?}"
                 );
@@ -159,7 +279,7 @@ fn listen(
             }
             Op::List => {
                 nout_match!(
-                    list_disks(&responder),
+                    responder.list_disks(),
                     "List disks finished",
                     "List disks error: {:?}"
                 );
@@ -173,12 +293,7 @@ fn listen(
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
                     Ok(true) => {
                         nout_match!(
-                            remove_disk(
-                                &responder,
-                                operation.get_disk(),
-                                &backend_type,
-                                config_dir,
-                            ),
+                            responder.remove_disk(operation.get_disk(), &backend_type, config_dir,),
                             "Remove disk finished",
                             "Remove disk error: {:?}"
                         );
@@ -188,14 +303,14 @@ fn listen(
                         //Response to client
                         result.set_result(ResultType::ERR);
                         result.set_error_msg("Not safe to remove disk".to_string());
-                        let _ = respond_to_client(&result, &responder);
+                        let _ = responder.respond_to_client(&result);
                     }
                     Err(e) => {
                         error!("safe to remove failed: {:?}", e);
                         // Response to client
                         result.set_result(ResultType::ERR);
                         result.set_error_msg(e.to_string());
-                        let _ = respond_to_client(&result, &responder);
+                        let _ = responder.respond_to_client(&result);
                     }
                 };
             }
@@ -205,12 +320,7 @@ fn listen(
                     continue;
                 }
                 nout_match!(
-                    safe_to_remove_disk(
-                        &responder,
-                        operation.get_disk(),
-                        &backend_type,
-                        config_dir,
-                    ),
+                    responder.safe_to_remove_disk(operation.get_disk(), &backend_type, config_dir,),
                     "Safe to remove disk finished",
                     "Safe to remove error: {:?}"
                 );
@@ -218,49 +328,6 @@ fn listen(
         };
         thread::sleep(Duration::from_millis(10));
     }
-}
-
-fn respond_to_client(result: &OpResult, s: &Socket) -> BynarResult<()> {
-    let encoded = result.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded);
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send(msg, 0)?;
-    Ok(())
-}
-
-fn add_disk(
-    s: &Socket,
-    d: &str,
-    backend: &BackendType,
-    id: Option<u64>,
-    config_dir: &Path,
-) -> BynarResult<()> {
-    let mut result = OpResult::new();
-    let backend = match backend::load_backend(backend, Some(config_dir)) {
-        Ok(backend) => backend,
-        Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
-            // Bail early.  We can't load the backend
-            let _ = respond_to_client(&result, s);
-            return Ok(());
-        }
-    };
-
-    //Send back OpResult
-    match backend.add_disk(&Path::new(d), id, false) {
-        Ok(_) => {
-            result.set_result(ResultType::OK);
-        }
-        Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-        }
-    };
-    let _ = respond_to_client(&result, s);
-
-    Ok(())
 }
 
 fn get_disks() -> BynarResult<Vec<Disk>> {
@@ -317,84 +384,11 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
     Ok(partition_info)
 }
 
-fn list_disks(s: &Socket) -> BynarResult<()> {
-    let disk_list: Vec<Disk> = get_disks()?;
-
-    let mut disks = Disks::new();
-    disks.set_disk(RepeatedField::from_vec(disk_list));
-    debug!("Encoding disk list");
-    let encoded = disks.write_to_bytes()?;
-
-    let msg = Message::from_slice(&encoded);
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send(msg, 0)?;
-    Ok(())
-}
-
-fn remove_disk(s: &Socket, d: &str, backend: &BackendType, config_dir: &Path) -> BynarResult<()> {
-    //Returns OpResult
-    let mut result = OpResult::new();
-    let backend = match backend::load_backend(backend, Some(config_dir)) {
-        Ok(b) => b,
-        Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
-            // Bail early.  We can't load the backend
-            let _ = respond_to_client(&result, s);
-            return Ok(());
-        }
-    };
-    match backend.remove_disk(&Path::new(d), false) {
-        Ok(_) => {
-            result.set_result(ResultType::OK);
-        }
-        Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-        }
-    };
-    let _ = respond_to_client(&result, s);
-    Ok(())
-}
-
 fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarResult<bool> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
     let safe = backend.safe_to_remove(d, false)?;
 
     Ok(safe)
-}
-
-fn safe_to_remove_disk(
-    s: &Socket,
-    d: &str,
-    backend: &BackendType,
-    config_dir: &Path,
-) -> BynarResult<()> {
-    debug!("Checking if {} is safe to remove", d);
-    let mut result = OpBoolResult::new();
-    match safe_to_remove(&Path::new(d), &backend, &config_dir) {
-        Ok(val) => {
-            debug!("Safe to remove: {}", val);
-            result.set_result(ResultType::OK);
-            result.set_value(val);
-        }
-        Err(e) => {
-            debug!("Safe to remove err: {}", e);
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-            let encoded = result.write_to_bytes()?;
-            let msg = Message::from_slice(&encoded);
-            debug!("Responding to client with msg len: {}", msg.len());
-            s.send(msg, 0)?;
-            return Err(BynarError::new(format!("safe to remove error: {}", e)));
-        }
-    };
-    let encoded = result.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded);
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send(msg, 0)?;
-    Ok(())
 }
 
 fn main() {

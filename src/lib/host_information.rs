@@ -11,7 +11,6 @@ use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
-
 macro_rules! check_path {
     ($path: expr, $err: expr) => {
         if Path::exists(Path::new($path)) {
@@ -56,16 +55,16 @@ impl Host {
         );
         debug!("Gathering server type");
         let server_type = check_path!(
-        "/sys/class/dmi/id/product_name",
-        "/sys/class/dmi/id/product_name does not exist"
-    )?;
-    debug!("Gathering server serial");
-    // Try the easy way first
-    debug!("Checking for serial in /sys/class/dmi/id/product_serial");
+            "/sys/class/dmi/id/product_name",
+            "/sys/class/dmi/id/product_name does not exist"
+        )?;
+        debug!("Gathering server serial");
+        // Try the easy way first
+        debug!("Checking for serial in /sys/class/dmi/id/product_serial");
         let serial_number = check_path!(
-        "/sys/class/dmi/id/product_serial",
-        "Unable to discover system serial"
-    )?;
+            "/sys/class/dmi/id/product_serial",
+            "Unable to discover system serial"
+        )?;
         debug!("Gathering raid info");
         let scsi_info = block_utils::get_scsi_info()?;
 
@@ -182,7 +181,6 @@ fn get_storage_type() -> BynarResult<StorageTypeEnum> {
     // TODO: Change this later for other types
     Ok(StorageTypeEnum::Ceph)
 }
-
 
 /*
 /// Find the server type
