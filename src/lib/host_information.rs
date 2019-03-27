@@ -11,6 +11,17 @@ use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
+
+macro_rules! check_path {
+    ($path: expr, $err: expr) => {
+        if Path::exists(Path::new($path)) {
+            let buff = read_to_string(Path::new($path))?;
+            Ok(buff.trim().into())
+        } else {
+            Err(BynarError::from($err))
+        }
+    };
+}
 /// All the host information we could gather
 #[derive(Debug)]
 pub struct Host {
@@ -43,8 +54,18 @@ impl Host {
             "ip {}, region {}, storage_type {}",
             ip, region, storage_type
         );
-        let server_type = server_type()?;
-        let serial_number = server_serial()?;
+        debug!("Gathering server type");
+        let server_type = check_path!(
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/product_name does not exist"
+    )?;
+    debug!("Gathering server serial");
+    // Try the easy way first
+    debug!("Checking for serial in /sys/class/dmi/id/product_serial");
+        let serial_number = check_path!(
+        "/sys/class/dmi/id/product_serial",
+        "Unable to discover system serial"
+    )?;
         debug!("Gathering raid info");
         let scsi_info = block_utils::get_scsi_info()?;
 
@@ -162,28 +183,25 @@ fn get_storage_type() -> BynarResult<StorageTypeEnum> {
     Ok(StorageTypeEnum::Ceph)
 }
 
+
+/*
 /// Find the server type
 fn server_type() -> BynarResult<String> {
     debug!("Gathering server type");
-    let path = Path::new("/sys/class/dmi/id/product_name");
-    if Path::exists(path) {
-        let buff = read_to_string(path)?;
-        return Ok(buff.trim().into());
-    }
-    Err(BynarError::from(
-        "/sys/class/dmi/id/product_name does not exist",
-    ))
-}
+    check_path!(
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/product_name does not exist"
+    )
+}*/
 
-fn server_serial() -> BynarResult<String> {
+/*fn server_serial() -> BynarResult<String> {
     debug!("Gathering server serial");
     // Try the easy way first
     debug!("Checking for serial in /sys/class/dmi/id/product_serial");
-    let path_1 = Path::new("/sys/class/dmi/id/product_serial");
-    if Path::exists(path_1) {
-        let buff = read_to_string(path_1)?;
-        return Ok(buff.trim().into());
-    }
+    check_path!(
+        "/sys/class/dmi/id/product_serial",
+        "Unable to discover system serial"
+    )
 
     // /sys/firmware/dmi/tables/DMI
     /*
@@ -217,8 +235,8 @@ fn server_serial() -> BynarResult<String> {
     */
     // /sys/firmware/efi/systab
     // /proc/efi/systab
-    Err(BynarError::from("Unable to discover system serial"))
-}
+   // Err(BynarError::from("Unable to discover system serial"))
+}*/
 
 //TODO: smp-utils has a lot of use information about how to interface with sas enclosures
 // http://sg.danny.cz/sg/smp_utils.html#mozTocId356346
