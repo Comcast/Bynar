@@ -84,7 +84,7 @@ tempdir = "~0.3"
 time = "~0.1"
 uname = "~0.1"
 uuid = { version="~0.7", features = ["v4"]}
-zmq = {version="~0.8"}
+zmq = {version="~0.9"}
 
 [lib]
 name = "helpers"

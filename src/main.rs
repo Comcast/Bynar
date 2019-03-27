@@ -16,7 +16,7 @@ use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::State;
 use clap::{crate_authors, crate_version, App, Arg};
-use helpers::{error::*, host_information::Host};
+use helpers::{error::*, host_information::Host, ClientSocket};
 use log::{debug, error, info, warn};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
@@ -177,13 +177,13 @@ fn check_for_failed_disks(
                         (false, false) => {
                             debug!("Asking disk-manager if it's safe to remove disk");
                             // CALL RPC
-                            let mut socket = helpers::connect(
+                            let socket = ClientSocket::connect(
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
                                 &public_key,
                             )?;
                             match (
-                                helpers::safe_to_remove_request(&mut socket, &dev_path),
+                                socket.safe_to_remove_request(&dev_path),
                                 config.slack_webhook.is_some(),
                             ) {
                                 (Ok(true), true) => {
@@ -198,12 +198,7 @@ fn check_for_failed_disks(
                                         ),
                                     );
 
-                                    match helpers::remove_disk_request(
-                                        &mut socket,
-                                        &dev_path,
-                                        None,
-                                        false,
-                                    ) {
+                                    match socket.remove_disk_request(&dev_path, None, false) {
                                         Ok(_) => {
                                             debug!("Disk removal successful");
                                         }
@@ -394,18 +389,13 @@ fn add_repaired_disks(
             Ok(true) => {
                 //CALL RPC
                 debug!("Connecting to disk-manager");
-                let mut socket = helpers::connect(
+                let socket = ClientSocket::connect(
                     &config.manager_host,
                     &config.manager_port.to_string(),
                     &public_key,
                 )?;
 
-                match helpers::add_disk_request(
-                    &mut socket,
-                    &Path::new(&ticket.device_path),
-                    None,
-                    simulate,
-                ) {
+                match socket.add_disk_request(&Path::new(&ticket.device_path), None, simulate) {
                     Ok(_) => {
                         debug!("Disk added successfully. Updating database record");
                         match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {

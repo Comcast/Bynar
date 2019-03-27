@@ -3,35 +3,16 @@ use std::fs::{read_to_string, File};
 use std::path::Path;
 use std::str::FromStr;
 
-use api::service::Disk;
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
-use helpers::error::BynarResult;
+use helpers::ClientSocket;
 use hostname::get_hostname;
 use log::{error, info};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
-use zmq::Socket;
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::add_disk_request(s, path, id, simulate)?;
-    Ok(())
-}
-
-fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
-    let disks = helpers::list_disks_request(s)?;
-    println!("disk list: {:?}", disks);
-
-    Ok(disks)
-}
-
-fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::remove_disk_request(s, path, id, simulate)?;
-    Ok(())
-}
-
-fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_add_disk(s: &ClientSocket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -42,7 +23,7 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
         Some(s) => bool::from_str(&s).unwrap(),
         None => false,
     };
-    match add_disk(s, &p, id, simulate) {
+    match s.add_disk_request(&p, id, simulate) {
         Ok(_) => {
             println!("Adding disk successful");
         }
@@ -52,9 +33,9 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     };
 }
 
-fn handle_list_disks(s: &mut Socket) {
+fn handle_list_disks(s: &ClientSocket) {
     info!("Listing disks");
-    match list_disks(s) {
+    match s.list_disks_request() {
         Ok(disks) => {
             println!("Disk list: {:?}", disks);
         }
@@ -64,7 +45,7 @@ fn handle_list_disks(s: &mut Socket) {
     };
 }
 
-fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_remove_disk(s: &ClientSocket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -75,7 +56,7 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
         Some(s) => bool::from_str(&s).unwrap(),
         None => false,
     };
-    match remove_disk(s, &p, id, simulate) {
+    match s.remove_disk_request(&p, id, simulate) {
         Ok(_) => {
             println!("Removing disk successful");
         }
@@ -208,7 +189,7 @@ fn main() {
     info!("Starting up");
     let server_pubkey = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
 
-    let mut s = match helpers::connect(host, port, &server_pubkey) {
+    let s = match ClientSocket::connect(host, port, &server_pubkey) {
         Ok(s) => s,
         Err(e) => {
             error!("Error connecting to socket: {:?}", e);
@@ -216,12 +197,12 @@ fn main() {
         }
     };
     if let Some(ref matches) = matches.subcommand_matches("add") {
-        handle_add_disk(&mut s, matches);
+        handle_add_disk(&s, matches);
     }
     if matches.subcommand_matches("list").is_some() {
-        handle_list_disks(&mut s);
+        handle_list_disks(&s);
     }
     if let Some(ref matches) = matches.subcommand_matches("remove") {
-        handle_remove_disk(&mut s, matches);
+        handle_remove_disk(&s, matches);
     }
 }
