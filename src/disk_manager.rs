@@ -11,9 +11,7 @@ use api::service::{
     Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo, ResultType,
 };
 mod backend;
-mod in_progress;
 
-use crate::in_progress::{get_pending_tickets,create_db_connection_pool};
 use crate::backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
