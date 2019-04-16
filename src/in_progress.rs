@@ -1153,6 +1153,7 @@ pub fn get_pending_tickets(
         Ok(tickets)
     }
 }
+<<<<<<< HEAD
 
 /// Get region id based on the region name.
 pub fn get_region_id(
@@ -1251,3 +1252,5 @@ pub fn get_storage_detail_id(
     }
     Ok(storage_detail_id)
 }
+=======
+>>>>>>> 7430a2efdb77449da4784ea856380c43b6c43284

@@ -12,7 +12,12 @@ use api::service::{
 };
 mod backend;
 mod in_progress;
+<<<<<<< HEAD
 mod test_disk;
+=======
+
+use crate::in_progress::{get_pending_tickets,create_db_connection_pool};
+>>>>>>> 7430a2efdb77449da4784ea856380c43b6c43284
 use crate::backend::BackendType;
 use crate::in_progress::{get_pending_tickets,create_db_connection_pool};
 use block_utils::{Device, MediaType};
