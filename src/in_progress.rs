@@ -1111,45 +1111,4 @@ pub fn is_hardware_waiting_repair(
     Ok(!stmt_query.is_empty())
 }
 
-/// Get a list of ticket IDs (JIRA/other ids) that belong to me.
-/// that are in pending state 
-pub fn get_pending_tickets(
-    pool: &Pool<ConnectionManager>,
-    storage_detail_id: u32,
-) -> BynarResult<Vec<DiskRepairTicket>> {
-    let conn = get_connection_from_pool(pool)?;
 
-    // Get all tickets of myself with operation_detail.status = pending 
-    let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
-     JOIN hardware USING (device_id) WHERE 
-     status=$1 AND  detail_id = $2 AND  
-     tracking_id IS NOT NULL ORDER BY operations.start_time";
-
-    let detail_id = storage_detail_id as i32;
-    let stmt_query = conn.query(
-        &stmt,
-        &[
-            &OperationStatus::Pending.to_string(),
-            &detail_id,
-        ],
-    )?;
-    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
-    if stmt_query.is_empty() {
-        debug!(
-            "No pending tickets for this host with detail id {}",
-            storage_detail_id
-        );
-        Ok(tickets)
-    } else {
-        debug!(
-            "{} pending tickets for this host with detail id {}",
-            stmt_query.len(),
-            storage_detail_id
-        );
-        for row in stmt_query.iter() {
-            // TODO [SD]: use postgres_derive
-            tickets.push(row_to_ticket(&row));
-        }
-        Ok(tickets)
-    }
-}
