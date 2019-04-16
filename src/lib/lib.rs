@@ -1,6 +1,7 @@
 //! Functions that are needed across most of the workspace.
 //!
 use std::fs::read_to_string;
+use serde_derive::*;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
@@ -201,4 +202,42 @@ pub fn remove_disk_request(
             }
         }
     }
+}
+
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ConfigSettings {
+     pub manager_host: String,
+    pub manager_port: u16,
+    /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)
+    pub redfish_ip: Option<String>,
+    /// Redfish credentials
+    pub redfish_username: Option<String>,
+    /// Redfish credentials
+    pub redfish_password: Option<String>,
+    /// The port redfish is listening on
+    pub redfish_port: Option<u16>,
+    pub slack_webhook: Option<String>,
+    pub slack_channel: Option<String>,
+    pub slack_botname: Option<String>,
+    pub vault_endpoint: Option<String>,
+    pub vault_token: Option<String>,
+    pub jira_user: String,
+    pub jira_password: String,
+    pub jira_host: String,
+    pub jira_issue_type: String,
+    pub jira_priority: String,
+    pub jira_project_id: String,
+    pub jira_ticket_assignee: String,
+    pub proxy: Option<String>,
+    pub database: DBConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DBConfig {
+    pub username: String,
+    pub password: Option<String>,
+    pub port: u16,
+    pub endpoint: String,
+    pub dbname: String,
 }

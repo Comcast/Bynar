@@ -1,9 +1,9 @@
-use super::DBConfig;
+//use super::DBConfig;
 use crate::test_disk::{BlockDevice, State};
 /// Monitor in progress disk repairs
 use chrono::offset::Utc;
 use chrono::DateTime;
-use helpers::{error::*, host_information::Host as MyHost};
+use helpers::{error::*, host_information::Host as MyHost,DBConfig};
 use log::{debug, error, info};
 use postgres::{params::ConnectParams, params::Host, rows::Row, transaction::Transaction};
 use r2d2::{Pool, PooledConnection};
@@ -1109,4 +1109,145 @@ pub fn is_hardware_waiting_repair(
 
     let stmt_query = conn.query(&stmt, &params)?;
     Ok(!stmt_query.is_empty())
+}
+
+/// Get a list of ticket IDs (JIRA/other ids) that belong to me.
+/// that are in pending state 
+pub fn get_pending_tickets(
+    pool: &Pool<ConnectionManager>,
+    storage_detail_id: u32,
+) -> BynarResult<Vec<DiskRepairTicket>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get all tickets of myself with operation_detail.status = pending 
+    let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
+     JOIN hardware USING (device_id) WHERE 
+     status=$1 AND  detail_id = $2 AND  
+     tracking_id IS NOT NULL ORDER BY operations.start_time";
+
+    let detail_id = storage_detail_id as i32;
+    let stmt_query = conn.query(
+        &stmt,
+        &[
+            &OperationStatus::Pending.to_string(),
+            &detail_id,
+        ],
+    )?;
+    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
+    if stmt_query.is_empty() {
+        debug!(
+            "No pending tickets for this host with detail id {}",
+            storage_detail_id
+        );
+        Ok(tickets)
+    } else {
+        debug!(
+            "{} pending tickets for this host with detail id {}",
+            stmt_query.len(),
+            storage_detail_id
+        );
+        for row in stmt_query.iter() {
+            // TODO [SD]: use postgres_derive
+            tickets.push(row_to_ticket(&row));
+        }
+        Ok(tickets)
+    }
+}
+
+/// Get region id based on the region name.
+pub fn get_region_id(
+    pool: &Pool<ConnectionManager>,
+    region_name: &str,
+) -> BynarResult<u32> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get region Id from region name  
+     let stmt = format!(
+        "SELECT region_id FROM regions WHERE region_name = '{}'",
+        region_name
+    );
+    let stmt_query = conn.query(&stmt, &[])?;
+
+    let mut region_id: u32 = 0;
+
+    
+   if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return region_id
+        let id: i32 = res.get(0);
+        region_id = id as u32;
+        debug!(
+            "Region id {} for the region {}",
+            region_id,region_name);
+        
+    } else {
+        // does not exist
+        debug!("No region with name {} in database", region_name);
+    }
+    Ok(region_id)
+}
+
+/// Get storage id based on the storage type.
+pub fn get_storage_id(
+    pool: &Pool<ConnectionManager>,
+    storage_type: &str,
+) -> BynarResult<u32> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get storage Id from storage type  
+     let stmt = format!(
+         "SELECT storage_id FROM storage_types WHERE storage_type='{}'",
+          storage_type
+    );
+    let stmt_query = conn.query(&stmt, &[])?;
+
+    let mut storage_id: u32 = 0;
+
+    
+   if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return storage_id
+        let id: i32 = res.get(0);
+        storage_id = id as u32;
+        debug!(
+            "Storage id {} for the storage_type {}",
+            storage_id,storage_type);
+    } else {
+        // does not exist
+        debug!("No storage with type {} in database", storage_type);
+    }
+    Ok(storage_id)
+}
+
+/// Get storage id based on the storage type.
+pub fn get_storage_detail_id(
+    pool: &Pool<ConnectionManager>,
+    storage_id: u32,
+    region_id: u32,
+    host_name : &str
+) -> BynarResult<u32> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get storage detail Id 
+     let stmt = format!(
+         "SELECT detail_id FROM storage_details WHERE storage_id = {}
+            AND region_id = {} AND hostname = '{}'",
+            storage_id, region_id, host_name
+    );
+    let stmt_query = conn.query(&stmt, &[])?;
+
+    let mut storage_detail_id: u32 = 0;
+
+    
+   if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return storage_id
+        let id: i32 = res.get(0);
+        storage_detail_id = id as u32;
+        debug!(
+            "Storage details id {} for the host_name {} , region {} , storage_id {} ",
+            storage_detail_id,host_name,region_id,storage_id);
+    } else {
+        // does not exist
+        debug!("No storage detail id with host_name {} , region {} , storage_id {} 
+        in database", host_name,region_id,storage_id,);
+    }
+    Ok(storage_detail_id)
 }
