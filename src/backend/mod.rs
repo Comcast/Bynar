@@ -5,11 +5,10 @@ pub mod gluster;
 use std::path::Path;
 use std::str::FromStr;
 
-
-use serde_derive::*;
 use self::ceph::CephBackend;
 use self::gluster::GlusterBackend;
 use helpers::error::*;
+use serde_derive::*;
 
 /// Different distributed storage clusters have different ways of adding and removing
 /// disks.  This will be consolidated here in trait impl's.

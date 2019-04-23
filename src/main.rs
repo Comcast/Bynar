@@ -4,7 +4,6 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
-
 use serde_derive::*;
 
 mod create_support_ticket;
@@ -18,7 +17,7 @@ use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::State;
 use clap::{crate_authors, crate_version, App, Arg};
-use helpers::{error::*, host_information::Host,ConfigSettings};
+use helpers::{error::*, host_information::Host, ConfigSettings};
 use log::{debug, error, info, warn};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;

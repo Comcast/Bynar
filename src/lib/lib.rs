@@ -1,7 +1,7 @@
 //! Functions that are needed across most of the workspace.
 //!
-use std::fs::read_to_string;
 use serde_derive::*;
+use std::fs::read_to_string;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
@@ -204,10 +204,9 @@ pub fn remove_disk_request(
     }
 }
 
-
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
-     pub manager_host: String,
+    pub manager_host: String,
     pub manager_port: u16,
     /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)
     pub redfish_ip: Option<String>,
