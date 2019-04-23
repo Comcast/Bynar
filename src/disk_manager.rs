@@ -8,11 +8,12 @@ use std::thread;
 use std::time::Duration;
 
 use api::service::{
-    Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo, ResultType,
+    Disk, DiskType, Disks, Op, OpBoolResult, OpResult,OpJiraTicketsResult, JiraInfo, Partition, PartitionInfo, ResultType,
 };
 mod backend;
 mod in_progress;
 mod test_disk;
+
 
 use crate::backend::BackendType;
 use crate::in_progress::{create_db_connection_pool};
@@ -228,11 +229,16 @@ fn listen(
                     }
                 };
             }
-	    Op::GetTicketsCreated => {
-		 let config: ConfigSettings = helpers::load_config(&config_dir, "bynar.json")?;
+            Op::GetTicketsCreated => {
+
+                get_jira_tickets( 
+                    &mut responder,
+                    config_dir
+                );
+               /* let config: ConfigSettings = helpers::load_config(&config_dir, "bynar.json")?;
                 let db_config = config.database;
-                let db_pool = in_progress::create_db_connection_pool(&db_config)?;
-/*{
+                let db_pool = in_progress::create_db_connection_pool(&db_config.database)?;
+               /* {
                     Err(e) => {
                         error!("Failed to create database pool {}", e);
                         return;
@@ -240,26 +246,14 @@ fn listen(
                     Ok(p) => p,
                 };*/
                 let h_info = Host::new();
-               /* if h_info.is_err() {
+                if h_info.is_err() {
                     error!("Failed to gather host information");
                     //gracefully exit
                     return();
-                }*/
+                }
                 let host_info = h_info.expect("Failed to gather host information");
                 debug!("Gathered host info: {:?}", host_info);
                 
-               /* let host_details_mapping: HostDetailsMapping = match update_storage_info(&host_info, &db_pool) {
-                    Err(e) => {
-                        error!("Failed to update information in tracking database {}", e);
-                        // TODO [SD]: return if cannot update.
-                        return;
-                    }
-                    Ok(d) => {
-                        info!("Host information added to database");
-                        d
-                    }
-                };*/
-
                 info!("Getting outstanding repair tickets");
                 //let tickets =  in_progress::get_pending_tickets(&db_pool,host_details_mapping.storage_detail_id);
                 let region_id =  in_progress::get_region_id(&db_pool,&host_info.region)?;
@@ -269,14 +263,14 @@ fn listen(
                 info!("Getting outstanding repair tickets");
                 let tickets = in_progress::get_outstanding_repair_tickets(&db_pool, storage_detail_id)?;
                 debug!("outstanding tickets: {:?}", tickets);
-                info!("Checking for resolved repair tickets");
+                info!("Checking for resolved repair tickets"); */
             }
         };
         thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn respond_to_client(result: &OpResult, s: &mut Socket) -> BynarResult<()> {
+fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
@@ -456,6 +450,86 @@ fn safe_to_remove_disk(
     debug!("Responding to client with msg len: {}", msg.len());
     s.send_msg(msg, 0)?;
     Ok(())
+}
+
+fn get_jira_tickets(s: &mut Socket,config_dir: &Path,
+) -> BynarResult<()> {
+
+    let mut result = OpJiraTicketsResult::new();
+    let config: ConfigSettings =  match helpers::load_config(&config_dir, "bynar.json"){
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to load config file {}", e);
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            // unable to load config file
+            let _ = respond_to_client(&result, s);
+            return Ok(());
+        }
+    };
+    let db_config = config.database;
+    let db_pool = match in_progress::create_db_connection_pool(&db_config) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to create database pool {}", e);
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            // unable to create DB connection
+            let _ = respond_to_client(&result, s);
+            return Ok(());
+        }
+    };
+   
+
+
+
+
+
+
+    let h_info = Host::new();
+    if h_info.is_err() {
+        error!("Failed to gather host information");
+        //gracefully exit
+        return Ok(());
+    }
+    let host_info = h_info.expect("Failed to gather host information");
+    debug!("Gathered host info: {:?}", host_info);
+    
+    info!("Getting outstanding repair tickets");
+    //let tickets =  in_progress::get_pending_tickets(&db_pool,host_details_mapping.storage_detail_id);
+    let region_id =  in_progress::get_region_id(&db_pool,&host_info.region)?;
+    let storage_id =  in_progress::get_storage_id(&db_pool,&host_info.storage_type.to_string())?;
+    let storage_detail_id = in_progress::get_storage_detail_id(&db_pool,storage_id,region_id,&host_info.hostname)?;
+
+    info!("Getting outstanding repair tickets");
+    let tickets = in_progress::get_outstanding_repair_tickets(&db_pool, storage_detail_id)?;
+    debug!("outstanding tickets: {:?}", tickets);
+    info!("Checking for resolved repair tickets");
+    result.set_result(ResultType::OK);
+    let proto_jira: Vec<JiraInfo> = tickets
+        .iter()
+        .map(|j|{
+            let mut  jiraResult= JiraInfo::new();
+            jiraResult.set_ticket_id(j.ticket_id.clone());
+            jiraResult.set_server_name(j.device_name.clone());
+            jiraResult
+        })
+        .collect();
+        result.set_tickets(RepeatedField::from_vec(proto_jira));
+    /*for ticket in tickets {
+      let mut jiraResult = JiraTicket::new();
+      jiraResult.set_ticket_id(ticket.ticket_id.to_string());
+      jiraResult.set_server_name(ticket.device_name.to_string());
+      result.set_tickets(jiraResult);
+    } 
+    result.set_result(ResultType::OK);*/
+    //result.set_tickets(tickets);
+    let _ = respond_to_client(&result, s);
+    debug!("outstanding tickets: {:?}", tickets);
+    info!("Checking for resolved repair tickets");
+     Ok(())
 }
 
 fn main() {
