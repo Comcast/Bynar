@@ -5,7 +5,7 @@ use std::fs::read_to_string;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
-use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
+use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult};
 use hashicorp_vault::client::VaultClient;
 use log::{debug, error};
 use protobuf::parse_from_bytes;
@@ -239,4 +239,41 @@ pub struct DBConfig {
     pub port: u16,
     pub endpoint: String,
     pub dbname: String,
+}
+
+pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+    let mut o = Operation::new();
+    debug!("calling get_jira_tickets ");
+    println!("entered in lib jira ");
+    o.set_Op_type(Op::GetTicketsCreated);
+    //o.set_disk(format!("{}", path.display()));
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Sending message in get_jira_tickets");
+    println!("entered in lib jira "nd set message);
+    s.send_msg(msg, 0)?;
+
+    debug!("Waiting for response: get_jira_tickets");
+    println!("Sending message in get_jira_tickets");
+    let tickets_response = s.recv_bytes(0)?;
+    debug!("Decoding msg len: {}", tickets_response.len());
+    println!("Decoding msg len: {}", tickets_response.len());
+    let op_jira_result = parse_from_bytes::<OpJiraTicketsResult>(&tickets_response)?;
+    match op_jira_result.get_result() {
+        ResultType::OK => {
+            debug!("get tickets successfully");
+            Ok(())
+        }
+        ResultType::ERR => {
+            if op_jira_result.has_error_msg() {
+                let msg = op_jira_result.get_error_msg();
+                error!("get jira tickets failed : {}", msg);
+                Err(BynarError::from(op_jira_result.get_error_msg()))
+            } else {
+                error!("Get jira tickets failed but error_msg not set");
+                Err(BynarError::from("Get jira tickets failed but error_msg not set"))
+            }
+        }
+    }
+   
 }

@@ -448,7 +448,7 @@ fn safe_to_remove_disk(
     Ok(())
 }
 
-fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
+ pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
     let mut result = OpJiraTicketsResult::new();
     let config: ConfigSettings = match helpers::load_config(&config_dir, "bynar.json") {
         Ok(p) => p,

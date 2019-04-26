@@ -1,8 +1,10 @@
 /// This is built into a separate binary called bynar-client
+//mod disk_manager;
 use std::fs::{read_to_string, File};
 use std::path::Path;
 use std::str::FromStr;
 
+//use disk_manager::disk_manager;
 use api::service::Disk;
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
@@ -63,6 +65,17 @@ fn handle_list_disks(s: &mut Socket) {
         }
     };
 }
+
+fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+    println!("start of test get_jir_tickets");
+    //let p = Path::new(matches.value_of("path").unwrap());
+     let tickets = helpers::get_jira_tickets(s)?;
+    println!("End of test get_jir_tickets");
+    Ok(())
+   
+   
+}
+
 
 fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
@@ -145,6 +158,7 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
                 ),
         )
         .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
+        .subcommand(SubCommand::with_name("getticketscreated").about("get all tickets created"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -223,5 +237,8 @@ fn main() {
     }
     if let Some(ref matches) = matches.subcommand_matches("remove") {
         handle_remove_disk(&mut s, matches);
+    }
+    if let Some(ref matches) = matches.subcommand_matches("getticketscreated") {
+        handle_jira_tickets(&mut s);
     }
 }
