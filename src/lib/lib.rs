@@ -250,7 +250,7 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let encoded = o.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
-    println!("entered in lib jira "nd set message);
+    println!("entered in lib jira and set message");
     s.send_msg(msg, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");

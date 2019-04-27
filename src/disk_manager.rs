@@ -230,7 +230,15 @@ fn listen(
                 };
             }
             Op::GetTicketsCreated => {
-                get_jira_tickets(&mut responder, config_dir);
+               match get_jira_tickets(&mut responder,config_dir) {
+                    Ok(_) => {
+                        info!("Fetching jira tickets finished");
+                    }
+                    Err(e) => {
+                        error!("Fetching jira error: {:?}", e);
+                    }
+                };
+               // get_jira_tickets(&mut responder, config_dir);
                 /* let config: ConfigSettings = helpers::load_config(&config_dir, "bynar.json")?;
                  let db_config = config.database;
                  let db_pool = in_progress::create_db_connection_pool(&db_config.database)?;
