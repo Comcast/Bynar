@@ -5,7 +5,7 @@ use std::fs::read_to_string;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
-use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult};
+use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
 use hashicorp_vault::client::VaultClient;
 use log::{debug, error};
 use protobuf::parse_from_bytes;
@@ -250,7 +250,7 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let encoded = o.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
-    println!("entered in lib jira "nd set message);
+    println!("entered in lib jira nd set message");
     s.send_msg(msg, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");
@@ -262,6 +262,12 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     match op_jira_result.get_result() {
         ResultType::OK => {
             debug!("get tickets successfully");
+             let proto_jira = op_jira_result.get_tickets();
+             let mut jira: Vec<JiraInfo> = Vec::new();
+            for JiraInfo in proto_jira {
+               println!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+               println!("get_server_name: {}", JiraInfo.get_server_name());
+            }
             Ok(())
         }
         ResultType::ERR => {

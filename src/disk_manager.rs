@@ -487,13 +487,14 @@ fn safe_to_remove_disk(
 
     info!("Getting outstanding repair tickets");
     //let tickets =  in_progress::get_pending_tickets(&db_pool,host_details_mapping.storage_detail_id);
-    let region_id = in_progress::get_region_id(&db_pool, &host_info.region)?;
-    let storage_id = in_progress::get_storage_id(&db_pool, &host_info.storage_type.to_string())?;
-    let storage_detail_id =
-        in_progress::get_storage_detail_id(&db_pool, storage_id, region_id, &host_info.hostname)?;
+  //  let region_id = in_progress::get_region_id(&db_pool, &host_info.region)?;
+  //  let storage_id = in_progress::get_storage_id(&db_pool, &host_info.storage_type.to_string())?;
+  //  let storage_detail_id =
+    //    in_progress::get_storage_detail_id(&db_pool, storage_id, region_id, &host_info.hostname)?;
 
-    info!("Getting outstanding repair tickets");
-    let tickets = in_progress::get_outstanding_repair_tickets(&db_pool, storage_detail_id)?;
+    info!("Getting all  outstanding repair tickets");
+   // let tickets = in_progress::get_outstanding_repair_tickets(&db_pool, storage_detail_id)?;
+   let tickets = in_progress::get_AllPendOut_tickets(&db_pool)?;
     debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
     result.set_result(ResultType::OK);

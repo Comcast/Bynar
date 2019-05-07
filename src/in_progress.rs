@@ -1201,3 +1201,47 @@ pub fn get_storage_detail_id(
     }
     Ok(storage_detail_id)
 }
+
+/// Get a list of ticket IDs (JIRA/other ids) that belong to all servers.
+/// that are in pending state  and outstanding tickets
+pub fn get_AllPendOut_tickets(
+    pool: &Pool<ConnectionManager>
+) -> BynarResult<Vec<DiskRepairTicket>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get all tickets of myself with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
+     let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations
+     USING (operation_id) JOIN hardware USING (device_id) WHERE
+     (status=$1 OR status=$2) AND
+     type_id = (SELECT type_id FROM operation_types WHERE op_name= $3) AND
+     hardware.state in ($4, $5) AND tracking_id IS NOT NULL ORDER BY operations.start_time";
+
+
+    let stmt_query = conn.query(
+        &stmt,
+        &[
+            &OperationStatus::InProgress.to_string(),
+            &OperationStatus::Pending.to_string(),
+            &OperationType::WaitingForReplacement.to_string(),
+            &State::WaitingForReplacement.to_string(),
+            &State::Good.to_string()
+        ],
+    )?;
+    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
+    if stmt_query.is_empty() {
+        debug!(
+            "No pending tickets for any host "
+        );
+        Ok(tickets)
+    } else {
+        debug!(
+            "{} pending tickets for all hosts ",
+            stmt_query.len()
+        );
+        for row in stmt_query.iter() {
+            // TODO [SD]: use postgres_derive
+            tickets.push(row_to_ticket(&row));
+        }
+        Ok(tickets)
+    }
+}
