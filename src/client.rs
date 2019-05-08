@@ -68,8 +68,7 @@ fn handle_list_disks(s: &mut Socket) {
 
 fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     println!("start of test get_jir_tickets");
-    //let p = Path::new(matches.value_of("path").unwrap());
-     let tickets = helpers::get_jira_tickets(s)?;
+    let tickets = helpers::get_jira_tickets(s)?;
     println!("End of test get_jir_tickets");
     Ok(())
    
@@ -158,7 +157,7 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
                 ),
         )
         .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
-        .subcommand(SubCommand::with_name("getticketscreated").about("get all tickets created"))
+        .subcommand(SubCommand::with_name("get_jira_tickets").about("get all tickets created"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -238,7 +237,7 @@ fn main() {
     if let Some(ref matches) = matches.subcommand_matches("remove") {
         handle_remove_disk(&mut s, matches);
     }
-    if let Some(ref matches) = matches.subcommand_matches("getticketscreated") {
+    if let Some(ref matches) = matches.subcommand_matches("get_jira_tickets") {
         handle_jira_tickets(&mut s);
     }
 }

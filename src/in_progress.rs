@@ -1239,7 +1239,6 @@ pub fn get_AllPendOut_tickets(
             stmt_query.len()
         );
         for row in stmt_query.iter() {
-            // TODO [SD]: use postgres_derive
             tickets.push(row_to_ticket(&row));
         }
         Ok(tickets)
