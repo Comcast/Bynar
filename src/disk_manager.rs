@@ -493,16 +493,8 @@ fn safe_to_remove_disk(
     let host_info = h_info.expect("Failed to gather host information");
     debug!("Gathered host info: {:?}", host_info);
 
-    info!("Getting outstanding repair tickets");
-    //let tickets =  in_progress::get_pending_tickets(&db_pool,host_details_mapping.storage_detail_id);
-  //  let region_id = in_progress::get_region_id(&db_pool, &host_info.region)?;
-  //  let storage_id = in_progress::get_storage_id(&db_pool, &host_info.storage_type.to_string())?;
-  //  let storage_detail_id =
-    //    in_progress::get_storage_detail_id(&db_pool, storage_id, region_id, &host_info.hostname)?;
-
     info!("Getting all  outstanding repair tickets");
-   // let tickets = in_progress::get_outstanding_repair_tickets(&db_pool, storage_detail_id)?;
-   let tickets = in_progress::get_AllPendOut_tickets(&db_pool)?;
+    let tickets = in_progress::get_AllPendOut_tickets(&db_pool)?;
     debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
     result.set_result(ResultType::OK);
@@ -516,14 +508,7 @@ fn safe_to_remove_disk(
         })
         .collect();
     result.set_tickets(RepeatedField::from_vec(proto_jira));
-    /*for ticket in tickets {
-      let mut jiraResult = JiraTicket::new();
-      jiraResult.set_ticket_id(ticket.ticket_id.to_string());
-      jiraResult.set_server_name(ticket.device_name.to_string());
-      result.set_tickets(jiraResult);
-    }
-    result.set_result(ResultType::OK);*/
-    //result.set_tickets(tickets);
+    
     let _ = respond_to_client(&result, s);
     debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
