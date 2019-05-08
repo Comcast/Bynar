@@ -1112,7 +1112,7 @@ pub fn is_hardware_waiting_repair(
 }
 
 /// Get region id based on the region name.
-pub fn get_region_id(pool: &Pool<ConnectionManager>, region_name: &str) -> BynarResult<u32> {
+pub fn get_region_id(pool: &Pool<ConnectionManager>, region_name: &str) -> BynarResult<Option<u32>> {
     let conn = get_connection_from_pool(pool)?;
 
     // Get region Id from region name
@@ -1126,15 +1126,17 @@ pub fn get_region_id(pool: &Pool<ConnectionManager>, region_name: &str) -> Bynar
         let id: i32 = res.get(0);
         region_id = id as u32;
         debug!("Region id {} for the region {}", region_id, region_name);
+        Ok(Some(region_id))
     } else {
         // does not exist
         debug!("No region with name {} in database", region_name);
+        Ok(None)
     }
-    Ok(region_id)
+    
 }
 
 /// Get storage id based on the storage type.
-pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> BynarResult<u32> {
+pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> BynarResult<Option<u32>> {
     let conn = get_connection_from_pool(pool)?;
 
     // Get storage Id from storage type
@@ -1151,11 +1153,12 @@ pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> Byn
             "Storage id {} for the storage_type {}",
             storage_id, storage_type
         );
+        Ok(Some(storage_id))
     } else {
         // does not exist
         debug!("No storage with type {} in database", storage_type);
+        Ok(None)
     }
-    Ok(storage_id)
 }
 
 /// Get storage id based on the storage type.
@@ -1164,7 +1167,7 @@ pub fn get_storage_detail_id(
     storage_id: u32,
     region_id: u32,
     host_name: &str,
-) -> BynarResult<u32> {
+) -> BynarResult<Option<u32>> {
     let conn = get_connection_from_pool(pool)?;
 
     // Get storage detail Id
@@ -1182,6 +1185,7 @@ pub fn get_storage_detail_id(
             "Storage details id {} for the host_name {} , region {} , storage_id {} ",
             storage_detail_id, host_name, region_id, storage_id
         );
+        Ok(Some(storage_detail_id))
     } else {
         // does not exist
         debug!(
@@ -1189,8 +1193,8 @@ pub fn get_storage_detail_id(
         in database",
             host_name, region_id, storage_id,
         );
+        Ok(None)
     }
-    Ok(storage_detail_id)
 }
 
 /// Get a list of ticket IDs (JIRA/other ids) that belong to all servers.
