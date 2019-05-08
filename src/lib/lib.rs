@@ -244,24 +244,16 @@ pub struct DBConfig {
 pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");
-    println!("entered in lib jira ");
     o.set_Op_type(Op::GetTicketsCreated);
-    //o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
-
-
-
-    println!("entered in lib jira and set message");
-
     s.send_msg(msg, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");
-    println!("Sending message in get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", tickets_response.len());
-    println!("Decoding msg len: {}", tickets_response.len());
+   
     let op_jira_result = parse_from_bytes::<OpJiraTicketsResult>(&tickets_response)?;
     match op_jira_result.get_result() {
         ResultType::OK => {
@@ -269,8 +261,8 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
              let proto_jira = op_jira_result.get_tickets();
              let mut jira: Vec<JiraInfo> = Vec::new();
             for JiraInfo in proto_jira {
-               println!("get_ticket_id: {}", JiraInfo.get_ticket_id());
-               println!("get_server_name: {}", JiraInfo.get_server_name());
+               debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+               debug!("get_server_name: {}", JiraInfo.get_server_name());
             }
             Ok(())
         }
