@@ -67,9 +67,9 @@ fn handle_list_disks(s: &mut Socket) {
 }
 
 fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
-    println!("start of test get_jir_tickets");
+    trace!("start of test get_jir_tickets");
     let tickets = helpers::get_jira_tickets(s)?;
-    println!("End of test get_jir_tickets");
+    trace!("End of test get_jir_tickets");
     Ok(())
    
    
