@@ -1116,11 +1116,8 @@ pub fn get_region_id(pool: &Pool<ConnectionManager>, region_name: &str) -> Bynar
     let conn = get_connection_from_pool(pool)?;
 
     // Get region Id from region name
-    let stmt = format!(
-        "SELECT region_id FROM regions WHERE region_name = '{}'",
-        region_name
-    );
-    let stmt_query = conn.query(&stmt, &[])?;
+    let stmt = "SELECT region_id FROM regions WHERE region_name = $1";
+    let stmt_query = conn.query(stmt, &[&region_name])?;
 
     let mut region_id: u32 = 0;
 
@@ -1141,11 +1138,8 @@ pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> Byn
     let conn = get_connection_from_pool(pool)?;
 
     // Get storage Id from storage type
-    let stmt = format!(
-        "SELECT storage_id FROM storage_types WHERE storage_type='{}'",
-        storage_type
-    );
-    let stmt_query = conn.query(&stmt, &[])?;
+    let stmt = "SELECT storage_id FROM storage_types WHERE storage_type= $1 ";
+    let stmt_query = conn.query(&stmt, &[&storage_type])?;
 
     let mut storage_id: u32 = 0;
 
@@ -1174,12 +1168,9 @@ pub fn get_storage_detail_id(
     let conn = get_connection_from_pool(pool)?;
 
     // Get storage detail Id
-    let stmt = format!(
-        "SELECT detail_id FROM storage_details WHERE storage_id = {}
-            AND region_id = {} AND hostname = '{}'",
-        storage_id, region_id, host_name
-    );
-    let stmt_query = conn.query(&stmt, &[])?;
+    let stmt = "SELECT detail_id FROM storage_details WHERE storage_id = $1
+            AND region_id = $2 AND hostname = $3 ";
+    let stmt_query = conn.query(&stmt, &[&storage_id,&region_id, &host_name])?;
 
     let mut storage_detail_id: u32 = 0;
 
