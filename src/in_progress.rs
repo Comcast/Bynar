@@ -1199,7 +1199,7 @@ pub fn get_storage_detail_id(
 
 /// Get a list of ticket IDs (JIRA/other ids) that belong to all servers.
 /// that are in pending state  and outstanding tickets
-pub fn get_AllPendOut_tickets(
+pub fn get_all_pendout_tickets(
     pool: &Pool<ConnectionManager>
 ) -> BynarResult<Vec<DiskRepairTicket>> {
     let conn = get_connection_from_pool(pool)?;

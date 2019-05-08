@@ -464,17 +464,17 @@ fn safe_to_remove_disk(
     debug!("Gathered host info: {:?}", host_info);
 
     info!("Getting all  outstanding repair tickets");
-    let tickets = in_progress::get_AllPendOut_tickets(&db_pool)?;
+    let tickets = in_progress::get_all_pendout_tickets(&db_pool)?;
     debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
     result.set_result(ResultType::OK);
     let proto_jira: Vec<JiraInfo> = tickets
         .iter()
         .map(|j| {
-            let mut jiraResult = JiraInfo::new();
-            jiraResult.set_ticket_id(j.ticket_id.clone());
-            jiraResult.set_server_name(j.device_name.clone());
-            jiraResult
+            let mut jira_result = JiraInfo::new();
+            jira_result.set_ticket_id(j.ticket_id.clone());
+            jira_result.set_server_name(j.device_name.clone());
+            jira_result
         })
         .collect();
     result.set_tickets(RepeatedField::from_vec(proto_jira));
