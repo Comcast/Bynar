@@ -238,36 +238,6 @@ fn listen(
                         error!("Fetching jira error: {:?}", e);
                     }
                 };
-               // get_jira_tickets(&mut responder, config_dir);
-                /* let config: ConfigSettings = helpers::load_config(&config_dir, "bynar.json")?;
-                 let db_config = config.database;
-                 let db_pool = in_progress::create_db_connection_pool(&db_config.database)?;
-                /* {
-                     Err(e) => {
-                         error!("Failed to create database pool {}", e);
-                         return;
-                     }
-                     Ok(p) => p,
-                 };*/
-                 let h_info = Host::new();
-                 if h_info.is_err() {
-                     error!("Failed to gather host information");
-                     //gracefully exit
-                     return();
-                 }
-                 let host_info = h_info.expect("Failed to gather host information");
-                 debug!("Gathered host info: {:?}", host_info);
-
-                 info!("Getting outstanding repair tickets");
-                 //let tickets =  in_progress::get_pending_tickets(&db_pool,host_details_mapping.storage_detail_id);
-                 let region_id =  in_progress::get_region_id(&db_pool,&host_info.region)?;
-                 let storage_id =  in_progress::get_storage_id(&db_pool,&host_info.storage_type.to_string())?;
-                 let storage_detail_id = in_progress::get_storage_detail_id(&db_pool,storage_id,region_id,&host_info.hostname)?;
-
-                 info!("Getting outstanding repair tickets");
-                 let tickets = in_progress::get_outstanding_repair_tickets(&db_pool, storage_detail_id)?;
-                 debug!("outstanding tickets: {:?}", tickets);
-                 info!("Checking for resolved repair tickets"); */
             }
         };
         thread::sleep(Duration::from_millis(10));
