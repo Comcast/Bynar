@@ -9,7 +9,7 @@ use api::service::Disk;
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
-use log::{error, info};
+use log::{error, info,trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*

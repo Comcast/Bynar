@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::error::{BynarError, BynarResult};
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
 use hashicorp_vault::client::VaultClient;
-use log::{debug, error};
+use log::{debug, error,trace};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
