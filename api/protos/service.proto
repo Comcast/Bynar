@@ -115,7 +115,7 @@ enum Op {
   // Returns bool
   SafeToRemove = 5;
  //return tickets created
-  GetTicketsCreated = 7;
+  GetCreatedTickets = 7;
 }
 
 // Datacenter related API's

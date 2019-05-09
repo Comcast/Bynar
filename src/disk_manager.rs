@@ -229,7 +229,7 @@ fn listen(
                     }
                 };
             }
-            Op::GetTicketsCreated => {
+            Op::GetCreatedTickets => {
                match get_jira_tickets(&mut responder,config_dir) {
                     Ok(_) => {
                         info!("Fetching jira tickets finished");
@@ -453,15 +453,6 @@ fn safe_to_remove_disk(
             return Ok(());
         }
     };
-
-    let h_info = Host::new();
-    if h_info.is_err() {
-        error!("Failed to gather host information");
-        //gracefully exit
-        return Ok(());
-    }
-    let host_info = h_info.expect("Failed to gather host information");
-    debug!("Gathered host info: {:?}", host_info);
 
     info!("Getting all  outstanding repair tickets");
     let tickets = in_progress::get_all_pending_tickets(&db_pool)?;

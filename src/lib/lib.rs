@@ -244,7 +244,7 @@ pub struct DBConfig {
 pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");
-    o.set_Op_type(Op::GetTicketsCreated);
+    o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
