@@ -257,7 +257,7 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let op_jira_result = parse_from_bytes::<OpJiraTicketsResult>(&tickets_response)?;
     match op_jira_result.get_result() {
         ResultType::OK => {
-            debug!("get tickets successfully");
+            debug!("got tickets successfully");
              let proto_jira = op_jira_result.get_tickets();
              let mut jira: Vec<JiraInfo> = Vec::new();
             for JiraInfo in proto_jira {

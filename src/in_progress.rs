@@ -1119,14 +1119,11 @@ pub fn get_region_id(pool: &Pool<ConnectionManager>, region_name: &str) -> Bynar
     let stmt = "SELECT region_id FROM regions WHERE region_name = $1";
     let stmt_query = conn.query(stmt, &[&region_name])?;
 
-    let mut region_id: u32 = 0;
-
     if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return region_id
         let id: i32 = res.get(0);
-        region_id = id as u32;
-        debug!("Region id {} for the region {}", region_id, region_name);
-        Ok(Some(region_id))
+        debug!("Region id {} for the region {}", id, region_name);
+        Ok(Some(id as u32))
     } else {
         // does not exist
         debug!("No region with name {} in database", region_name);
@@ -1143,17 +1140,14 @@ pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> Byn
     let stmt = "SELECT storage_id FROM storage_types WHERE storage_type= $1 ";
     let stmt_query = conn.query(&stmt, &[&storage_type])?;
 
-    let mut storage_id: u32 = 0;
-
     if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return storage_id
         let id: i32 = res.get(0);
-        storage_id = id as u32;
         debug!(
             "Storage id {} for the storage_type {}",
-            storage_id, storage_type
+            id, storage_type
         );
-        Ok(Some(storage_id))
+        Ok(Some(id as u32))
     } else {
         // does not exist
         debug!("No storage with type {} in database", storage_type);
@@ -1175,17 +1169,14 @@ pub fn get_storage_detail_id(
             AND region_id = $2 AND hostname = $3 ";
     let stmt_query = conn.query(&stmt, &[&storage_id,&region_id, &host_name])?;
 
-    let mut storage_detail_id: u32 = 0;
-
     if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return storage_id
         let id: i32 = res.get(0);
-        storage_detail_id = id as u32;
         debug!(
             "Storage details id {} for the host_name {} , region {} , storage_id {} ",
-            storage_detail_id, host_name, region_id, storage_id
+            id, host_name, region_id, storage_id
         );
-        Ok(Some(storage_detail_id))
+        Ok(Some(id as u32))
     } else {
         // does not exist
         debug!(
