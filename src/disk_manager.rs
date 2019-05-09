@@ -464,7 +464,7 @@ fn safe_to_remove_disk(
     debug!("Gathered host info: {:?}", host_info);
 
     info!("Getting all  outstanding repair tickets");
-    let tickets = in_progress::get_all_pendout_tickets(&db_pool)?;
+    let tickets = in_progress::get_all_pending_tickets(&db_pool)?;
     debug!("outstanding tickets: {:?}", tickets);
     info!("Checking for resolved repair tickets");
     result.set_result(ResultType::OK);

@@ -1155,7 +1155,7 @@ pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> Byn
     }
 }
 
-/// Get storage id based on the storage type.
+/// Get storage detail id based on the storage id, region id and hotsname
 pub fn get_storage_detail_id(
     pool: &Pool<ConnectionManager>,
     storage_id: u32,
@@ -1190,12 +1190,12 @@ pub fn get_storage_detail_id(
 
 /// Get a list of ticket IDs (JIRA/other ids) that belong to all servers.
 /// that are in pending state  and outstanding tickets
-pub fn get_all_pendout_tickets(
+pub fn get_all_pending_tickets(
     pool: &Pool<ConnectionManager>
 ) -> BynarResult<Vec<DiskRepairTicket>> {
     let conn = get_connection_from_pool(pool)?;
 
-    // Get all tickets of myself with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
+    // Get all tickets with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
      let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations
      USING (operation_id) JOIN hardware USING (device_id) WHERE
      (status=$1 OR status=$2) AND
