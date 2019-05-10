@@ -454,10 +454,9 @@ fn safe_to_remove_disk(
         }
     };
 
-    info!("Getting all  outstanding repair tickets");
+    info!("Getting all pending repair tickets");
     let tickets = in_progress::get_all_pending_tickets(&db_pool)?;
     debug!("outstanding tickets: {:?}", tickets);
-    info!("Checking for resolved repair tickets");
     result.set_result(ResultType::OK);
     let proto_jira: Vec<JiraInfo> = tickets
         .iter()
@@ -469,10 +468,7 @@ fn safe_to_remove_disk(
         })
         .collect();
     result.set_tickets(RepeatedField::from_vec(proto_jira));
-    
     let _ = respond_to_client(&result, s);
-    debug!("outstanding tickets: {:?}", tickets);
-    info!("Checking for resolved repair tickets");
     Ok(())
 }
 

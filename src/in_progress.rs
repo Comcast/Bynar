@@ -1213,13 +1213,14 @@ pub fn get_all_pending_tickets(
             &State::Good.to_string()
         ],
     )?;
-    let mut tickets: Vec<DiskRepairTicket> = Vec::new();
+    
     if stmt_query.is_empty() {
         debug!(
             "No pending tickets for any host "
         );
-        Ok(tickets)
+        Ok(vec![])
     } else {
+        let mut tickets: Vec<DiskRepairTicket> = Vec::with_capacity(stmt_query.len());
         debug!(
             "{} pending tickets for all hosts ",
             stmt_query.len()
