@@ -191,6 +191,26 @@ pub struct DiskRepairTicket {
     pub device_name: String,
     pub device_path: String,
 }
+
+#[derive(Debug)]
+pub struct DiskPendingTicket {
+    pub ticket_id: String,
+    pub device_name: String,
+    pub device_path: String,
+    pub device_id : i32,
+}
+
+impl DiskPendingTicket {
+    pub fn new(ticket_id: String, device_name: String, device_path : String ,device_id : i32) -> DiskPendingTicket {
+        DiskPendingTicket {
+            ticket_id,
+            device_name,
+            device_path,
+            device_id,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct HostDetailsMapping {
     pub entry_id: u32,
@@ -1192,11 +1212,11 @@ pub fn get_storage_detail_id(
 /// that are in pending state  and outstanding tickets
 pub fn get_all_pending_tickets(
     pool: &Pool<ConnectionManager>
-) -> BynarResult<Vec<DiskRepairTicket>> {
+) -> BynarResult<Vec<DiskPendingTicket>> {
     let conn = get_connection_from_pool(pool)?;
 
     // Get all tickets with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
-     let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations
+     let stmt = "SELECT tracking_id, device_name, device_path, device_id FROM operation_details JOIN operations
      USING (operation_id) JOIN hardware USING (device_id) WHERE
      (status=$1 OR status=$2) AND
      type_id = (SELECT type_id FROM operation_types WHERE op_name= $3) AND
@@ -1220,14 +1240,43 @@ pub fn get_all_pending_tickets(
         );
         Ok(vec![])
     } else {
-        let mut tickets: Vec<DiskRepairTicket> = Vec::with_capacity(stmt_query.len());
+        let mut tickets: Vec<DiskPendingTicket> = Vec::with_capacity(stmt_query.len());
         debug!(
             "{} pending tickets for all hosts ",
             stmt_query.len()
         );
         for row in stmt_query.iter() {
-            tickets.push(row_to_ticket(&row));
+            tickets.push(DiskPendingTicket::new(row.get(0),row.get(1),row.get(2),row.get(3)));
         }
         Ok(tickets)
+    }
+}
+
+/// Get host name based on the device id 
+pub fn get_host_name(
+    pool: &Pool<ConnectionManager>,
+    device_id: i32,
+) -> BynarResult<Option<String>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get host name
+    let stmt = "SELECT hostname FROM storage_details JOIN hardware USING (detail_id) WHERE device_id = $1; ";
+    let stmt_query = conn.query(&stmt, &[&device_id])?;
+
+    if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return host name
+        let host_name: String = res.get("hostname");
+        debug!(
+            "host_name {} for device_id {} ",
+            host_name, device_id
+        );
+        Ok(Some(host_name))
+    } else {
+        // does not exist
+        debug!(
+            "No host_name for device_id {} in database",
+             device_id,
+        );
+        Ok(None)
     }
 }

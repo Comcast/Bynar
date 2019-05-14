@@ -463,7 +463,8 @@ fn safe_to_remove_disk(
         .map(|j| {
             let mut jira_result = JiraInfo::new();
             jira_result.set_ticket_id(j.ticket_id.clone());
-            jira_result.set_server_name(j.device_name.clone());
+            let host_name = in_progress::get_host_name(&db_pool,j.device_id);
+            jira_result.set_server_name(host_name.unwrap());
             jira_result
         })
         .collect();
