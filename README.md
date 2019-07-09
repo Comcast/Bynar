@@ -161,7 +161,7 @@ sudo apt install <package_name>
 17. gcc
 18. clang
 
-CLI command:
+CLI command to install all the dependencies:
 ```
 sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang
 ```
@@ -182,14 +182,14 @@ $ rustup override set nightly
 Login to your github account, and checkout the latest source code from 
 this repository. Then, to create executable binary
 
-To check your code without building the binary:
-```
-$ cargo check
-```
-
 Run:
 ```
 $ cargo build --release
+```
+
+To check your code without building the binary:
+```
+$ cargo check
 ```
 
 ## Bynar Workflow
