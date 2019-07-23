@@ -8,15 +8,20 @@ use std::thread;
 use std::time::Duration;
 
 use api::service::{
-    Disk, DiskType, Disks, Op, OpBoolResult, OpResult, Partition, PartitionInfo, ResultType,
+    Disk, DiskType, Disks, JiraInfo, Op, OpBoolResult, OpJiraTicketsResult, OpResult, Partition,
+    PartitionInfo, ResultType,
 };
 mod backend;
+mod in_progress;
+mod test_disk;
+
 use crate::backend::BackendType;
+use crate::in_progress::create_db_connection_pool;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
-use helpers::error::*;
+use helpers::{error::*, host_information::Host, ConfigSettings};
 use hostname::get_hostname;
 use log::{debug, error, info, trace, warn};
 use protobuf::parse_from_bytes;
@@ -224,12 +229,22 @@ fn listen(
                     }
                 };
             }
+            Op::GetCreatedTickets => {
+               match get_jira_tickets(&mut responder,config_dir) {
+                    Ok(_) => {
+                        info!("Fetching jira tickets finished");
+                    }
+                    Err(e) => {
+                        error!("Fetching jira error: {:?}", e);
+                    }
+                };
+            }
         };
         thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn respond_to_client(result: &OpResult, s: &mut Socket) -> BynarResult<()> {
+fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
@@ -408,6 +423,53 @@ fn safe_to_remove_disk(
     let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", msg.len());
     s.send_msg(msg, 0)?;
+    Ok(())
+}
+
+ pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
+    let mut result = OpJiraTicketsResult::new();
+    let config: ConfigSettings = match helpers::load_config(&config_dir, "bynar.json") {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to load config file {}", e);
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            // unable to load config file
+            let _ = respond_to_client(&result, s);
+            return Ok(());
+        }
+    };
+    let db_config = config.database;
+    let db_pool = match in_progress::create_db_connection_pool(&db_config) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to create database pool {}", e);
+            result.set_result(ResultType::ERR);
+            result.set_error_msg(e.to_string());
+
+            // unable to create DB connection
+            let _ = respond_to_client(&result, s);
+            return Ok(());
+        }
+    };
+
+    info!("Getting all pending repair tickets");
+    let tickets = in_progress::get_all_pending_tickets(&db_pool)?;
+    debug!("outstanding tickets: {:?}", tickets);
+    result.set_result(ResultType::OK);
+    let proto_jira: Vec<JiraInfo> = tickets
+        .iter()
+        .map(|j| {
+            let mut jira_result = JiraInfo::new();
+            jira_result.set_ticket_id(j.ticket_id.clone());
+            let host_name = in_progress::get_host_name(&db_pool,j.device_id);
+            jira_result.set_server_name(host_name.unwrap().unwrap());
+            jira_result
+        })
+        .collect();
+    result.set_tickets(RepeatedField::from_vec(proto_jira));
+    let _ = respond_to_client(&result, s);
     Ok(())
 }
 

@@ -1,4 +1,3 @@
-
 use crate::ConfigSettings;
 use helpers::{error::BynarError, error::BynarResult, error::HardwareError};
 use libredfish::{

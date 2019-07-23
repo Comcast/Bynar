@@ -1,12 +1,13 @@
 //! Functions that are needed across most of the workspace.
 //!
+use serde_derive::*;
 use std::fs::read_to_string;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
-use api::service::{Disk, Op, OpBoolResult, Operation, ResultType};
+use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
 use hashicorp_vault::client::VaultClient;
-use log::{debug, error};
+use log::{debug, error,trace};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
@@ -201,4 +202,80 @@ pub fn remove_disk_request(
             }
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ConfigSettings {
+    pub manager_host: String,
+    pub manager_port: u16,
+    /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)
+    pub redfish_ip: Option<String>,
+    /// Redfish credentials
+    pub redfish_username: Option<String>,
+    /// Redfish credentials
+    pub redfish_password: Option<String>,
+    /// The port redfish is listening on
+    pub redfish_port: Option<u16>,
+    pub slack_webhook: Option<String>,
+    pub slack_channel: Option<String>,
+    pub slack_botname: Option<String>,
+    pub vault_endpoint: Option<String>,
+    pub vault_token: Option<String>,
+    pub jira_user: String,
+    pub jira_password: String,
+    pub jira_host: String,
+    pub jira_issue_type: String,
+    pub jira_priority: String,
+    pub jira_project_id: String,
+    pub jira_ticket_assignee: String,
+    pub proxy: Option<String>,
+    pub database: DBConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DBConfig {
+    pub username: String,
+    pub password: Option<String>,
+    pub port: u16,
+    pub endpoint: String,
+    pub dbname: String,
+}
+
+pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+    let mut o = Operation::new();
+    debug!("calling get_jira_tickets ");
+    o.set_Op_type(Op::GetCreatedTickets);
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Sending message in get_jira_tickets");
+    s.send_msg(msg, 0)?;
+
+    debug!("Waiting for response: get_jira_tickets");
+    let tickets_response = s.recv_bytes(0)?;
+    debug!("Decoding msg len: {}", tickets_response.len());
+   
+    let op_jira_result = parse_from_bytes::<OpJiraTicketsResult>(&tickets_response)?;
+    match op_jira_result.get_result() {
+        ResultType::OK => {
+            debug!("got tickets successfully");
+             let proto_jira = op_jira_result.get_tickets();
+             let mut jira: Vec<JiraInfo> = Vec::new();
+            for JiraInfo in proto_jira {
+               debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+               debug!("get_server_name: {}", JiraInfo.get_server_name());
+            }
+            Ok(())
+        }
+        ResultType::ERR => {
+            if op_jira_result.has_error_msg() {
+                let msg = op_jira_result.get_error_msg();
+                error!("get jira tickets failed : {}", msg);
+                Err(BynarError::from(op_jira_result.get_error_msg()))
+            } else {
+                error!("Get jira tickets failed but error_msg not set");
+                Err(BynarError::from("Get jira tickets failed but error_msg not set"))
+            }
+        }
+    }
+   
 }

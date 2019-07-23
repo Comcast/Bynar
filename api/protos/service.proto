@@ -90,6 +90,19 @@ message OpStringResult {
   optional string error_msg = 3;
 }
 
+message  JiraInfo{
+      required string ticket_id = 1;
+      required string server_name = 2;
+ }
+
+message OpJiraTicketsResult {
+   required ResultType result = 1;
+   // Values is set if OK 
+   repeated  JiraInfo tickets = 2;
+   // error_msg is set if ERR
+   optional string error_msg = 3;
+ }
+
 enum Op {
   // Generic Add Disk.  Returns OpResult
   Add = 1;
@@ -101,6 +114,8 @@ enum Op {
   Remove = 4;
   // Returns bool
   SafeToRemove = 5;
+ //return tickets created
+  GetCreatedTickets = 7;
 }
 
 // Datacenter related API's
