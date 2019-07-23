@@ -4,7 +4,6 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
-
 use serde_derive::*;
 
 mod create_support_ticket;
@@ -18,7 +17,7 @@ use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::State;
 use clap::{crate_authors, crate_version, App, Arg};
-use helpers::{error::*, host_information::Host};
+use helpers::{error::*, host_information::Host, ConfigSettings};
 use log::{debug, error, info, warn};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
@@ -27,7 +26,7 @@ use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Debug, Deserialize)]
+/*#[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
     manager_host: String,
     manager_port: u16,
@@ -62,7 +61,7 @@ pub struct DBConfig {
     pub port: u16,
     pub endpoint: String,
     pub dbname: String,
-}
+}*/
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();

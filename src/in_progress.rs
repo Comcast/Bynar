@@ -1,9 +1,9 @@
-use super::DBConfig;
+//use super::DBConfig;
 use crate::test_disk::{BlockDevice, State};
 /// Monitor in progress disk repairs
 use chrono::offset::Utc;
 use chrono::DateTime;
-use helpers::{error::*, host_information::Host as MyHost};
+use helpers::{error::*, host_information::Host as MyHost, DBConfig};
 use log::{debug, error, info};
 use postgres::{params::ConnectParams, params::Host, rows::Row, transaction::Transaction};
 use r2d2::{Pool, PooledConnection};
@@ -191,6 +191,26 @@ pub struct DiskRepairTicket {
     pub device_name: String,
     pub device_path: String,
 }
+
+#[derive(Debug)]
+pub struct DiskPendingTicket {
+    pub ticket_id: String,
+    pub device_name: String,
+    pub device_path: String,
+    pub device_id : i32,
+}
+
+impl DiskPendingTicket {
+    pub fn new(ticket_id: String, device_name: String, device_path : String ,device_id : i32) -> DiskPendingTicket {
+        DiskPendingTicket {
+            ticket_id,
+            device_name,
+            device_path,
+            device_id,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct HostDetailsMapping {
     pub entry_id: u32,
@@ -1109,4 +1129,154 @@ pub fn is_hardware_waiting_repair(
 
     let stmt_query = conn.query(&stmt, &params)?;
     Ok(!stmt_query.is_empty())
+}
+
+/// Get region id based on the region name.
+pub fn get_region_id(pool: &Pool<ConnectionManager>, region_name: &str) -> BynarResult<Option<u32>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get region Id from region name
+    let stmt = "SELECT region_id FROM regions WHERE region_name = $1";
+    let stmt_query = conn.query(stmt, &[&region_name])?;
+
+    if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return region_id
+        let id: i32 = res.get(0);
+        debug!("Region id {} for the region {}", id, region_name);
+        Ok(Some(id as u32))
+    } else {
+        // does not exist
+        debug!("No region with name {} in database", region_name);
+        Ok(None)
+    }
+    
+}
+
+/// Get storage id based on the storage type.
+pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> BynarResult<Option<u32>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get storage Id from storage type
+    let stmt = "SELECT storage_id FROM storage_types WHERE storage_type= $1 ";
+    let stmt_query = conn.query(&stmt, &[&storage_type])?;
+
+    if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return storage_id
+        let id: i32 = res.get(0);
+        debug!(
+            "Storage id {} for the storage_type {}",
+            id, storage_type
+        );
+        Ok(Some(id as u32))
+    } else {
+        // does not exist
+        debug!("No storage with type {} in database", storage_type);
+        Ok(None)
+    }
+}
+
+/// Get storage detail id based on the storage id, region id and hotsname
+pub fn get_storage_detail_id(
+    pool: &Pool<ConnectionManager>,
+    storage_id: u32,
+    region_id: u32,
+    host_name: &str,
+) -> BynarResult<Option<u32>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get storage detail Id
+    let stmt = "SELECT detail_id FROM storage_details WHERE storage_id = $1
+            AND region_id = $2 AND hostname = $3 ";
+    let stmt_query = conn.query(&stmt, &[&storage_id,&region_id, &host_name])?;
+
+    if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return storage_id
+        let id: i32 = res.get(0);
+        debug!(
+            "Storage details id {} for the host_name {} , region {} , storage_id {} ",
+            id, host_name, region_id, storage_id
+        );
+        Ok(Some(id as u32))
+    } else {
+        // does not exist
+        debug!(
+            "No storage detail id with host_name {} , region {} , storage_id {} 
+        in database",
+            host_name, region_id, storage_id,
+        );
+        Ok(None)
+    }
+}
+
+/// Get a list of ticket IDs (JIRA/other ids) that belong to all servers.
+/// that are in pending state  and outstanding tickets
+pub fn get_all_pending_tickets(
+    pool: &Pool<ConnectionManager>
+) -> BynarResult<Vec<DiskPendingTicket>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get all tickets with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
+     let stmt = "SELECT tracking_id, device_name, device_path, device_id FROM operation_details JOIN operations
+     USING (operation_id) JOIN hardware USING (device_id) WHERE
+     (status=$1 OR status=$2) AND
+     type_id = (SELECT type_id FROM operation_types WHERE op_name= $3) AND
+     hardware.state in ($4, $5) AND tracking_id IS NOT NULL ORDER BY operations.start_time";
+
+
+    let stmt_query = conn.query(
+        &stmt,
+        &[
+            &OperationStatus::InProgress.to_string(),
+            &OperationStatus::Pending.to_string(),
+            &OperationType::WaitingForReplacement.to_string(),
+            &State::WaitingForReplacement.to_string(),
+            &State::Good.to_string()
+        ],
+    )?;
+    
+    if stmt_query.is_empty() {
+        debug!(
+            "No pending tickets for any host "
+        );
+        Ok(vec![])
+    } else {
+        let mut tickets: Vec<DiskPendingTicket> = Vec::with_capacity(stmt_query.len());
+        debug!(
+            "{} pending tickets for all hosts ",
+            stmt_query.len()
+        );
+        for row in stmt_query.iter() {
+            tickets.push(DiskPendingTicket::new(row.get(0),row.get(1),row.get(2),row.get(3)));
+        }
+        Ok(tickets)
+    }
+}
+
+/// Get host name based on the device id 
+pub fn get_host_name(
+    pool: &Pool<ConnectionManager>,
+    device_id: i32,
+) -> BynarResult<Option<String>> {
+    let conn = get_connection_from_pool(pool)?;
+
+    // Get host name
+    let stmt = "SELECT hostname FROM storage_details JOIN hardware USING (detail_id) WHERE device_id = $1; ";
+    let stmt_query = conn.query(&stmt, &[&device_id])?;
+
+    if let Some(res) = stmt_query.into_iter().next() {
+        // Exists, return host name
+        let host_name: String = res.get("hostname");
+        debug!(
+            "host_name {} for device_id {} ",
+            host_name, device_id
+        );
+        Ok(Some(host_name))
+    } else {
+        // does not exist
+        debug!(
+            "No host_name for device_id {} in database",
+             device_id,
+        );
+        Ok(None)
+    }
 }
