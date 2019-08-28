@@ -135,6 +135,8 @@ enum Op {
   SafeToRemove = 5;
  //return tickets created
   GetCreatedTickets = 7;
+ //setting maintanence status
+ SetMaintenance = 8;
 }
 
 // Datacenter related API's

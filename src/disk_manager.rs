@@ -256,6 +256,16 @@ fn listen(
                     }
                 };
             }
+            Op::SetMaintenance => {               
+               match set_maintenance(&mut responder) {
+                    Ok(_) => {
+                        info!("Set maintenance operation finished");
+                    }
+                    Err(e) => {
+                        error!("Error when setting to maintenance mode: {:?}", e);
+                    }
+                };           
+            }
         };
         thread::sleep(Duration::from_millis(10));
     }
@@ -487,7 +497,21 @@ pub fn get_jira_tickets(s: &Socket, config_dir: &Path) -> BynarResult<()> {
     let _ = respond_to_client(&result, s);
     Ok(())
 }
-
+pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{    
+    let mut result = OpResult::new();
+    let file = match  File::create("/var/log/setMaintenance.lock") {
+        Ok(file) => {
+            result.set_result(ResultType::OK);            
+        }
+        Err(..) => {
+            result.set_result(ResultType::ERR);            
+        }
+    };
+    
+    let _ = respond_to_client(&result, s);
+    
+    Ok(())
+}
 fn main() {
     let matches = App::new("Disk Manager")
         .version(crate_version!())
