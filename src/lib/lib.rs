@@ -294,3 +294,19 @@ pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{
     Ok(())
     
 }
+
+pub fn unset_maintenance(s: &mut Socket) -> BynarResult<()>{
+    let mut o = Operation::new();
+    debug!("Calling unset_maintenance ");
+    o.set_Op_type(Op::UnsetMaintenance);
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Sending message in set_maintenance");
+    s.send_msg(msg, 0)?;
+
+    debug!("Waiting for response: SetMaintenance");
+    let response = s.recv_bytes(0)?;
+
+    Ok(())
+    
+}

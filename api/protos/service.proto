@@ -136,7 +136,9 @@ enum Op {
  //return tickets created
   GetCreatedTickets = 7;
  //setting maintanence status
- SetMaintenance = 8;
+  SetMaintenance = 8;
+ //removing maintanence status
+  UnsetMaintenance = 9;
 }
 
 // Datacenter related API's

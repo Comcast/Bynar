@@ -159,7 +159,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
         )
         .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
         .subcommand(SubCommand::with_name("get_jira_tickets").about("get all tickets created"))
-        .subcommand(SubCommand::with_name("setMaintenance").about("Set maintenance status"))
+        .subcommand(SubCommand::with_name("set_maintenance").about("Set maintenance status"))
+        .subcommand(SubCommand::with_name("unset_maintenance").about("Remove maintenance status"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -242,7 +243,10 @@ fn main() {
     if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
         handle_jira_tickets(&mut s);
     }
-    if let Some(ref matches) = matches.subcommand_matches("setMaintenance") {        
+    if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
         handle_set_maintenance(&mut s);
+    }
+    if let Some(ref matches) = matches.subcommand_matches("unset_maintenance") {        
+        handle_unset_maintenance(&mut s);
     }
 }

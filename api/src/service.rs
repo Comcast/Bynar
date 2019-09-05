@@ -3592,6 +3592,7 @@ pub enum Op {
     SafeToRemove = 5,
     GetCreatedTickets = 7,
     SetMaintenance = 8,
+    UnsetMaintenance = 9,
 }
 
 impl ::protobuf::ProtobufEnum for Op {
@@ -3608,6 +3609,7 @@ impl ::protobuf::ProtobufEnum for Op {
             5 => ::std::option::Option::Some(Op::SafeToRemove),
             7 => ::std::option::Option::Some(Op::GetCreatedTickets),
             8 => ::std::option::Option::Some(Op::SetMaintenance),
+            9 => ::std::option::Option::Some(Op::UnsetMaintenance),
             _ => ::std::option::Option::None
         }
     }
@@ -3621,6 +3623,7 @@ impl ::protobuf::ProtobufEnum for Op {
             Op::SafeToRemove,
             Op::GetCreatedTickets,
             Op::SetMaintenance,
+            Op::UnsetMaintenance,
         ];
         values
     }
@@ -3755,12 +3758,13 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x04NVME\x10\x03\x12\x07\n\x03RAM\x10\x04\x12\x0e\n\nROTATIONAL\x10\x05\
     \x12\x0f\n\x0bSOLID_STATE\x10\x06\x12\x0b\n\x07VIRTUAL\x10\x07\x12\x0b\n\
     \x07UNKNOWN\x10\x08\x1a\0*\x1f\n\nResultType\x12\x06\n\x02OK\x10\0\x12\
-    \x07\n\x03ERR\x10\x01\x1a\0*t\n\x02Op\x12\x07\n\x03Add\x10\x01\x12\x10\n\
-    \x0cAddPartition\x10\x06\x12\x08\n\x04List\x10\x03\x12\n\n\x06Remove\x10\
-    \x04\x12\x10\n\x0cSafeToRemove\x10\x05\x12\x15\n\x11GetCreatedTickets\
-    \x10\x07\x12\x12\n\x0eSetMaintenance\x10\x08\x1a\0*F\n\x0cDatacenterOp\
-    \x12\t\n\x05GetDc\x10\x01\x12\x0b\n\x07GetRack\x10\x02\x12\n\n\x06GetRow\
-    \x10\x03\x12\x10\n\x0cGetElevation\x10\x04\x1a\0B\0b\x06proto2\
+    \x07\n\x03ERR\x10\x01\x1a\0*\x8a\x01\n\x02Op\x12\x07\n\x03Add\x10\x01\
+    \x12\x10\n\x0cAddPartition\x10\x06\x12\x08\n\x04List\x10\x03\x12\n\n\x06\
+    Remove\x10\x04\x12\x10\n\x0cSafeToRemove\x10\x05\x12\x15\n\x11GetCreated\
+    Tickets\x10\x07\x12\x12\n\x0eSetMaintenance\x10\x08\x12\x14\n\x10UnsetMa\
+    intenance\x10\t\x1a\0*F\n\x0cDatacenterOp\x12\t\n\x05GetDc\x10\x01\x12\
+    \x0b\n\x07GetRack\x10\x02\x12\n\n\x06GetRow\x10\x03\x12\x10\n\x0cGetElev\
+    ation\x10\x04\x1a\0B\0b\x06proto2\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
