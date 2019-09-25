@@ -37,6 +37,7 @@ conf-files = [
 lazy_static = "~1.2"
 mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
 rand = "~0.5"
+tempdir = "0.3.4"
 
 [dependencies]
 api = { path = "api" }
@@ -84,6 +85,8 @@ time = "~0.1"
 uname = "~0.1"
 uuid = { version="~0.7", features = ["v4"]}
 zmq = {version="~0.8"}
+boxfnonce = "0.1.1"
+daemonize = "0.4.1"
 
 [lib]
 name = "helpers"
