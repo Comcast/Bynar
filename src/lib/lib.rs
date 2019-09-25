@@ -16,6 +16,7 @@ use zmq::{Message, Socket};
 pub mod error;
 pub mod host_information;
 
+
 pub fn load_config<T>(config_dir: &Path, name: &str) -> BynarResult<T>
 where
     T: DeserializeOwned,
@@ -311,3 +312,4 @@ pub fn unset_maintenance(s: &mut Socket) -> BynarResult<()>{
     Ok(())
     
 }
+

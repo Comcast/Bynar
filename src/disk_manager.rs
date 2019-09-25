@@ -500,8 +500,10 @@ pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{
         Ok(file) => {
             result.set_result(ResultType::OK);            
         }
-        Err(..) => {
-            result.set_result(ResultType::ERR);            
+        Err(e) => {
+            error!("Failed to create lock file {}", e);
+            result.set_result(ResultType::ERR); 
+            result.set_error_msg(e.to_string());           
         }
     };
     
@@ -515,8 +517,10 @@ pub fn unset_maintenance(s: &mut Socket) -> BynarResult<()>{
         Ok(file) => {
             result.set_result(ResultType::OK);            
         }
-        Err(..) => {
-            result.set_result(ResultType::ERR);            
+        Err(e) => {
+            error!("Failed to create lock file {}", e);
+            result.set_result(ResultType::ERR); 
+            result.set_error_msg(e.to_string());           
         }
     };
     

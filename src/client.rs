@@ -71,28 +71,21 @@ fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
-   
-   
 }
 
 fn handle_set_maintenance(s: &mut Socket) -> BynarResult<()>{
     trace!("handle_set_maintenance called");
     helpers::set_maintenance(s)?;
-    trace!("handle_set_maintenance finished");
-    
-    Ok(())
-  
+    trace!("handle_set_maintenance finished");    
+    Ok(())  
 }
 
 fn handle_unset_maintenance(s: &mut Socket) -> BynarResult<()>{
     trace!("handle_unset_maintenance called");
     helpers::unset_maintenance(s)?;
-    trace!("handle_unset_maintenance finished");
-    
-    Ok(())
-  
+    trace!("handle_unset_maintenance finished");    
+    Ok(())  
 }
-
 
 fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
