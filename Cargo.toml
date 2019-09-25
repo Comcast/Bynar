@@ -83,6 +83,8 @@ time = "~0.1"
 uname = "~0.1"
 uuid = { version="~0.7", features = ["serde", "v4"]}
 zmq = {version="~0.8"}
+boxfnonce = "0.1.1"
+daemonize = "0.4.1"
 
 [lib]
 name = "helpers"
