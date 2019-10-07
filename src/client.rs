@@ -68,7 +68,7 @@ fn handle_list_disks(s: &mut Socket) {
 
 fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     trace!("handle_jira_tickets called");
-    let tickets = helpers::get_jira_tickets(s)?;
+    let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
    
@@ -237,7 +237,7 @@ fn main() {
     if let Some(ref matches) = matches.subcommand_matches("remove") {
         handle_remove_disk(&mut s, matches);
     }
-    if let Some(ref matches) = matches.subcommand_matches("get_jira_tickets") {
+    if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
         handle_jira_tickets(&mut s);
     }
 }

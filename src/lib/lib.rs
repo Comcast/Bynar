@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::error::{BynarError, BynarResult};
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
 use hashicorp_vault::client::VaultClient;
-use log::{debug, error,trace};
+use log::{debug, error};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
@@ -35,7 +35,7 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     let requester = context.socket(zmq::REQ)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
 
-    requester.set_curve_serverkey(server_publickey)?;
+    requester.set_curve_serverkey(server_publickey.as_bytes())?;
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
     debug!("Connecting to tcp://{}:{}", host, port);
@@ -69,9 +69,9 @@ pub fn add_disk_request(
     }
 
     let encoded = o.write_to_bytes().unwrap();
-    let msg = Message::from_slice(&encoded)?;
+    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(encoded, 0)?;
 
     debug!("Waiting for response");
     let add_response = s.recv_bytes(0)?;
@@ -125,9 +125,9 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let encoded = o.write_to_bytes()?;
     debug!("{:?}", encoded);
 
-    let msg = Message::from_slice(&encoded)?;
+    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(encoded, 0)?;
 
     debug!("Waiting for response");
     let disks_response = s.recv_bytes(0)?;
@@ -148,9 +148,9 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> 
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
+    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(encoded, 0)?;
 
     debug!("Waiting for response");
     let safe_response = s.recv_bytes(0)?;
@@ -178,9 +178,9 @@ pub fn remove_disk_request(
     }
 
     let encoded = o.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
+    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(encoded, 0)?;
 
     debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
@@ -246,9 +246,9 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
+    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
-    s.send_msg(msg, 0)?;
+    s.send(encoded, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;
@@ -259,7 +259,7 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
         ResultType::OK => {
             debug!("got tickets successfully");
              let proto_jira = op_jira_result.get_tickets();
-             let mut jira: Vec<JiraInfo> = Vec::new();
+             let mut _jira: Vec<JiraInfo> = Vec::new();
             for JiraInfo in proto_jira {
                debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
                debug!("get_server_name: {}", JiraInfo.get_server_name());

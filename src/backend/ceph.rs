@@ -22,8 +22,7 @@ use helpers::{error::*, host_information::Host};
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
-use nix::{
-    convert_ioctl_res, ioc, ioctl_none, request_code_none,
+use nix::{ ioctl_none, request_code_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
@@ -33,7 +32,13 @@ use tempdir::TempDir;
 
 /// Ceph cluster
 pub struct CephBackend {
-    cluster_handle: Rados,
+    /*
+        Note: RADONS (Reliable Autonomic Distributed Object Store)
+        Open source obj storage service 
+        -Usually has storage nodes? (commodity servers?)
+        Probably either storage or backed for Openstack
+    */
+    cluster_handle: Rados, 
     config: CephConfig,
     version: CephVersion,
 }
@@ -429,7 +434,8 @@ impl CephBackend {
             format!("ceph.block_device={}", lv_dev_name.display()),
             format!("ceph.osd_id={}", new_osd_id),
             format!("ceph.osd_fsid={}", osd_fsid),
-            // TODO: Find out where to find this.
+            // TODO: Find out where to find this. NOTE: can be found in ceph.conf file under cluster
+            // defaults to ceph.  EX: /etc/ceph/@clustername.keyring
             format!("ceph.cluster_name={}", "ceph"),
             format!("ceph.cluster_fsid={}", self.cluster_handle.rados_fsid()?),
             format!("ceph.encrypted={}", "0"),
@@ -511,14 +517,14 @@ impl CephBackend {
             debug!("Found tags for logical volume: {:?}", tags);
             let id_tag = tags.iter().find(|t| t.starts_with("ceph.osd_id"));
             if let Some(tag) = id_tag {
-                let parts: Vec<String> = tag.split('=').map(|s| s.to_string()).collect();
+                let parts: Vec<String> = tag.split('=').map(ToString::to_string).collect();
                 if let Some(s) = parts.get(1) {
                     osd_id = Some(u64::from_str(s)?);
                 }
             }
             let fsid_tag = tags.iter().find(|t| t.starts_with("ceph.osd_fsid"));
             if let Some(tag) = fsid_tag {
-                let parts: Vec<String> = tag.split('=').map(|s| s.to_string()).collect();
+                let parts: Vec<String> = tag.split('=').map(ToString::to_string).collect();
                 if let Some(s) = parts.get(1) {
                     osd_fsid = Some(uuid::Uuid::parse_str(s)?);
                 }
@@ -1249,7 +1255,8 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
 // and ask it to update its internal partition cache. Without this the
 // partitions don't show up after being created on the disks which then
 // breaks parts of bynar later.
-ioctl_none! {
+ioctl_none!(blkrrpart, 0x12, 95);
+/*{
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95
-}
+}*/
