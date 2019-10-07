@@ -34,9 +34,9 @@ conf-files = [
 [workspace]
 
 [dev-dependencies]
-lazy_static = "~1.2"
-mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
-rand = "~0.5"
+lazy_static = "~1.4"
+mocktopus = "~0.7.0" #{git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
+rand = "~0.7"
 
 [dependencies]
 api = { path = "api" }
@@ -48,7 +48,7 @@ ceph-safe-disk = "~0.1"
 chrono = "~0.4"
 clap = "~2"
 derive-error = "0.0.4"
-dirs = "~1.0"
+dirs = "~2.0"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~1.0"
@@ -63,7 +63,7 @@ libc = "~0.2"
 libredfish = {git = "https://github.com/cholcombe973/libredfish", branch = "generic"}
 log = "~0.4"
 lvm = "~0.3"
-nix = "~0.13"
+nix = "~0.15"
 petgraph = "~0.4"
 pnet = "~0.22"
 postgres = "~0.15"
@@ -83,7 +83,7 @@ tempdir = "~0.3"
 time = "~0.1"
 uname = "~0.1"
 uuid = { version="~0.7", features = ["v4"]}
-zmq = {version="~0.8"}
+zmq = {version="~0.9"}
 
 [lib]
 name = "helpers"
