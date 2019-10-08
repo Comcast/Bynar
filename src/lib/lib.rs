@@ -69,7 +69,6 @@ pub fn add_disk_request(
     }
 
     let encoded = o.write_to_bytes().unwrap();
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
     s.send(encoded, 0)?;
 
@@ -125,7 +124,6 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let encoded = o.write_to_bytes()?;
     debug!("{:?}", encoded);
 
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
     s.send(encoded, 0)?;
 
@@ -148,7 +146,6 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> 
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
     s.send(encoded, 0)?;
 
@@ -178,7 +175,6 @@ pub fn remove_disk_request(
     }
 
     let encoded = o.write_to_bytes()?;
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
     s.send(encoded, 0)?;
 
@@ -246,7 +242,6 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
     s.send(encoded, 0)?;
 

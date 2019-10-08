@@ -246,7 +246,6 @@ fn listen(
 
 fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", encoded.len());
     s.send(encoded, 0)?;
     Ok(())
@@ -349,7 +348,6 @@ fn list_disks(s: &mut Socket) -> BynarResult<()> {
     debug!("Encoding disk list");
     let encoded = disks.write_to_bytes()?;
 
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", encoded.len());
     s.send(encoded, 0)?;
     Ok(())
@@ -413,14 +411,12 @@ fn safe_to_remove_disk(
             result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
             let encoded = result.write_to_bytes()?;
-            //let msg = Message::from_slice(&encoded)?;
             debug!("Responding to client with msg len: {}", encoded.len());
             s.send(encoded, 0)?;
             return Err(BynarError::new(format!("safe to remove error: {}", e)));
         }
     };
     let encoded = result.write_to_bytes()?;
-    //let msg = Message::from_slice(&encoded)?;
     debug!("Responding to client with msg len: {}", encoded.len());
     s.send(encoded, 0)?;
     Ok(())
