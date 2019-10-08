@@ -33,7 +33,7 @@ use tempdir::TempDir;
 /// Ceph cluster
 pub struct CephBackend {
     /*
-        Note: RADONS (Reliable Autonomic Distributed Object Store)
+        Note: RADOS (Reliable Autonomic Distributed Object Store)
         Open source obj storage service 
         -Usually has storage nodes? (commodity servers?)
         Probably either storage or backed for Openstack
