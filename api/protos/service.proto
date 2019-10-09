@@ -4,8 +4,11 @@ option optimize_for = SPEED;
 package ceph_disk;
 
 message Osd {
+  // filesystem id
   optional string fsid = 1;
+  // osd id
   required uint64 id = 2;
+  // block device of the osd
   optional string block_device = 3;
   // If journal isn't set then it's collocated
   optional string journal = 4;
@@ -13,7 +16,9 @@ message Osd {
   required bool active = 5;
 
   // Usage details
+  // how much space is currently used
   required uint64 used_space = 6;
+  // total space on the osd
   required uint64 total_space = 7;
 }
 
@@ -29,19 +34,30 @@ message Osd {
 
 // GPT partition information
 message Partition {
+  // id of the partition
   required string uuid = 1;
+  // first logical block address of the partition
   required uint64 first_lba = 2;
+  // last logical block address of the partition
   required uint64 last_lba = 3;
+  // flags associated with the partition
   required uint64 flags = 4;
+  // name of the partition
   optional string name = 5;
 }
 
+// list of partitions
 message PartitionInfo { repeated Partition partition = 1; }
 
+// disk object descriptor
 message Disk {
+  // type of disk
   required DiskType type = 1;
+  // the device path
   required string dev_path = 2;
+  // list of partitions on the disk
   required PartitionInfo partitions = 3;
+  // the disk serial number
   optional string serial_number = 4;
 }
 
@@ -50,7 +66,9 @@ enum DiskType {
   LOOPBACK = 0;
   // Logical volume device
   LVM = 1;
+  // Linux software RAID
   MDRAID = 2;
+  // Non-Volatile Memory Express, a logical device interface
   NVME = 3;
   // Ramdisk
   RAM = 4;
@@ -58,17 +76,22 @@ enum DiskType {
   ROTATIONAL = 5;
   // AKA SSD
   SOLID_STATE = 6;
+  // virtual disk
   VIRTUAL = 7;
   UNKNOWN = 8;
 }
 
+// list of disks
 message Disks { repeated Disk disk = 1; }
 
 message OpResult {
+  // result (ok or error)
   required ResultType result = 1;
+  // error message
   optional string error_msg = 2;
 }
 
+// result of a command
 enum ResultType {
   OK = 0;
   ERR = 1;
@@ -90,8 +113,11 @@ message OpStringResult {
   optional string error_msg = 3;
 }
 
+// Jira ticket information
 message  JiraInfo{
+      // Ticket number
       required string ticket_id = 1;
+      // name of the JIRA server
       required string server_name = 2;
  }
 
@@ -103,6 +129,7 @@ message OpJiraTicketsResult {
    optional string error_msg = 3;
  }
 
+ // Operation type
 enum Op {
   // Generic Add Disk.  Returns OpResult
   Add = 1;
@@ -133,6 +160,7 @@ enum DatacenterOp {
 
 message DatacenterOperation {
   required DatacenterOp Op_type = 1;
+  // id of the server to perform the operation on
   required string server_id = 2;
 }
 // Datacenter related API's
