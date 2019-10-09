@@ -19,18 +19,17 @@ This package uses Protobuf version 2 to create Messages that can be sent over th
 
 ### DiskType
 
-| Enum Values |
-| --- |
-| Name | Description |
-| LOOPBACK | Special loopback device |
-| LVM | Logical Volume Device |
-| MDRAID | Linux software RAID |
-| NVME | Non-Volatile Memory Express, a logical device interface |
-| RAM | Ramdisk |
-| ROTATIONAL | Regular rotational device |
-| SOLID\_STATE | SSD |
-| VIRTUAL | Virtual Disk |
-| UNKNOWN | Unknown disk |
+| Name         | Description                                             |
+| ------------ | ------------------------------------------------------- |
+| LOOPBACK     | Special loopback device                                 |
+| LVM          | Logical Volume Device                                   |
+| MDRAID       | Linux software RAID                                     |
+| NVME         | Non-Volatile Memory Express, a logical device interface |
+| RAM          | Ramdisk                                                 |
+| ROTATIONAL   | Regular rotational device                               |
+| SOLID\_STATE | SSD                                                     |
+| VIRTUAL      | Virtual Disk                                            |
+| UNKNOWN      | Unknown disk                                            |
 
 ### ResultType
 
