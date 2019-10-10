@@ -16,6 +16,7 @@ use zmq::{Message, Socket};
 pub mod error;
 pub mod host_information;
 
+/// Load a config file that is Deserializable
 pub fn load_config<T>(config_dir: &Path, name: &str) -> BynarResult<T>
 where
     T: DeserializeOwned,
@@ -29,6 +30,7 @@ where
     Ok(deserialized)
 }
 
+/// connect to the input host:port ip and secure it with the public key
 pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<Socket> {
     debug!("Starting zmq sender with version({:?})", zmq::version());
     let context = zmq::Context::new();
@@ -47,12 +49,14 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     Ok(requester)
 }
 
+/// get a vault token from the Hashicorp vault
 pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResult<String> {
     let client = VaultClient::new(endpoint, token)?;
     let res = client.get_secret(&format!("/{}", hostname))?;
     Ok(res)
 }
 
+/// Send a request to add a disk to a cluster
 pub fn add_disk_request(
     s: &mut Socket,
     path: &Path,
@@ -115,6 +119,7 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 }
 */
 
+/// send a request to list the disks in a cluster
 pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
@@ -140,6 +145,7 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     Ok(d)
 }
 
+/// Send a message to ask if a disk is safe to remove from a cluster
 pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> {
     let mut o = Operation::new();
     debug!("Creating safe to remove operation request");
@@ -159,6 +165,7 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> 
     }
 }
 
+/// send a message to remove a disk from the cluster
 pub fn remove_disk_request(
     s: &mut Socket,
     path: &Path,
@@ -237,6 +244,7 @@ pub struct DBConfig {
     pub dbname: String,
 }
 
+/// Send a request to get the JIRA ticket information and print it
 pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");

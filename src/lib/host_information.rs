@@ -175,6 +175,7 @@ fn server_type() -> BynarResult<String> {
     ))
 }
 
+/// Get the server serial number
 fn server_serial() -> BynarResult<String> {
     debug!("Gathering server serial");
     // Try the easy way first
