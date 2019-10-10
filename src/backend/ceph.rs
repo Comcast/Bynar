@@ -752,6 +752,9 @@ fn get_osd_id(path: &Path, simulate: bool) -> BynarResult<u64> {
     Ok(u64::from_str(buff.trim())?)
 }
 
+/// save a ceph authentication key to a keyring
+/// Note: perhaps check if there exists a keyring file already and THEN
+/// writing or appending to it. This one overwrites with a new keyring every time...
 fn save_keyring(
     osd_id: u64,
     key: &str,
@@ -777,6 +780,10 @@ fn save_keyring(
     Ok(())
 }
 
+/// Add the osd to the file systems table
+// Note: the fstab file usually lists all available disk partitions and other types
+// of file systems and data sources (not necessarily disk based) and indicates
+// how they are initialized or integrated into the file system structure.  
 fn add_osd_to_fstab(
     device_info: &block_utils::Device,
     osd_id: u64,
@@ -812,8 +819,8 @@ fn add_osd_to_fstab(
     Ok(())
 }
 
-// Look through all the /var/lib/ceph/osd/ directories and try to find
-// a partition id that matches this one.
+/// Look through all the /var/lib/ceph/osd/ directories and try to find
+/// a partition id that matches this one.
 fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
     // Check every osd on the system
     for osd_dir in read_dir("/var/lib/ceph/osd/")? {
@@ -872,6 +879,7 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
     Ok(false)
 }
 
+/// run the systemctl disable command on the input osd.  
 fn systemctl_disable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> BynarResult<()> {
     if !simulate {
         let args: Vec<String> = vec![
@@ -889,6 +897,7 @@ fn systemctl_disable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> Byna
     Ok(())
 }
 
+/// run the systemctl enable command on the input osd
 fn systemctl_enable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> BynarResult<()> {
     if !simulate {
         let args: Vec<String> = vec![
@@ -906,6 +915,7 @@ fn systemctl_enable(osd_id: u64, osd_uuid: &uuid::Uuid, simulate: bool) -> Bynar
     Ok(())
 }
 
+/// run the systemctl stop command on the input osd
 fn systemctl_stop(osd_id: u64, simulate: bool) -> BynarResult<()> {
     if !simulate {
         let args: Vec<String> = vec!["stop".to_string(), format!("ceph-osd@{}.service", osd_id)];
@@ -920,6 +930,9 @@ fn systemctl_stop(osd_id: u64, simulate: bool) -> BynarResult<()> {
     Ok(())
 }
 
+/// initialize (start) the osd
+// NOTE: you should have ALREADY prepared the OSD, so it should currently be
+// DOWN and IN when you run this.  After running the OSD should be UP and IN
 fn setup_osd_init(osd_id: u64, simulate: bool) -> BynarResult<()> {
     debug!("Detecting init system");
     let init_daemon = detect_daemon()?;
@@ -962,6 +975,10 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> BynarResult<()> {
     }
 }
 
+/// udevd is used to create device nodes for all detected devices, so 
+/// udevadm settle waits for udevd to process all the device creation events
+/// have run, so all device nodes are created successfully before proceeding
+/// with any sort of changes
 fn settle_udev() -> BynarResult<()> {
     let output = Command::new("udevadm").arg("settle").output()?;
     if !output.status.success() {
@@ -972,7 +989,7 @@ fn settle_udev() -> BynarResult<()> {
     Ok(())
 }
 
-// Run ceph-osd --mkfs and return the osd UUID
+/// Run ceph-osd --mkfs and return the osd UUID
 fn ceph_mkfs(
     osd_id: u64,
     journal: Option<&JournalDevice>,
@@ -1037,6 +1054,8 @@ fn ceph_mkfs(
     Ok(())
 }
 
+/// Prime a bluestore osd, generating the content for an osd data directory
+/// that can start up a Bluestore osd
 fn ceph_bluestore_tool(device: &Path, mount_path: &Path, simulate: bool) -> BynarResult<()> {
     let dev_str = device.to_string_lossy().into_owned();
     let mnt_str = mount_path.to_string_lossy().into_owned();
@@ -1065,7 +1084,7 @@ fn ceph_bluestore_tool(device: &Path, mount_path: &Path, simulate: bool) -> Byna
     Ok(())
 }
 
-/// Create a new ceph journal on a given deivce with name + size in bytes
+/// Create a new ceph journal on a given device with name + size in bytes
 fn create_journal(name: &str, size: u64, path: &Path) -> BynarResult<(u32, uuid::Uuid)> {
     debug!("Creating journal on {} of size: {}", path.display(), size);
     let cfg = gpt::GptConfig::new().writable(true).initialized(true);
@@ -1097,6 +1116,7 @@ fn create_journal(name: &str, size: u64, path: &Path) -> BynarResult<(u32, uuid:
 
 // Returns true if there's enough free space on the disk to fit a given
 // partition size request.
+/// Check if there is enough free space on the disk to fit a partition size request
 fn enough_free_space(device: &Path, size: u64) -> BynarResult<bool> {
     let cfg = gpt::GptConfig::new().writable(false).initialized(true);
     let disk = cfg.open(device)?;
@@ -1178,8 +1198,8 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
 
 // NOTE: This function is currently unused because I don't have complete trust
 // in it yet.
-// Checks all osd drives on the system against the journals and deletes all
-// unused partitions.
+/// Checks all osd drives on the system against the journals and deletes all
+/// unused partitions.
 fn remove_unused_journals(journals: &[JournalDevice]) -> BynarResult<()> {
     for journal in journals {
         let cfg = gpt::GptConfig::new().writable(true).initialized(true);
@@ -1212,6 +1232,7 @@ fn remove_unused_journals(journals: &[JournalDevice]) -> BynarResult<()> {
     Ok(())
 }
 
+/// Check if the device's OSD is a filestore
 fn is_filestore(dev_path: &Path) -> BynarResult<bool> {
     let mount_point = match block_utils::get_mountpoint(&dev_path)? {
         Some(osd_path) => osd_path,
@@ -1235,7 +1256,7 @@ fn is_filestore(dev_path: &Path) -> BynarResult<bool> {
     Ok(false)
 }
 
-// Linux specific ioctl to update the partition table cache.
+/// Linux specific ioctl to update the partition table cache.
 fn update_partition_cache(device: &Path) -> BynarResult<()> {
     debug!(
         "Requesting kernel to refresh partition cache for {} ",
@@ -1253,7 +1274,7 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
     }
 }
 
-// This macro from the nix crate crates an ioctl to call the linux kernel
+// This macro from the nix crate creates an ioctl to call the linux kernel
 // and ask it to update its internal partition cache. Without this the
 // partitions don't show up after being created on the disks which then
 // breaks parts of bynar later.
