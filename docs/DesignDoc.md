@@ -1,113 +1,43 @@
 # Revision History
 
-| Name           | Date       | Reason for Change                                                                                                 | Version |
-| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------- | ------- |
-| Michelle Zhong | 10/8/2019  | Outline the Document                                                                                              | 0.1     |
-| Michelle Zhong | 10/9/2019  | Outline the Document Modules, fill in the API section, Config File section, start filling out the Backend Section | 0.2     |
-| Michelle Zhong | 10/10/2019 | Reorganize Headers in API section                                                                                 | 0.3     |
-|                |            |                                                                                                                   |         |
+| Name           | Date       | Reason for Change                                                                                                                | Version |
+| -------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Michelle Zhong | 10/8/2019  | Outline the Document                                                                                                             | 0.1     |
+| Michelle Zhong | 10/9/2019  | Outline the Document Modules, fill in the API section, Config File section, start filling out the Backend Section                | 0.2     |
+| Michelle Zhong | 10/10/2019 | Reorganize Headers in API section, Fill out the Backend, add Database Schema, add Error Module, Host Information, Helper Library | 0.3     |
+|                |            |                                                                                                                                  |         |
 
 # Table of Contents
 
 [Revision History 2](#revision-history)
 
-[Table of Contents 3](#_Toc21606412)
+[Table of Contents 3](#_Toc21619193)
 
 [API 5](#api)
 
-[Introduction 5](#introduction)
-
-[Messages 5](#messages)
-
-[Enums 5](#enums)
-
-[Structs 6](#structs)
-
 [Configuration Files 8](#configuration-files)
-
-[Introduction 8](#introduction-1)
-
-[List of Config Files 8](#list-of-config-files)
-
-[Bynar JSON 8](#bynar-json)
-
-[Ceph JSON 9](#ceph-json)
-
-[Disk-Manager JSON 9](#disk-manager-json)
 
 [Backend 9](#backend)
 
-[Introduction 9](#introduction-2)
-
-[Backend Module 9](#backend-module)
-
-[Enums 9](#enums-1)
-
-[Interface 9](#interface)
-
-[Ceph 10](#ceph)
-
-[Structs 10](#structs-1)
-
-[Helper Functions 14](#helper-functions)
-
-[Database Schema 19](#database-schema)
-
-[Introduction 19](#introduction-3)
-
-[Postgres 19](#postgres)
+[Database Schema 18](#database-schema)
 
 [Database Logging 19](#database-logging)
 
-[Introduction 19](#introduction-4)
-
-[Logging 19](#logging)
-
 [Helper Functions 19](#helper-functions-1)
 
-[Introduction 19](#introduction-5)
+[Client 26](#client)
 
-[Error Module 19](#error-module)
+[Support Tickets 26](#support-tickets)
 
-[Host Information 19](#host-information)
+[Disk Manager 26](#disk-manager)
 
-[Helper Module 19](#helper-module)
+[Disk Testing 26](#disk-testing)
 
-[Client 19](#client)
+[Hardware Testing 26](#hardware-testing)
 
-[Introduction 19](#introduction-6)
+[Bynar 26](#bynar)
 
-[Client Interface 19](#client-interface)
-
-[Support Tickets 19](#support-tickets)
-
-[Introduction 19](#introduction-7)
-
-[JIRA Support 19](#jira-support)
-
-[Disk Manager 19](#disk-manager)
-
-[Introduction 19](#introduction-8)
-
-[Disk Manager 19](#disk-manager-1)
-
-[Disk Testing 19](#disk-testing)
-
-[Introduction 19](#introduction-9)
-
-[State Machine 19](#state-machine)
-
-[Hardware Testing 19](#hardware-testing)
-
-[Introduction 19](#introduction-10)
-
-[Hardware Tests 19](#hardware-tests)
-
-[Bynar 19](#bynar)
-
-[Introduction 19](#introduction-11)
-
-[Main Process 19](#main-process)
+[Main Process 26](#main-process)
 
 # API
 
@@ -933,11 +863,24 @@ The ceph configuration object descriptor
 
 ## Introduction
 
+Bynar should have a database to log changes, errors, and other
+noteworthy messages. Currently Bynar only supports Postgres
+
 ## Postgres
+
+In the dbschema folder, there is a bynar\_stats.sql file. You will need
+to import this into your Postgres Bynar Database. To import, you can run
+\\i \<path to file\> from inside the psql prompt, or copy paste.
+
+### Schema
+
+![](media/image1.png)
 
 # Database Logging
 
 ## Introduction
+
+Most database logging functions are in the in\_progress.rs file
 
 ### Logging
 
@@ -945,11 +888,378 @@ The ceph configuration object descriptor
 
 ## Introduction
 
-### Error Module
+There are a couple of functions and types that are needed across most of
+the Bynar program. These include the Error Type, host information, and
+various connection and requests.
 
-### Host Information
+## Error Module
 
-### Helper Module
+The error module provides the error type for the Bynar program. Various
+error types are imported and generalized as a BynarResult Error
+
+### Type
+
+#### BynarResult\<T\>
+
+This is the generic Bynar Errortype, a Result type of type \<T,
+BynarError\>
+
+### Enums
+
+#### PwdBError
+
+##### Enum Values
+
+| Name               | Description                   |
+| ------------------ | ----------------------------- |
+| PwdError(PwdError) | An error from the pwd library |
+
+##### Trait Implementations
+
+###### Display
+
+| Name | Inputs                  | Description                             | Outputs     |
+| ---- | ----------------------- | --------------------------------------- | ----------- |
+| fmt  | f: \&mut fmt::Formatter | Given a PwBError, display the error msg | fmt::Result |
+
+###### Debug
+
+#### BynarError
+
+##### Enum Values
+
+| Name                             | Description                       |
+| -------------------------------- | --------------------------------- |
+| BlkidError(BlkidError)           | A blkid command error             |
+| BlockUtilsError(BlockUtilsError) | A block\_utils library error      |
+| Error(String)                    | A generic String error            |
+| GojiError(GojiError)             | A Gojira library error            |
+| HardwareError(HardwareError)     | A hardware error                  |
+| IoError(IOError)                 | A std::io error                   |
+| LvmError(LvmError)               | An lvm error                      |
+| NixError(NixError)               | A nix library error               |
+| ParseIntError(ParseIntError)     | A parseint error (integer parser) |
+| PostgresError(PostgresError)     | A postgres command error          |
+| ProtobufError(ProtobufError)     | A protobuf serializer error       |
+| PwdError(PwdBError)              | A pwd error                       |
+| R2d2Error(R2d2Error)             | An R2d2 error                     |
+| RadosError(RadosError)           | A Ceph rados error                |
+| ReqwestError(ReqwestError)       | A reqwest library error           |
+| SerdeJsonError(SerdeJsonError)   | A serde json library error        |
+| SlackError(SlackError)           | A Slack error                     |
+| UuidError(UuidError)             | A uuid error                      |
+| VaultError(VaultError)           | A vault error                     |
+| ZmqError(ZmqError)               | A zmq library error               |
+
+##### Implementation
+
+| Name       | Inputs      | Description                                       | Outputs    |
+| ---------- | ----------- | ------------------------------------------------- | ---------- |
+| new        | err: String | Create a new BynarError with a String message     | BynarError |
+| to\_string | self        | Convert a BynarError into a String representation | String     |
+
+##### Trait Implementations
+
+###### Display
+
+| Name | Inputs                  | Description                          | Outputs     |
+| ---- | ----------------------- | ------------------------------------ | ----------- |
+| fmt  | f: \&mut fmt::Formatter | Given a Bynar, display the error msg | fmt::Result |
+
+###### From\<PwdError\>
+
+| Name | Inputs        | Description                           | Outputs    |
+| ---- | ------------- | ------------------------------------- | ---------- |
+| from | err: PwdError | Given a PwdError, create a BynarError | BynarError |
+
+###### From\<String\>
+
+| Name | Inputs      | Description                         | Outputs    |
+| ---- | ----------- | ----------------------------------- | ---------- |
+| from | err: String | Given a String, create a BynarError | BynarError |
+
+###### From\<’a str\>
+
+| Name | Inputs     | Description                        | Outputs    |
+| ---- | ---------- | ---------------------------------- | ---------- |
+| from | err: \&str | Given a \&str, create a BynarError | BynarError |
+
+###### Debug, de::Error
+
+### Structs
+
+#### HardwareError
+
+##### Attributes
+
+| Name             | Type             | Description                                 |
+| ---------------- | ---------------- | ------------------------------------------- |
+| error            | String           | The error                                   |
+| name             | String           | The name of the error                       |
+| location         | Option\<String\> | The location? Of the error                  |
+| location\_format | Option\<String\> | Uh, the format??????                        |
+| serial\_number   | Option\<String\> | Serial number of whatever is having issues? |
+
+##### Trait Implementations
+
+###### Display
+
+| Name | Inputs                  | Description                                  | Outputs     |
+| ---- | ----------------------- | -------------------------------------------- | ----------- |
+| fmt  | f: \&mut fmt::Formatter | Given a HardwareError, display the error msg | fmt::Result |
+
+###### Debug
+
+## Host Information
+
+Gather information about the current host
+
+### Enums
+
+#### StorageTypeEnum
+
+The type of distributed storage
+
+##### Enum Values
+
+| Name    | Description          |
+| ------- | -------------------- |
+| Ceph    | Ceph storage type    |
+| Scaleio | Scaleio storage type |
+| Gluster | Gluster storage type |
+| Hitachi | Hitachi storage type |
+
+##### Trait Implementations
+
+###### Display
+
+| Name | Inputs                  | Description                                       | Outputs     |
+| ---- | ----------------------- | ------------------------------------------------- | ----------- |
+| fmt  | f: \&mut fmt::Formatter | Given a StorageTypeEnum, display the storage type | fmt::Result |
+
+###### Debug
+
+### Structs
+
+#### Host
+
+##### Attributes
+
+| Name                  | Type                          | Description              |
+| --------------------- | ----------------------------- | ------------------------ |
+| hostname              | String                        | The host name            |
+| ip                    | IpAddr                        | The ip address           |
+| region                | String                        | The region               |
+| kernel                | String                        | The kernel type          |
+| server\_type          | String                        | The server type          |
+| serial\_number        | String                        | The serial number        |
+| machine\_architecture | String                        | The machine architecture |
+| scsi\_info            | Vec\<block\_utils::ScsiInfo\> | The scsi information     |
+| storage\_type         | StorageTypeEnum               | The storage type         |
+| array\_name           | Option\<String\>              | The array name           |
+| pool\_name            | Option\<String\>              | The pool name            |
+
+##### Implementation
+
+| Name | Inputs | Description       | Outputs             |
+| ---- | ------ | ----------------- | ------------------- |
+| new  | N/A    | Create a new Host | BynarResult\<Host\> |
+
+##### Trait Implementations
+
+###### Debug
+
+### Helper Functions
+
+<table>
+<thead>
+<tr class="header">
+<th>Helper Function Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><p>get_default_iface() -&gt; BynarResult&lt;String&gt;</p>
+<p>DESCRIPTION: get the default interface</p>
+<p>PARAMETERS: None</p>
+<p>RETURNS: Ok(default interface) on success, Error otherwise</p>
+<p>IMPLEMENTATION: open the /proc/net/route file. For each line, try to find the default gateway “00000000” and return the interface. If successfule, return Ok(default interface) else error</p></td>
+</tr>
+<tr class="even">
+<td><p>get_ip() -&gt; BynarResult&lt;IpAddr&gt;</p>
+<p>DESCRIPTION: Find the IP address on the default interface</p>
+<p>PARAMETERS: None</p>
+<p>RETURNS: Ok(ip address) on success, Error otherwise</p>
+<p>IMPLEMENTATION: get all interfaces as well as the default interface. filter all interfaces to get the default. In the interface, loop through the ip addresses until an ipv4 address is found and return it. If successful, return the ipv4 address, else error.</p></td>
+</tr>
+<tr class="odd">
+<td><p>get_region_from_hostname(hostname: &amp;str) -&gt; BynarResult&lt;String&gt;</p>
+<p>DESCRIPTION: Get the region from the hostname</p>
+<p>PARAMETERS: hostname – the hostname</p>
+<p>RETURNS: Ok(region) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Production hostnames are usually in the format name-regionpart1-regionpart2-*, so split the hostname by ‘-’, skip the first sub string and combine the region parts. If successful, either return Ok(region) if totally successful, Ok(“test-region”) if the hostname is not regular, or error if it fails.</p></td>
+</tr>
+<tr class="even">
+<td><p>get_storage_type() -&gt; BynarResult&lt;StorageTypeEnum&gt;</p>
+<p>DESCRIPTION: get the storage type used on this system</p>
+<p>PARAMETERS: None</p>
+<p>RETURNS: Ok(storage type) on success, Error otherwise</p>
+<p>IMPLEMENTATION: for now, it just returns Ceph....</p></td>
+</tr>
+<tr class="odd">
+<td><p>server_type() -&gt; BynarResult&lt;String&gt;</p>
+<p>DESCRIPTION: Find the server type</p>
+<p>PARAMETERS: None</p>
+<p>RETURNS: Ok(server type) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Go to /sys/class/dmi/id/product_name and read the file. If successful return the file contents as Ok(server type), else error</p></td>
+</tr>
+<tr class="even">
+<td><p>server_serial() -&gt; BynarResult&lt;String&gt;</p>
+<p>DESCRIPTION: get the server serial number</p>
+<p>PARAMETERS: None</p>
+<p>RETURNS: Ok(server serial number) on success, Error otherwise</p>
+<p>IMPLEMENTATION: for now, it just tries the easy way, which is reading the /sys/class/dmi/id/product_serial file for the number. If successful returns Ok(server serial number), otherwise error</p></td>
+</tr>
+</tbody>
+</table>
+
+## Helper Module
+
+Public functions and structures that can be used outside of the library.
+
+### Structs
+
+#### ConfigSettings
+
+##### Attributes
+
+| Name                  | Type                          | Description              |
+| --------------------- | ----------------------------- | ------------------------ |
+| hostname              | String                        | The host name            |
+| ip                    | IpAddr                        | The ip address           |
+| region                | String                        | The region               |
+| kernel                | String                        | The kernel type          |
+| server\_type          | String                        | The server type          |
+| serial\_number        | String                        | The serial number        |
+| machine\_architecture | String                        | The machine architecture |
+| scsi\_info            | Vec\<block\_utils::ScsiInfo\> | The scsi information     |
+| storage\_type         | StorageTypeEnum               | The storage type         |
+| array\_name           | Option\<String\>              | The array name           |
+| pool\_name            | Option\<String\>              | The pool name            |
+
+##### Trait Implementations
+
+###### Clone, Debug, Deserialize
+
+#### DBConfig
+
+##### Attributes
+
+| Name     | Type             | Description                      |
+| -------- | ---------------- | -------------------------------- |
+| username | String           | Database username                |
+| password | Option\<String\> | Database password                |
+| port     | u16              | Port to connect to database with |
+| endpoint | String           | Database endpoint                |
+| dbname   | String           | Database name                    |
+
+##### Trait Implementations
+
+###### Clone, Debug, Deserialize
+
+### Helper Functions
+
+<table>
+<thead>
+<tr class="header">
+<th>Helper Function Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><p>load_config&lt;T&gt;(config_dir: &amp;Path, name: &amp;str) -&gt; BynarResult&lt;T&gt;</p>
+<p>DESCRIPTION: load a config file that is deserializable</p>
+<p>PARAMETERS: config_dir – the directory of the config file</p>
+<blockquote>
+<p>name – name of the file to deserialize</p>
+</blockquote>
+<p>RETURNS: Ok(deserialized structure) on success, Error otherwise</p>
+<p>IMPLEMENTATION: create the path to the file, and check if it exists. Read the file and deserialize it into the struct. If successfule, return Ok(deserialized struct) otherwise error out</p></td>
+</tr>
+<tr class="even">
+<td><p>connect(host: &amp;str, port: &amp;str, server_publickey: &amp;str) -&gt; BynarResult&lt;Socket&gt;</p>
+<p>DESCRIPTION: connect to the input host:port ip and securing with the server public key</p>
+<p>PARAMETERS: host – the host ip address</p>
+<blockquote>
+<p>port – the port to connect to</p>
+<p>server_publickey – the public key of the server used to secure the socket</p>
+</blockquote>
+<p>RETURNS: Ok(connected socket) on success, Error otherwise</p>
+<p>IMPLEMENTATION: create a new zmq REQ socket. create a curveKeyPair to secure the socket. set the keys in the socket and connect using tcp to the host:port ip address. If successful, return Ok(REQ socket), otherwise error out.</p></td>
+</tr>
+<tr class="odd">
+<td><p>get_vault_token(endpoint: &amp;str, token: &amp;str, hostname: &amp;str) -&gt; BynarResult&lt;String&gt;</p>
+<p>DESCRIPTION: get the vault secret from the Hashicorp Vault</p>
+<p>PARAMETERS: endpoint – the hashicorp endpoint</p>
+<blockquote>
+<p>token – token to access the vault with</p>
+<p>hostname – name of the host to get the secret of</p>
+</blockquote>
+<p>RETURNS: Ok(vault secret??) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Connect to the Vault with VaultClient, and get the secret. If successful return Ok(Vault secret) else error</p></td>
+</tr>
+<tr class="even">
+<td><p>add_disk_request(s: &amp;mut Socket, path: &amp;Path, id: Option&lt;u64&gt;, simulate: bool) -&gt; BynarResult&lt;()&gt;</p>
+<p>DESCRIPTION: send a request to add a disk to a cluster</p>
+<p>PARAMETERS: s – the socket to send and receive messages from</p>
+<blockquote>
+<p>path – the path of the disk to add to the cluster</p>
+<p>id – the osd id of the disk to add</p>
+<p>simulate – if passed, skip evaluation</p>
+</blockquote>
+<p>RETURNS: Ok(()) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Create the Operation message. Convert the message into bytes and send it from the socket and wait for a response. Parse the Operation result for OK or ERROR. If successful, return Ok(()), otherwise something failed.</p></td>
+</tr>
+<tr class="odd">
+<td><p>list_disks_request(s: &amp;mut Socket) -&gt; BynarResult&lt;Vec&lt;Disk&gt;&gt;</p>
+<p>DESCRIPTION: send a request to get a list of disks from a cluster</p>
+<p>PARAMETERS: s – the socket to send and receive messages from</p>
+<p>RETURNS: Ok(disk list) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Create the Operation message. Convert the message into bytes and send it from the socket and wait for a response. Parse the Operation result for the list of disks. If successful, return Ok(disk list), otherwise something failed.</p></td>
+</tr>
+<tr class="even">
+<td><p>safe_to_remove_request(s: &amp;mut Socket, path: &amp;Path) -&gt; BynarResult&lt;bool&gt;</p>
+<p>DESCRIPTION: send a request to a cluster to ask if a disk is safe to remove</p>
+<p>PARAMETERS: s – the socket to send messages from</p>
+<blockquote>
+<p>path – the path of the disk to check if removable</p>
+</blockquote>
+<p>RETURNS: Ok(is safe to remove?) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Create the Operation message. Convert the message into bytes and send it from the socket and wait for a response. Parse the Operation result for whether the disk is safe to remove. If successful, return Ok(true) if safe to remove, Ok(false) if the disk is not safe to remove, otherwise something failed so error out.</p></td>
+</tr>
+<tr class="odd">
+<td><p>remove_disk_request(s: &amp;mut Socket, path: &amp;Path, id: Option&lt;u64&gt;, simulate: bool) -&gt; BynarResult&lt;()&gt;</p>
+<p>DESCRIPTION: send a request to remove a disk from a cluster</p>
+<p>PARAMETERS: s – the socket to send messages from</p>
+<blockquote>
+<p>path – the path of the disk to add to the cluster</p>
+<p>id – the osd id of the disk to add</p>
+<p>simulate – if passed, skip evaluation</p>
+</blockquote>
+<p>RETURNS: Ok(()) on success, Error otherwise</p>
+<p>IMPLEMENTATION: Create the Operation message. Convert the message into bytes and send it from the socket and wait for a response. Parse the Operation result for OK or ERROR. If successful, return Ok(()), otherwise something failed.</p></td>
+</tr>
+<tr class="even">
+<td><p>get_jira_tickets(s: &amp;mut Socket) -&gt; BynarResult&lt;()&gt;</p>
+<p>DESCRIPTION: send a request to get Jira tickets</p>
+<p>PARAMETERS: s – the socket to send messages from</p>
+<blockquote>
+<p>RETURNS: Ok(()) on success, Error otherwise</p>
+</blockquote>
+<p>IMPLEMENTATION: Create the Operation message. Convert the message into bytes and send it from the socket and wait for a response. Parse the Operation result for OK or ERROR. If Ok get the tickets and print the ticket information. If successful, return Ok(()), otherwise something failed.</p></td>
+</tr>
+</tbody>
+</table>
 
 # Client 
 
