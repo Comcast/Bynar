@@ -32,14 +32,11 @@ use tempdir::TempDir;
 
 /// Ceph cluster
 pub struct CephBackend {
-    /*
-        Note: RADOS (Reliable Autonomic Distributed Object Store)
-        Open source obj storage service 
-        -Usually has storage nodes? (commodity servers?)
-        Probably either storage or backed for Openstack
-    */
-    cluster_handle: Rados, 
+    /// librados handle
+    cluster_handle: Rados,
+    /// handle for ceph configuration 
     config: CephConfig,
+    /// the Ceph version
     version: CephVersion,
 }
 
@@ -110,6 +107,8 @@ struct CephConfig {
     journal_devices: Option<Vec<JournalDevice>>,
 }
 
+/// Get the path of the ceph.json file.  If a config_dir is provided, use that to find
+/// the file, otherwise try the HOME directory for the ceph.json file
 fn choose_ceph_config(config_dir: Option<&Path>) -> BynarResult<PathBuf> {
     match config_dir {
         Some(config) => {
@@ -137,6 +136,7 @@ fn choose_ceph_config(config_dir: Option<&Path>) -> BynarResult<PathBuf> {
 }
 
 impl CephBackend {
+    /// Create a new CephBackend
     pub fn new(config_dir: Option<&Path>) -> BynarResult<CephBackend> {
         let ceph_config = choose_ceph_config(config_dir)?;
         if !ceph_config.exists() {
@@ -156,7 +156,7 @@ impl CephBackend {
             version,
         })
     }
-
+    /// Add a bluestore OSD to the Ceph Cluster
     fn add_bluestore_osd(
         &self,
         dev_path: &Path,
@@ -362,7 +362,7 @@ impl CephBackend {
         Ok(())
     }
 
-    // Change permissions of many files at once
+    /// Change permissions of many files at once
     fn change_permissions(&self, paths: &[&Path], perms: &Passwd) -> BynarResult<()> {
         for p in paths {
             debug!("chown {} with {}:{}", p.display(), perms.uid, perms.gid);
@@ -375,7 +375,7 @@ impl CephBackend {
         Ok(())
     }
 
-    // Create the LVM device and return the path and size of it
+    /// Create the LVM device and return the path and size of it
     fn create_lvm(
         &self,
         osd_fsid: &uuid::Uuid,
@@ -418,7 +418,7 @@ impl CephBackend {
         Ok((lv_dev_name.to_path_buf(), vg.get_size()))
     }
 
-    // Add the lvm tags that ceph requires to identify the osd
+    /// Add the lvm tags that ceph requires to identify the osd
     fn create_lvm_tags(
         &self,
         lv: &LogicalVolume<'_, '_>,
@@ -480,7 +480,7 @@ impl CephBackend {
         }
         Ok(())
     }
-
+    /// remove a bluestore osd from the Ceph cluster
     fn remove_bluestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         debug!("initializing LVM");
         let lvm = Lvm::new(None)?;
@@ -580,6 +580,7 @@ impl CephBackend {
         Ok(())
     }
 
+    /// Remove a filestore osd from the Ceph Cluster
     fn remove_filestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
@@ -629,8 +630,9 @@ impl CephBackend {
         Ok(())
     }
 
-    // lvm devices are symlinks.  They need to be resolved back into an
-    // absolute path to do anything useful with them.
+    /// Resolve the lvm device name to an absolute path
+    /// lvm devices are symlinks.  They need to be resolved back into an
+    /// absolute path to do anything useful with them.
     fn resolve_lvm_device(&self, lv_dev_name: &Path) -> BynarResult<PathBuf> {
         debug!("Resolving lvm {} device", lv_dev_name.display());
         let tmp = lv_dev_name.read_link()?;
@@ -651,7 +653,7 @@ impl CephBackend {
         }
     }
 
-    // Find the journal device that has enough free space
+    /// Find the journal device that has enough free space
     fn select_journal(&self) -> BynarResult<Option<JournalDevice>> {
         let journal_size = u64::from_str(&self.cluster_handle.config_get("osd_journal_size")?)?;
         // The config file uses MB as the journal size
