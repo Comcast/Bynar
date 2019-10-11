@@ -37,6 +37,7 @@ struct DiskManagerConfig {
     vault_endpoint: Option<String>,
 }
 
+/// convert a MediaType object into a DiskType object
 fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
     match *m {
         MediaType::Loopback => DiskType::LOOPBACK,
@@ -51,6 +52,7 @@ fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
     }
 }
 
+/// Set up a curve encryption scheme on a socket
 fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
     // will raise EINVAL if not linked against libsodium
     // The ubuntu package is linked so this shouldn't fail
@@ -95,6 +97,7 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()
 /*
 Server that manages disks
 */
+/// listen for Operation messages and run successfully received Operation messages
 fn listen(
     backend_type: &backend::BackendType,
     config_dir: &Path,
@@ -244,6 +247,7 @@ fn listen(
     }
 }
 
+/// Send a response back to the client
 fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     debug!("Responding to client with msg len: {}", encoded.len());
@@ -251,6 +255,7 @@ fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarR
     Ok(())
 }
 
+/// add a disk to a server
 fn add_disk(
     s: &mut Socket,
     d: &str,
@@ -286,6 +291,7 @@ fn add_disk(
     Ok(())
 }
 
+/// get a list of Disks from the server
 fn get_disks() -> BynarResult<Vec<Disk>> {
     let mut disks: Vec<Disk> = Vec::new();
     debug!("Searching for block devices");
@@ -318,6 +324,7 @@ fn get_disks() -> BynarResult<Vec<Disk>> {
     Ok(disks)
 }
 
+/// get partition info of a device
 fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
     let mut partition_info = PartitionInfo::new();
     let h = read_header(dev_path, disk::DEFAULT_SECTOR_SIZE)?;
@@ -340,6 +347,7 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
     Ok(partition_info)
 }
 
+/// send a list of disks to the client
 fn list_disks(s: &mut Socket) -> BynarResult<()> {
     let disk_list: Vec<Disk> = get_disks()?;
 
@@ -353,6 +361,7 @@ fn list_disks(s: &mut Socket) -> BynarResult<()> {
     Ok(())
 }
 
+/// remove a disk from a server
 fn remove_disk(
     s: &mut Socket,
     d: &str,
@@ -385,6 +394,7 @@ fn remove_disk(
     Ok(())
 }
 
+/// check if a disk is safe to remove
 fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarResult<bool> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
     let safe = backend.safe_to_remove(d, false)?;
@@ -392,6 +402,7 @@ fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarRe
     Ok(safe)
 }
 
+/// Check if a disk is safe to remove and send the result to the client
 fn safe_to_remove_disk(
     s: &mut Socket,
     d: &str,
@@ -422,7 +433,8 @@ fn safe_to_remove_disk(
     Ok(())
 }
 
- pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
+/// Get a list of jira tickets and send the list to the client
+pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
     let mut result = OpJiraTicketsResult::new();
     let config: ConfigSettings = match helpers::load_config(&config_dir, "bynar.json") {
         Ok(p) => p,
@@ -469,6 +481,7 @@ fn safe_to_remove_disk(
     Ok(())
 }
 
+/// Run the Disk_Manager 
 fn main() {
     let matches = App::new("Disk Manager")
         .version(crate_version!())
