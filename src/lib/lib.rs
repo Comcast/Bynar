@@ -54,7 +54,7 @@ pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResu
 }
 
 pub fn add_disk_request(
-    s: &mut Socket,
+    s: &Socket,
     path: &Path,
     id: Option<u64>,
     simulate: bool,
@@ -115,7 +115,7 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 }
 */
 
-pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
+pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
     o.set_Op_type(Op::List);
@@ -140,7 +140,7 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     Ok(d)
 }
 
-pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> {
+pub fn safe_to_remove_request(s: &Socket, path: &Path) -> BynarResult<bool> {
     let mut o = Operation::new();
     debug!("Creating safe to remove operation request");
     o.set_Op_type(Op::SafeToRemove);
@@ -160,7 +160,7 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> 
 }
 
 pub fn remove_disk_request(
-    s: &mut Socket,
+    s: &Socket,
     path: &Path,
     id: Option<u64>,
     simulate: bool,
@@ -237,7 +237,7 @@ pub struct DBConfig {
     pub dbname: String,
 }
 
-pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+pub fn get_jira_tickets(s: &Socket) -> BynarResult<()>{
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
