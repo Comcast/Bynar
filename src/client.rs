@@ -15,24 +15,27 @@ use zmq::Socket;
 /*
     CLI client to call functions over RPC
 */
-
+/// Send a message to add a disk to the cluster
 fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::add_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
+/// List the disks in a cluster and print them to the console
 fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let disks = helpers::list_disks_request(s)?;
     println!("disk list: {:?}", disks);
-
     Ok(disks)
 }
 
+/// Send a message to remove a disk from the cluster
 fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::remove_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
+/// Wrapper for adding a disk, parses a command line input
+/// to add a disk
 fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
@@ -54,6 +57,7 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     };
 }
 
+/// Wrapper for listing disks
 fn handle_list_disks(s: &mut Socket) {
     info!("Listing disks");
     match list_disks(s) {
@@ -66,16 +70,16 @@ fn handle_list_disks(s: &mut Socket) {
     };
 }
 
+/// Wrapper for getting and printing jira tickets
 fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     trace!("handle_jira_tickets called");
     let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
-   
-   
 }
 
-
+/// Wrapper for removing a disk, parses the command line
+/// inputs for the appropriate arguments
 fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
@@ -97,6 +101,7 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     }
 }
 
+/// Create the command line arguments and parse them for proper input
 fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
     App::new("Ceph Disk Manager Client")
         .version(crate_version!())
@@ -197,6 +202,7 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
         .get_matches()
 }
 
+/// Run the client
 fn main() {
     let server_key = format!(
         "/etc/bynar/{}.pem",
