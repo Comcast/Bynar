@@ -28,7 +28,7 @@ use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
-use zmq::{Message, Socket};
+use zmq::{ Socket};
 
 #[derive(Clone, Debug, Deserialize)]
 struct DiskManagerConfig {
@@ -51,7 +51,7 @@ fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
     }
 }
 
-fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
+fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
     // will raise EINVAL if not linked against libsodium
     // The ubuntu package is linked so this shouldn't fail
     s.set_curve_server(true)?;
@@ -77,14 +77,14 @@ fn setup_curve(s: &mut Socket, config_dir: &Path, vault: bool) -> BynarResult<()
         let client = VaultClient::new(endpoint.as_str(), token)?;
         client.set_secret(
             format!("{}/{}.pem", config_dir.display(), hostname),
-            keypair.public_key,
+            String::from_utf8_lossy(&keypair.public_key),
         )?;
         s.set_curve_secretkey(&keypair.secret_key)?;
     } else {
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
-        f.write_all(keypair.public_key.as_bytes())?;
+        f.write_all(&keypair.public_key)?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
     debug!("Curve server: {:?}", s.is_curve_server());
@@ -244,16 +244,15 @@ fn listen(
     }
 }
 
-fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarResult<()> {
+fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send_msg(msg, 0)?;
+    debug!("Responding to client with msg len: {}", encoded.len());
+    s.send(encoded, 0)?;
     Ok(())
 }
 
 fn add_disk(
-    s: &mut Socket,
+    s: &Socket,
     d: &str,
     backend: &BackendType,
     id: Option<u64>,
@@ -341,7 +340,7 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
     Ok(partition_info)
 }
 
-fn list_disks(s: &mut Socket) -> BynarResult<()> {
+fn list_disks(s: &Socket) -> BynarResult<()> {
     let disk_list: Vec<Disk> = get_disks()?;
 
     let mut disks = Disks::new();
@@ -349,14 +348,13 @@ fn list_disks(s: &mut Socket) -> BynarResult<()> {
     debug!("Encoding disk list");
     let encoded = disks.write_to_bytes()?;
 
-    let msg = Message::from_slice(&encoded)?;
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send_msg(msg, 0)?;
+    debug!("Responding to client with msg len: {}", encoded.len());
+    s.send(encoded, 0)?;
     Ok(())
 }
 
 fn remove_disk(
-    s: &mut Socket,
+    s: &Socket,
     d: &str,
     backend: &BackendType,
     config_dir: &Path,
@@ -395,7 +393,7 @@ fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarRe
 }
 
 fn safe_to_remove_disk(
-    s: &mut Socket,
+    s: &Socket,
     d: &str,
     backend: &BackendType,
     config_dir: &Path,
@@ -413,20 +411,18 @@ fn safe_to_remove_disk(
             result.set_result(ResultType::ERR);
             result.set_error_msg(e.to_string());
             let encoded = result.write_to_bytes()?;
-            let msg = Message::from_slice(&encoded)?;
-            debug!("Responding to client with msg len: {}", msg.len());
-            s.send_msg(msg, 0)?;
+            debug!("Responding to client with msg len: {}", encoded.len());
+            s.send(encoded, 0)?;
             return Err(BynarError::new(format!("safe to remove error: {}", e)));
         }
     };
     let encoded = result.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
-    debug!("Responding to client with msg len: {}", msg.len());
-    s.send_msg(msg, 0)?;
+    debug!("Responding to client with msg len: {}", encoded.len());
+    s.send(encoded, 0)?;
     Ok(())
 }
 
- pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
+ pub fn get_jira_tickets(s: &Socket, config_dir: &Path) -> BynarResult<()> {
     let mut result = OpJiraTicketsResult::new();
     let config: ConfigSettings = match helpers::load_config(&config_dir, "bynar.json") {
         Ok(p) => p,
