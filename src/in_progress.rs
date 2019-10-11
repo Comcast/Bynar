@@ -201,6 +201,7 @@ pub struct DiskPendingTicket {
 }
 
 impl DiskPendingTicket {
+    /// create a new DiskPendingTicket
     pub fn new(ticket_id: String, device_name: String, device_path : String ,device_id : i32) -> DiskPendingTicket {
         DiskPendingTicket {
             ticket_id,
@@ -212,6 +213,7 @@ impl DiskPendingTicket {
 }
 
 #[derive(Debug)]
+/// A regions entry
 pub struct HostDetailsMapping {
     pub entry_id: u32,
     pub region_id: u32,
@@ -219,6 +221,7 @@ pub struct HostDetailsMapping {
 }
 
 impl HostDetailsMapping {
+    /// create a new HostDetailsMapping
     pub fn new(entry_id: u32, region_id: u32, storage_detail_id: u32) -> HostDetailsMapping {
         HostDetailsMapping {
             entry_id,
@@ -229,6 +232,7 @@ impl HostDetailsMapping {
 }
 
 #[derive(Debug)]
+/// An entry for the Operations table
 pub struct OperationInfo {
     pub operation_id: Option<u32>,
     pub entry_id: u32,
@@ -241,6 +245,8 @@ pub struct OperationInfo {
 }
 
 impl OperationInfo {
+    /// create a new OperationInfo with optional fields set as None and start and
+    /// snapshot time set to the current timestamp
     pub fn new(entry_id: u32, device_id: u32) -> OperationInfo {
         OperationInfo {
             operation_id: None,
@@ -253,12 +259,15 @@ impl OperationInfo {
             done_time: None,
         }
     }
+    /// set the operation id to the input id
     fn set_operation_id(&mut self, op_id: u32) {
         self.operation_id = Some(op_id);
     }
+    /// set done time to the time of operation completion
     pub fn set_done_time(&mut self, done_time: DateTime<Utc>) {
         self.done_time = Some(done_time);
     }
+    /// set the snapshot time to the input timestamp
     pub fn set_snapshot_time(&mut self, snapshot_time: DateTime<Utc>) {
         self.snapshot_time = snapshot_time;
     }
@@ -305,6 +314,7 @@ impl Display for OperationStatus {
 }
 
 #[derive(Debug)]
+/// An entry for the operation_details table
 pub struct OperationDetail {
     pub op_detail_id: Option<u32>,
     pub operation_id: u32,
@@ -317,6 +327,8 @@ pub struct OperationDetail {
 }
 
 impl OperationDetail {
+    /// Create a new OperationDetail with optional fields set to None and start
+    /// and snapshot times set to the current timestamp
     pub fn new(operation_id: u32, op_type: OperationType) -> OperationDetail {
         OperationDetail {
             op_detail_id: None,
@@ -329,18 +341,19 @@ impl OperationDetail {
             done_time: None,
         }
     }
+    /// set the operation detail id
     fn set_operation_detail_id(&mut self, op_detail_id: u32) {
         self.op_detail_id = Some(op_detail_id);
     }
-
+    /// set the tracking id
     pub fn set_tracking_id(&mut self, tracking_id: String) {
         self.tracking_id = Some(tracking_id);
     }
-
+    /// set the done time
     pub fn set_done_time(&mut self, done_time: DateTime<Utc>) {
         self.done_time = Some(done_time);
     }
-
+    /// set the operation status
     pub fn set_operation_status(&mut self, status: OperationStatus) {
         self.status = status;
     }
@@ -487,6 +500,7 @@ fn update_region(conn: &Transaction<'_>, region: &str) -> BynarResult<u32> {
     Ok(region_id)
 }
 
+/// update the storage details in the database  
 fn update_storage_details(
     conn: &Transaction<'_>,
     s_info: &MyHost,
@@ -662,7 +676,7 @@ pub fn add_disk_detail(
 }
 
 // inserts the operation record. If successful insert, the provided input op_info
-// is modified. Returns error if insert or update fails.
+// is modified. Returns error if insert fails.
 pub fn add_or_update_operation(
     pool: &Pool<ConnectionManager>,
     op_info: &mut OperationInfo,
@@ -740,6 +754,8 @@ pub fn add_or_update_operation(
     }
 }
 
+/// inserts or updates the operation detail record.  if successful insert, the provided input 
+/// operation_detail is modified. Errors if insert fails
 pub fn add_or_update_operation_detail(
     pool: &Pool<ConnectionManager>,
     operation_detail: &mut OperationDetail,
@@ -832,6 +848,7 @@ pub fn add_or_update_operation_detail(
     Ok(())
 }
 
+/// save the state machine information for the device in the database.  
 pub fn save_state(
     pool: &Pool<ConnectionManager>,
     device_detail: &BlockDevice,
@@ -877,6 +894,7 @@ pub fn save_state(
     }
 }
 
+/// Save the result of the smart check of the device to the database
 pub fn save_smart_result(
     pool: &Pool<ConnectionManager>,
     device_detail: &BlockDevice,
@@ -922,7 +940,7 @@ pub fn save_smart_result(
     }
 }
 
-// Returns the currently known disks from the database.
+/// Returns the currently known disks from the database.
 pub fn get_devices_from_db(
     pool: &Pool<ConnectionManager>,
     storage_detail_id: u32,
@@ -1022,6 +1040,7 @@ pub fn get_smart_result(
     }
 }
 
+/// Convert a row from a query to a DiskRepairTicket
 fn row_to_ticket(row: &Row<'_>) -> DiskRepairTicket {
     DiskRepairTicket {
         ticket_id: row.get(0),
@@ -1031,7 +1050,7 @@ fn row_to_ticket(row: &Row<'_>) -> DiskRepairTicket {
 }
 
 /// Get a list of ticket IDs (JIRA/other ids) that belong to me.
-/// that are pending in op_type=waitForReplacement
+/// that are pending in progress or op_type=waitForReplacement
 pub fn get_outstanding_repair_tickets(
     pool: &Pool<ConnectionManager>,
     storage_detail_id: u32,
@@ -1100,6 +1119,7 @@ pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> 
     Ok(())
 }
 
+/// check if the hardware/device status is WaitingForRepair
 pub fn is_hardware_waiting_repair(
     pool: &Pool<ConnectionManager>,
     storage_detail_id: u32,
@@ -1175,7 +1195,7 @@ pub fn get_storage_id(pool: &Pool<ConnectionManager>, storage_type: &str) -> Byn
     }
 }
 
-/// Get storage detail id based on the storage id, region id and hotsname
+/// Get storage detail id based on the storage id, region id and hostname
 pub fn get_storage_detail_id(
     pool: &Pool<ConnectionManager>,
     storage_id: u32,
