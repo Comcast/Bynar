@@ -247,7 +247,7 @@ fn listen(
     }
 }
 
-/// Send a response back to the client
+/// Send a response back to the client with the result of an operation
 fn respond_to_client<T: protobuf::Message>(result: &T, s: &mut Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     debug!("Responding to client with msg len: {}", encoded.len());
@@ -398,7 +398,6 @@ fn remove_disk(
 fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarResult<bool> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
     let safe = backend.safe_to_remove(d, false)?;
-
     Ok(safe)
 }
 
