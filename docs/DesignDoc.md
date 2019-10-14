@@ -11,37 +11,148 @@ Revision History
   Michelle Zhong   10/9/2019    Outline the Document Modules, fill in the API section, Config File section, start filling out the Backend Section                  0.2
   Michelle Zhong   10/10/2019   Reorganize Headers in API section, Fill out the Backend, add Database Schema, add Error Module, Host Information, Helper Library   0.3
   Michelle Zhong   10/11/2019   Update Database Schema, Add Client, Jira Modules, Database Logging Section                                                         0.4
+  Michelle Zhong   10/14/2019   Start Updating the Disk Testing Section                                                                                            0.5
 
 Table of Contents
 =================
 
 [Revision History 2](#revision-history)
 
-[Table of Contents 3](#_Toc21705422)
+[Table of Contents 3](#_Toc21964845)
 
-[API 5](#api)
+[API 6](#api)
 
-[Configuration Files 8](#configuration-files)
+[Introduction 6](#introduction)
 
-[Backend 9](#backend)
+[Messages 6](#messages)
 
-[Database Schema 18](#database-schema)
+[Enums 6](#enums)
 
-[Database Logging 19](#database-logging)
+[Structs 7](#structs)
 
-[Helper Functions 28](#helper-functions-1)
+[Configuration Files 9](#configuration-files)
 
-[Client 34](#client)
+[Introduction 9](#introduction-1)
 
-[Support Tickets 36](#support-tickets)
+[List of Config Files 9](#list-of-config-files)
 
-[Disk Manager 36](#disk-manager)
+[Bynar JSON 9](#bynar-json)
+
+[Ceph JSON 10](#ceph-json)
+
+[Disk-Manager JSON 10](#disk-manager-json)
+
+[Backend 10](#backend)
+
+[Introduction 10](#introduction-2)
+
+[Backend Module 10](#backend-module)
+
+[Enums 10](#enums-1)
+
+[Interface 10](#interface)
+
+[Ceph 11](#ceph)
+
+[Structs 11](#structs-1)
+
+[Helper Functions 15](#helper-functions)
+
+[Database Schema 19](#database-schema)
+
+[Introduction 19](#introduction-3)
+
+[Postgres 19](#postgres)
+
+[Schema 20](#schema)
+
+[Database Logging 20](#database-logging)
+
+[Introduction 20](#introduction-4)
+
+[Logging 20](#logging)
+
+[Enums 20](#enums-2)
+
+[Structs 21](#structs-2)
+
+[Interface and Helper Functions 24](#interface-and-helper-functions)
+
+[Helper Functions 29](#helper-functions-1)
+
+[Introduction 29](#introduction-5)
+
+[Error Module 29](#error-module)
+
+[Type 29](#type)
+
+[Enums 29](#enums-3)
+
+[Structs 30](#structs-3)
+
+[Host Information 31](#host-information)
+
+[Enums 31](#enums-4)
+
+[Structs 31](#structs-4)
+
+[Helper Functions 32](#helper-functions-2)
+
+[Helper Module 32](#helper-module)
+
+[Structs 33](#structs-5)
+
+[Helper Functions 33](#helper-functions-3)
+
+[Client 35](#client)
+
+[Introduction 35](#introduction-6)
+
+[Client Interface 35](#client-interface)
+
+[Support Tickets 37](#support-tickets)
+
+[Introduction 37](#introduction-7)
+
+[JIRA Support 37](#jira-support)
+
+[Disk Manager 37](#disk-manager)
+
+[Introduction 37](#introduction-8)
+
+[Disk Manager 37](#disk-manager-1)
+
+[Structs 37](#structs-6)
+
+[Functions 38](#functions)
 
 [Disk Testing 40](#disk-testing)
 
-[Hardware Testing 40](#hardware-testing)
+[Introduction 40](#introduction-9)
 
-[Bynar 40](#bynar)
+[State Machine 40](#state-machine)
+
+[Type 41](#type-1)
+
+[Trait 41](#trait)
+
+[Enums 41](#enums-5)
+
+[Structs 42](#structs-7)
+
+[Functions 48](#functions-1)
+
+[Hardware Testing 48](#hardware-testing)
+
+[Introduction 48](#introduction-10)
+
+[Hardware Tests 48](#hardware-tests)
+
+[Bynar 48](#bynar)
+
+[Introduction 48](#introduction-11)
+
+[Main Process 48](#main-process)
 
 API
 ===
@@ -2822,7 +2933,651 @@ Disk Testing
 Introduction
 ------------
 
-### State Machine
+This is the disk testing mechanism of Bynar, which uses a State Machine
+to check the health of a disk and determine whether it has failed or
+not, as well as whether it needs replacement or intervention. Disk
+checks are defined and tested, using the state machine to determine what
+is and is not possible. The state machine itself can be output as a
+visual diagram when one of the unit tests is run.
+
+State Machine
+-------------
+
+The state machine is set up by adding all the transition states into
+itself, with each state ordered from the most to least ideal outcome.
+
+The state machine, when run, will attempt to run all transitions until
+an end state is reached and return. It will start from the current state
+that the machine is in, and loop through all possible next states
+(edges). If a transition returns Fail, try the next path until all paths
+are exhausted.
+
+### Type
+
+#### TransitionFn
+
+A function type fn(State, &mut BlockDevice, &Option\<ScsiInfo,
+Option\<ScsiInfo\>)\> bool) -\> State
+
+The Transition function defines a transition between two states, given
+some information on the current Block Device and information gathered
+from the scsi commands.
+
+### Trait
+
+#### Transition
+
+Transition trait that defines a transition between two states, given
+some Event, and uses a database connection to save and resume a state.
+The input state is the state to transition to if the Event is
+successful.
+
+##### Trait Function Definition
+
++-----------------+-----------------+-----------------+-----------------+
+| Name            | Inputs          | Description     | Outputs         |
++=================+=================+=================+=================+
+| transition      | to\_state:      | Transition from | State           |
+|                 | State           | the current     |                 |
+|                 |                 | state to an     |                 |
+|                 | device: &mut    | ending state    |                 |
+|                 | BlockDevice     | given an Event. |                 |
+|                 |                 |                 |                 |
+|                 | scsi\_info:     |                 |                 |
+|                 | &Option\<(ScsiI |                 |                 |
+|                 | nfo,            |                 |                 |
+|                 | Option\<ScsiInf |                 |                 |
+|                 | o\>)\>          |                 |                 |
+|                 |                 |                 |                 |
+|                 | simulate: bool  |                 |                 |
++-----------------+-----------------+-----------------+-----------------+
+
+### Enums
+
+#### State
+
+A State in the state machine
+
+##### Enum Values
+
+  Name                    Description
+  ----------------------- --------------------------------------------------------------------------
+  Corrupt                 The disk or disk filesystem is corrupted. Repairs are attempted
+  Fail                    The Transition failed (for whatever reason)
+  Good                    The filesystem is good
+  Mounted                 The disk was able to be mounted
+  MountFailed             Mounting the disk failed
+  NotMounted              The disk is not mounted
+  ReadOnly                The device is mounted as read only
+  ReformatFailed          Tried to reformat but failed
+  Reformatted             Reformatting the device succeeded
+  RepairFailed            Tried to repair corruption and failed
+  Repaired                Repair corruption succeeded
+  Replaced                Disk was successfully replaced
+  Scanned                 Disk is successfully scanned
+  Unscanned               Disk has not been scanned? Scanning failed?
+  WaitingForReplacement   The disk could not be repaired and needs to be replaced
+  WornOut                 The disk spindle is worn out and the drive will need to be replaced soon
+  WriteFailed             Write test failed
+
+##### Trait Implementations
+
+###### Display
+
+  Name   Inputs                   Description                                     Outputs
+  ------ ------------------------ ----------------------------------------------- -------------
+  fmt    f: &mut fmt::Formatter   Given a State, display the object as a string   fmt::Result
+
+###### FromStr
+
+  Name        Inputs    Description                      Outputs
+  ----------- --------- -------------------------------- ---------------------
+  from\_str   s: &str   Given a string, return a state   BynarError\<State\>
+
+###### Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd
+
+#### Fsck
+
+The result of an fsck Linux command
+
+##### Enum Values
+
+  Name      Description
+  --------- -------------------------------
+  Ok        Fsck resulted in okay
+  Corrupt   Filesystem is corrupt somehow
+
+### Structs
+
+#### BlockDevice
+
+A Block Device object, containing metadata and other information about
+the device
+
+##### Attributes
+
+  Name                   Type                         Description
+  ---------------------- ---------------------------- -----------------------------------------------------
+  device                 Device                       Device information
+  dev\_path              PathBuf                      The path to the device
+  device\_database\_id   Option\<u32\>                The id of the device in the database
+  mount\_point           Option\<PathBuf\>            The mount point of the device
+  partitions             BTreeMap\<u32, Partition\>   A map of the partitions in the device
+  scsi\_info             ScsiInfo                     Scsi Information on the device
+  state                  State                        Current state of the device
+  storage\_detail\_id    u32                          The storage detail id of the device in the database
+  operation\_id          Option\<u32\>                The operation id of the device n the database
+
+##### Implementation
+
+  Name                        Inputs                      Description                                                          Outputs
+  --------------------------- --------------------------- -------------------------------------------------------------------- ---------
+  set\_device\_database\_id   device\_database\_id: u32   set the device\_database\_id to the id of the disk in the database   None
+
+##### Trait Implementations
+
+###### Clone, Debug
+
+#### StateMachine
+
+A State Machine
+
+##### Attributes
+
+  Name            Type                                        Description
+  --------------- ------------------------------------------- ---------------------------------------------------------------------------------------------------------------------------
+  dot\_graph      Vec\<(State, State, String)\>               A record of transitions to be written as a dot graph for visual debugging
+  graph           GraphMap\<State, TransitionFn, Directed\>   Mapping of valid From -\> To transitions
+  block\_device   BlockDevice                                 The block device
+  scsi\_info      Option\<(ScsiInfo, Option\<ScsiInfo\>)\>    Option info of this device and optional scsi host information used to determine if the device is behind a RAID controller
+  simulate        bool                                        Whether a simulation or not
+
+##### Implementation
+
++-----------------------------------------------------------------------+
+| Function Definition                                                   |
++=======================================================================+
+| new(block\_device: BlockDevice, scsi\_info: Option\<(ScsiInfo,        |
+| Option\<ScsiInfo\>)\>, simulate: bool) -\> StateMachine               |
+|                                                                       |
+| DESCRIPTION: Create a new State Machine                               |
+|                                                                       |
+| PARAMETERS: block\_device -- the block device to create a State       |
+| Machine of                                                            |
+|                                                                       |
+| > scsi\_info -- the optional information of the device to determine   |
+| > if it is RAID                                                       |
+| >                                                                     |
+| > simulate -- whether running the state machine is real or simulated  |
+|                                                                       |
+| RETURNS: StateMachine                                                 |
+|                                                                       |
+| IMPLEMENTATION: create a new StateMachine and set the Vec and         |
+| GraphMap as empty, and fill in the other attributes with their        |
+| matching inputs and return the new StateMachine                       |
++-----------------------------------------------------------------------+
+| add\_transition(&mut self, from\_state: State, to\_state: State,      |
+| callback: TransitionFn, transition\_label: &str)                      |
+|                                                                       |
+| DESCRIPTION: add a transition to the state machine                    |
+|                                                                       |
+| PARAMETERS: from\_state -- the initial state                          |
+|                                                                       |
+| > to\_state -- the state to transition to if the transition function  |
+| > is successful                                                       |
+| >                                                                     |
+| > callback -- the transition function to attempt                      |
+| >                                                                     |
+| > transition\_label -- label used to debug the dot graph creation     |
+|                                                                       |
+| RETURNS: StateMachine with transition added                           |
+|                                                                       |
+| IMPLEMENTATION: push the from state, to\_state, and transition label  |
+| onto the dot graph, and add an edge to the graph from the from\_state |
+| to the to\_state using the callback as the transition function        |
++-----------------------------------------------------------------------+
+|                                                                       |
++-----------------------------------------------------------------------+
+|                                                                       |
++-----------------------------------------------------------------------+
+
+##### Trait Implementations
+
+######  Debug
+
+  Name   Inputs                          Description                                  Outputs
+  ------ ------------------------------- -------------------------------------------- -------------
+  fmt    f: &mut fmt::Formatter\<'\_\>   Given a formatter, write a debug statement   fmt::Result
+
+#### AttemptRepair
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, \_scsi\_info:  |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, simulate: bool) -\> State  |
+|                                                                       |
+| DESCRIPTION: Given a Corrupt state, attempt to repair the filesystem  |
+| on the disk                                                           |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to transition to if event      |
+| successful                                                            |
+|                                                                       |
+| > device -- the block device information needed to attempt a repair   |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > simulate -- if passed, skip the evaluation of this function         |
+|                                                                       |
+| RETURNS: State after attempting to repair the filesystem              |
+|                                                                       |
+| IMPLEMENTATION: if not a simulation, attempt to repair the            |
+| filesystem. If successful, return the input end state, otherwise the  |
+| repair failed, so return State::Fail. If a simulation, return the     |
+| input end state value                                                 |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### CheckForCorruption
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, \_scsi\_info:  |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, simulate: bool) -\> State  |
+|                                                                       |
+| DESCRIPTION: Check if there is corruption on the disk and return an   |
+| end state of Corrupted if so.                                         |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to transition to if the        |
+| filesystem is corrupt                                                 |
+|                                                                       |
+| > device -- the block device information needed to attempt a check    |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > simulate -- if passed, skip the evaluation of this function         |
+|                                                                       |
+| RETURNS: State after checking the filesystem                          |
+|                                                                       |
+| IMPLEMENTATION: if not a simulation, attempt to check if the          |
+| filesystem is corrupt. If the check returns Ok, then the filesystem   |
+| might have some other problem, or the filesystem could be read only,  |
+| so return State::Fail. If it returns Corrupt, then return the         |
+| end\_state input (State::Corrupt). If it errors, then the filesystem  |
+| check failed, so return State::Fail. If a simulation, return the      |
+| input end state value                                                 |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### CheckWearLeveling
+
+This transition currently not working properly. Checking the wear
+leveling is heavily dependent on the make and model of the drive, so if
+a smartctl command parser is implemented, it might not be accurate or
+usable on all drives for checking the wear level as not all drives can
+even check the wear level. Please note that wear level is an SSD drive
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, \_device: &mut BlockDevice,              |
+| \_scsi\_info: &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate:  |
+| bool) -\> State                                                       |
+|                                                                       |
+| DESCRIPTION: attempt to check if the wear level on a drive is near    |
+| fail levels.                                                          |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to transition to if the drive  |
+| is worn out                                                           |
+|                                                                       |
+| > \_device -- this parameter currently unused                         |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after checking the wear level                          |
+|                                                                       |
+| IMPLEMENTATION: Currently just returns the end state.                 |
+|                                                                       |
+| What it SHOULD do is check the wear level, and if the wear level is   |
+| worn out return the end state, otherwise return a State::Fail (in the |
+| event of the check erroring out or the check returning that the drive |
+| passed all of the smart checks and the wear level is still good if    |
+| the drive can even check the wear level, assuming the drive is SMART  |
+| aware\...)                                                            |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### CheckReadOnly
+
+This transition currently not \"implemented".
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(\_to\_state: State, \_device: &mut BlockDevice,            |
+| \_scsi\_info: &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate:  |
+| bool) -\> State                                                       |
+|                                                                       |
+| DESCRIPTION: attempt to check if the device? Is read only             |
+|                                                                       |
+| PARAMETERS: \_to\_state -- this parameter is currently unused         |
+|                                                                       |
+| > \_device -- this parameter currently unused                         |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after checking for read-only device                    |
+|                                                                       |
+| IMPLEMENTATION: Currently just returns the end state.                 |
+|                                                                       |
+| What it SHOULD do is check for read-only\....something, and if the    |
+| device or filesystem or whatever is readonly return the input end     |
+| state, otherwise return State::Fail. You could parse the /proc/mounts |
+| file for "ro", or check if the /sys/block/xxx/ro file contents is ==  |
+| 1                                                                     |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### Eval
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, \_scsi\_info:  |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate: bool) -\>      |
+| State                                                                 |
+|                                                                       |
+| DESCRIPTION: attempt to check if the scanned drive is good            |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return if check passes      |
+|                                                                       |
+| > device -- the device information needed to evaluate the drive       |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after checking if the device is good                   |
+|                                                                       |
+| IMPLEMENTATION: checks if the disk is blank. If so, assuming a blank  |
+| disk is good, return the end\_state. If not blank, check the          |
+| filesystem's LVM (if it uses an LVM) and if it does not error return  |
+| the end\_state. Check (if there is no mount point) if mounting the    |
+| device temporarily works. Then check if the mount is writable. If the |
+| mount is writable, clean up the mount used by unmounting the device,  |
+| and return the end state. If the write to mount fails, return         |
+| State::WriteFailed. Otherwise error outs should return in returning   |
+| State::Fails.                                                         |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### MarkForReplacement
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, \_scsi\_info:  |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate: bool) -\>      |
+| State                                                                 |
+|                                                                       |
+| DESCRIPTION: if a drive is Worn Out, mark the drive for replacement   |
+| and return the input end state                                        |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return marking is           |
+| successful                                                            |
+|                                                                       |
+| > device -- the device information needed to evaluate the drive       |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after checking if the device is good                   |
+|                                                                       |
+| IMPLEMENTATION: Currently just returns the end state.                 |
+|                                                                       |
+| What it SHOULD do is mark the drive as needing replacement            |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### Mount
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, \_scsi\_info:  |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate: bool) -\>      |
+| State                                                                 |
+|                                                                       |
+| DESCRIPTION: try to mount a drive, and return the input end state if  |
+| successful                                                            |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return if mounting is       |
+| successful                                                            |
+|                                                                       |
+| > device -- the device information needed to mount the drive          |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after trying to mount a device temporarily             |
+|                                                                       |
+| IMPLEMENTATION: Returns the input end state if mounting and           |
+| unmounting is successful, otherwise return State::Fail                |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### NoOp
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, \_device: &mut BlockDevice,              |
+| \_scsi\_info: &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate:  |
+| bool) -\> State                                                       |
+|                                                                       |
+| DESCRIPTION: Do nothing                                               |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return after doing nothing  |
+|                                                                       |
+| > \_device -- the device information needed to evaluate the drive     |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after doing nothing                                    |
+|                                                                       |
+| IMPLEMENTATION: Currently just returns the end state.                 |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### Remount
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, \_device: &mut BlockDevice,              |
+| \_scsi\_info: &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate:  |
+| bool) -\> State                                                       |
+|                                                                       |
+| DESCRIPTION: attempt to remount a disk if possible                    |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return if remounting is     |
+| successful                                                            |
+|                                                                       |
+| > \_device -- this parameter is currently unused                      |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after checking if the device can be remounted          |
+|                                                                       |
+| IMPLEMENTATION: Run the remount command (mount with remount flags).   |
+| If successful, return the end state input to the function. Otherwise, |
+| return State::Fail                                                    |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### Replace
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, \_device: &mut BlockDevice,              |
+| \_scsi\_info: &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate:  |
+| bool) -\> State                                                       |
+|                                                                       |
+| DESCRIPTION: check if the drive has been replaced and the host can    |
+| see it.                                                               |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return if the disk has been |
+| successfully replaced                                                 |
+|                                                                       |
+| > device -- the device information needed to check if the host can    |
+| > see                                                                 |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after checking if the device is replaced and viewable  |
+|                                                                       |
+| IMPLEMENTATION: get the device info (if it works then the host can    |
+| see the device, so return the end state). Otherwise return            |
+| State::Fail.                                                          |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### Reformat
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, \_scsi\_info:  |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate: bool) -\>      |
+| State                                                                 |
+|                                                                       |
+| DESCRIPTION: reformat a disk and return an end state                  |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return if reformating is    |
+| successful                                                            |
+|                                                                       |
+| > device -- the device information needed to reformat the drive       |
+| >                                                                     |
+| > \_scsi\_info -- this parameter is unused                            |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after reformatting the drive                           |
+|                                                                       |
+| IMPLEMENTATION: ensure the drive is NOT mounted. format the device.   |
+| And if it works, update the UUID of the block device, by creating a   |
+| new one, probing for the uuid, and looking up the uuid value, then    |
+| updated the device id. If this all works, return the end state,       |
+| otherwise if any of the steps fail return State::Fail.                |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+#### Scan
+
+##### Trait Implementations
+
+###### Transition
+
++-----------------------------------------------------------------------+
+| Trait Function Definition                                             |
++=======================================================================+
+| transition(to\_state: State, device: &mut BlockDevice, scsi\_info:    |
+| &Option\<(ScsiInfo, Option\<ScsiInfo\>)\>, \_simulate: bool) -\>      |
+| State                                                                 |
+|                                                                       |
+| DESCRIPTION: Scan a drive and return a state                          |
+|                                                                       |
+| PARAMETERS: to\_state -- the end state to return if scanning is       |
+| successful                                                            |
+|                                                                       |
+| > device -- the device information needed to run a scan               |
+| >                                                                     |
+| > scsi\_info -- the scsi info needed to runa scan                     |
+| >                                                                     |
+| > \_simulate --this parameter is currently unused                     |
+|                                                                       |
+| RETURNS: State after scanning the drive                               |
+|                                                                       |
+| IMPLEMENTATION: check if the drive is raid backed. If the .0 raid     |
+| backed is false, run smart checks on the device. If its okay return   |
+| the end state else Fail. If raid\_backed.0 is true, and the Vendor is |
+| Hp, check the scsi\_info's state. If the state is us Running, then    |
+| return the end state, otherwise State::Fail. For any other Vendor,    |
+| skip the scanning and just return the input end state.                |
++-----------------------------------------------------------------------+
+
+###### Debug
+
+### Functions
 
 Hardware Testing
 ================
