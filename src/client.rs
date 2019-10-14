@@ -16,24 +16,24 @@ use zmq::Socket;
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::add_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
-fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
+fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
     let disks = helpers::list_disks_request(s)?;
     println!("disk list: {:?}", disks);
 
     Ok(disks)
 }
 
-fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
     helpers::remove_disk_request(s, path, id, simulate)?;
     Ok(())
 }
 
-fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -54,7 +54,7 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
     };
 }
 
-fn handle_list_disks(s: &mut Socket) {
+fn handle_list_disks(s: &Socket) {
     info!("Listing disks");
     match list_disks(s) {
         Ok(disks) => {
@@ -66,9 +66,9 @@ fn handle_list_disks(s: &mut Socket) {
     };
 }
 
-fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+fn handle_jira_tickets(s: &Socket) -> BynarResult<()>{
     trace!("handle_jira_tickets called");
-    let tickets = helpers::get_jira_tickets(s)?;
+    let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
 }
@@ -87,7 +87,7 @@ fn handle_unset_maintenance(s: &mut Socket) -> BynarResult<()>{
     Ok(())  
 }
 
-fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -250,7 +250,7 @@ fn main() {
     if let Some(ref matches) = matches.subcommand_matches("remove") {
         handle_remove_disk(&mut s, matches);
     }
-    if let Some(ref matches) = matches.subcommand_matches("get_jira_tickets") {
+    if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
         handle_jira_tickets(&mut s);
     }
     if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
