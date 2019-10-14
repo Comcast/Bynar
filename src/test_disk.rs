@@ -45,6 +45,7 @@ type TransitionFn =
     fn(State, &mut BlockDevice, &Option<(ScsiInfo, Option<ScsiInfo>)>, bool) -> State;
 
 #[derive(Clone, Debug)]
+// A Block Device, containing metadata and other information about the device
 pub struct BlockDevice {
     pub device: Device,
     pub dev_path: PathBuf,
@@ -59,6 +60,7 @@ pub struct BlockDevice {
 }
 
 impl BlockDevice {
+    /// set the device_database_id to the id of the disk in the database
     pub fn set_device_database_id(&mut self, device_database_id: u32) {
         self.device_database_id = Some(device_database_id);
     }
@@ -340,7 +342,7 @@ mod tests {
 }
 
 trait Transition {
-    // Transition from the current state to an ending state given an Event
+    /// Transition from the current state to an ending state given an Event
     // database connection can be used to save and resume state
     fn transition(
         to_state: State,
@@ -351,7 +353,7 @@ trait Transition {
 }
 
 impl Transition for AttemptRepair {
-    // Take a Corrupt
+    /// Take a Corrupt State and attempt to repair the filesystem on the disk
     fn transition(
         to_state: State,
         device: &mut BlockDevice,
@@ -362,7 +364,7 @@ impl Transition for AttemptRepair {
         // Disk filesystem is corrupted.  Attempt repairs.
         if !simulate {
             match repair_filesystem(&device.device.fs_type, &device.dev_path) {
-                Ok(_) => to_state,
+                Ok(_) => to_state, //why are we still returning State::Corrupt here?
                 Err(e) => {
                     error!("repair_filesystem failed on {:?}: {}", device, e);
                     State::Fail
@@ -375,6 +377,8 @@ impl Transition for AttemptRepair {
 }
 
 impl Transition for CheckForCorruption {
+    /// Given an end state of Corrupted, check if there is Corruption on the disk
+    /// This assumes some other check has failed
     fn transition(
         to_state: State,
         device: &mut BlockDevice,
@@ -415,15 +419,18 @@ impl Transition for CheckReadOnly {
     ) -> State {
         debug!("thread {} running CheckReadOnly transition", process::id());
         // Try again
+        //for devices, you can check if /sys/block/xxx/ro == 1
+        // you could check /proc/mounts for "ro" of the device name for filesystems
         State::Fail
     }
 }
 
 impl Transition for CheckWearLeveling {
+    /// Check Wear Leveling and return
     fn transition(
         to_state: State,
         _device: &mut BlockDevice,
-        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
+        _scsi_info b : &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
         debug!(
@@ -432,11 +439,19 @@ impl Transition for CheckWearLeveling {
         );
 
         //TODO: How can we check wear leveling?
+        // We can do this using smartctl, assuming a SMART aware drive
+        // TODO: write some method of parsing smartctl -s /dev/drive
+        // checks to check the wear on a drive.  This can be checked by checking
+        // first if all smart checks have passed,
+        // and then checking the PowerOnHours and the WearLevelingCount
+        // Please note that not all drives support these values (especially on
+        // older drives). Output is heavily dependent on the make and model of the drive
+        // Also please note this would only work on SMART aware drives
         to_state
     }
 }
 
-// Evaluate whether a scanned drive is good
+/// Evaluate whether a scanned drive is good
 impl Transition for Eval {
     fn transition(
         to_state: State,
@@ -519,6 +534,7 @@ impl Transition for Eval {
 }
 
 impl Transition for MarkForReplacement {
+    /// Mark a Worn Out drive as needing replacement
     fn transition(
         to_state: State,
         _device: &mut BlockDevice,
@@ -534,6 +550,7 @@ impl Transition for MarkForReplacement {
 }
 
 impl Transition for Mount {
+    /// try to mount a drive
     fn transition(
         to_state: State,
         device: &mut BlockDevice,
@@ -562,6 +579,7 @@ impl Transition for Mount {
 }
 
 impl Transition for NoOp {
+    /// No operation - do nothing
     fn transition(
         to_state: State,
         _device: &mut BlockDevice,
@@ -575,6 +593,7 @@ impl Transition for NoOp {
 }
 
 impl Transition for Reformat {
+    /// Reformat a disk
     fn transition(
         to_state: State,
         device: &mut BlockDevice,
@@ -618,6 +637,7 @@ impl Transition for Reformat {
 }
 
 impl Transition for Remount {
+    /// attempt to remount a drive
     fn transition(
         to_state: State,
         _device: &mut BlockDevice,
@@ -645,6 +665,7 @@ impl Transition for Remount {
 }
 
 impl Transition for Replace {
+    /// disk has been replaced, check if it has been replaced AND the host can see
     fn transition(
         to_state: State,
         device: &mut BlockDevice,
@@ -675,6 +696,7 @@ impl Transition for Replace {
 }
 
 impl Transition for Scan {
+    /// Scan a drive
     fn transition(
         to_state: State,
         device: &mut BlockDevice,
@@ -755,7 +777,7 @@ impl StateMachine {
             simulate,
         }
     }
-
+    /// Add a transition to the state machine
     fn add_transition(
         &mut self,
         from_state: State,
