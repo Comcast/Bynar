@@ -63,6 +63,7 @@ pub struct DBConfig {
     pub dbname: String,
 }*/
 
+/// send a slack notification
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();
     let slack = Slack::new(
@@ -86,6 +87,8 @@ fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     Ok(())
 }
 
+/// get the server public key if possible from either the vault or some
+/// .pem file
 fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<String> {
     // If vault_endpoint and token are set we should get the key from vault
     // Otherwise we need to know where the public_key is located?
@@ -109,13 +112,14 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
             .join("bynar")
             .join(format!("{}.pem", host_info.hostname));
         if !p.exists() {
-            error!("{} does not exist", p.display());
+            error!("{} does not exist", p.display());// errr, shouldn't this error?
         }
         let key = read_to_string(p)?;
         Ok(key)
     }
 }
 
+/// Run a scan to check for failed disks
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
@@ -279,6 +283,7 @@ fn check_for_failed_disks(
     Ok(())
 }
 
+/// check if there are any errors besides hardware errors
 fn evaluate(
     results: Vec<BynarResult<()>>,
     config: &ConfigSettings,
@@ -336,6 +341,7 @@ fn evaluate(
     Ok(())
 }
 
+/// Run a scan to check for failed hardware
 fn check_for_failed_hardware(
     config: &ConfigSettings,
     host_info: &Host,
@@ -376,6 +382,7 @@ fn check_for_failed_hardware(
     Ok(())
 }
 
+/// add repaired disks back to the cluster
 fn add_repaired_disks(
     config: &ConfigSettings,
     host_info: &Host,
