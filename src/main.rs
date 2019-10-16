@@ -112,7 +112,7 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
             .join("bynar")
             .join(format!("{}.pem", host_info.hostname));
         if !p.exists() {
-            error!("{} does not exist", p.display());// errr, shouldn't this error?
+            error!("{} does not exist", p.display()); // errr, shouldn't this error?
         }
         let key = read_to_string(p)?;
         Ok(key)

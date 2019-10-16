@@ -430,7 +430,7 @@ impl Transition for CheckWearLeveling {
     fn transition(
         to_state: State,
         _device: &mut BlockDevice,
-        _scsi_info b : &Option<(ScsiInfo, Option<ScsiInfo>)>,
+        _scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>,
         _simulate: bool,
     ) -> State {
         debug!(
@@ -1129,7 +1129,7 @@ enum Fsck {
 }
 
 /// filter disks and get their information while skipping devices that
-/// should not be messed with (loopback, LVM, CD/DVD rom, RAM, root disk, 
+/// should not be messed with (loopback, LVM, CD/DVD rom, RAM, root disk,
 /// BOOT should be included)
 fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<BlockDevice>> {
     // Gather info on all devices and skip Loopback devices
@@ -1364,7 +1364,7 @@ fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRes
 }
 
 #[cfg_attr(test, mockable)]
-/// repair a filesystem, given a corrupted device and filesystem type. 
+/// repair a filesystem, given a corrupted device and filesystem type.
 /// Note this assumes the filesystem is unmounted
 fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarResult<()> {
     match *filesystem_type {

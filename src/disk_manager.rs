@@ -28,7 +28,7 @@ use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
-use zmq::{ Socket};
+use zmq::Socket;
 
 #[derive(Clone, Debug, Deserialize)]
 struct DiskManagerConfig {
@@ -233,7 +233,7 @@ fn listen(
                 };
             }
             Op::GetCreatedTickets => {
-               match get_jira_tickets(&mut responder,config_dir) {
+                match get_jira_tickets(&mut responder, config_dir) {
                     Ok(_) => {
                         info!("Fetching jira tickets finished");
                     }
@@ -470,7 +470,7 @@ pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
         .map(|j| {
             let mut jira_result = JiraInfo::new();
             jira_result.set_ticket_id(j.ticket_id.clone());
-            let host_name = in_progress::get_host_name(&db_pool,j.device_id);
+            let host_name = in_progress::get_host_name(&db_pool, j.device_id);
             jira_result.set_server_name(host_name.unwrap().unwrap());
             jira_result
         })
@@ -480,7 +480,7 @@ pub fn get_jira_tickets(s: &mut Socket, config_dir: &Path) -> BynarResult<()> {
     Ok(())
 }
 
-/// Run the Disk_Manager 
+/// Run the Disk_Manager
 fn main() {
     let matches = App::new("Disk Manager")
         .version(crate_version!())

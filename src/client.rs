@@ -9,7 +9,7 @@ use api::service::Disk;
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
-use log::{error, info,trace};
+use log::{error, info, trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
@@ -71,7 +71,7 @@ fn handle_list_disks(s: &mut Socket) {
 }
 
 /// Wrapper for getting and printing jira tickets
-fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
     let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");

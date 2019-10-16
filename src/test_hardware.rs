@@ -131,7 +131,7 @@ fn evaluate_manager(manager: &Manager) -> Vec<BynarResult<()>> {
     results
 }
 
-/// evaluate the power supply 
+/// evaluate the power supply
 fn evaluate_power(power: &Power) -> Vec<BynarResult<()>> {
     let mut results: Vec<BynarResult<()>> = Vec::new();
 

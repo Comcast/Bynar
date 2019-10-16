@@ -5,7 +5,7 @@ use std::fs::read_to_string;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
-use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
+use api::service::{Disk, JiraInfo, Op, OpBoolResult, OpJiraTicketsResult, Operation, ResultType};
 use hashicorp_vault::client::VaultClient;
 use log::{debug, error};
 use protobuf::parse_from_bytes;
@@ -245,7 +245,7 @@ pub struct DBConfig {
 }
 
 /// Send a request to get the JIRA ticket information and print it
-pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()> {
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
@@ -256,16 +256,16 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
     debug!("Waiting for response: get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", tickets_response.len());
-   
+
     let op_jira_result = parse_from_bytes::<OpJiraTicketsResult>(&tickets_response)?;
     match op_jira_result.get_result() {
         ResultType::OK => {
             debug!("got tickets successfully");
-             let proto_jira = op_jira_result.get_tickets();
-             let mut _jira: Vec<JiraInfo> = Vec::new();
+            let proto_jira = op_jira_result.get_tickets();
+            let mut _jira: Vec<JiraInfo> = Vec::new();
             for JiraInfo in proto_jira {
-               debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
-               debug!("get_server_name: {}", JiraInfo.get_server_name());
+                debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+                debug!("get_server_name: {}", JiraInfo.get_server_name());
             }
             Ok(())
         }
@@ -276,9 +276,10 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
                 Err(BynarError::from(op_jira_result.get_error_msg()))
             } else {
                 error!("Get jira tickets failed but error_msg not set");
-                Err(BynarError::from("Get jira tickets failed but error_msg not set"))
+                Err(BynarError::from(
+                    "Get jira tickets failed but error_msg not set",
+                ))
             }
         }
     }
-   
 }

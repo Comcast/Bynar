@@ -22,7 +22,8 @@ use helpers::{error::*, host_information::Host};
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
-use nix::{ ioctl_none, request_code_none,
+use nix::{
+    ioctl_none, request_code_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
@@ -34,7 +35,7 @@ use tempdir::TempDir;
 pub struct CephBackend {
     /// librados handle
     cluster_handle: Rados,
-    /// handle for ceph configuration 
+    /// handle for ceph configuration
     config: CephConfig,
     /// the Ceph version
     version: CephVersion,
@@ -71,28 +72,6 @@ impl fmt::Display for JournalDevice {
             None => write!(f, "{}", self.device.display()),
         }
     }
-}
-
-#[test]
-fn test_journal_sorting() {
-    let a = JournalDevice {
-        device: PathBuf::from("/dev/sda"),
-        partition_id: None,
-        partition_uuid: None,
-        num_partitions: Some(2),
-    };
-    let b = JournalDevice {
-        device: PathBuf::from("/dev/sdb"),
-        partition_id: None,
-        partition_uuid: None,
-        num_partitions: Some(1),
-    };
-    let mut journal_devices = vec![a.clone(), b.clone()];
-    journal_devices.sort_by_key(|j| j.num_partitions);
-    println!("journal_devices: {:?}", journal_devices);
-    // Journal devicess should be sorted from least to greatest number
-    // of partitions
-    assert_eq!(journal_devices, vec![b, a]);
 }
 
 #[derive(Deserialize, Debug)]
@@ -783,7 +762,7 @@ fn save_keyring(
 /// Add the osd to the file systems table
 // Note: the fstab file usually lists all available disk partitions and other types
 // of file systems and data sources (not necessarily disk based) and indicates
-// how they are initialized or integrated into the file system structure.  
+// how they are initialized or integrated into the file system structure.
 fn add_osd_to_fstab(
     device_info: &block_utils::Device,
     osd_id: u64,
@@ -975,7 +954,7 @@ fn setup_osd_init(osd_id: u64, simulate: bool) -> BynarResult<()> {
     }
 }
 
-/// udevd is used to create device nodes for all detected devices, so 
+/// udevd is used to create device nodes for all detected devices, so
 /// udevadm settle waits for udevd to process all the device creation events
 /// have run, so all device nodes are created successfully before proceeding
 /// with any sort of changes
@@ -1283,3 +1262,29 @@ ioctl_none!(blkrrpart, 0x12, 95);
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95
 }*/
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_journal_sorting() {
+        let a = JournalDevice {
+            device: PathBuf::from("/dev/sda"),
+            partition_id: None,
+            partition_uuid: None,
+            num_partitions: Some(2),
+        };
+        let b = JournalDevice {
+            device: PathBuf::from("/dev/sdb"),
+            partition_id: None,
+            partition_uuid: None,
+            num_partitions: Some(1),
+        };
+        let mut journal_devices = vec![a.clone(), b.clone()];
+        journal_devices.sort_by_key(|j| j.num_partitions);
+        println!("journal_devices: {:?}", journal_devices);
+        // Journal devicess should be sorted from least to greatest number
+        // of partitions
+        assert_eq!(journal_devices, vec![b, a]);
+    }
+
+}
