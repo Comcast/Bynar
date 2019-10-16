@@ -457,11 +457,12 @@ fn main() {
      let daemonize = Daemonize::new()
          .pid_file("/var/log/bynar_daemon.pid") // Every method except `new` and `start`
          .chown_pid_file(true)      // is optional, see `Daemonize` documentation
-         .working_directory("") // for default behaviour.
-         .user("nobody")
+         .working_directory("/") // for default behaviour.
+         .user("root")
          .group("daemon") // Group name
          .group(2)        // or group id.
-         .umask(0o777)    // Set umask, `0o027` by default.         
+         .umask(0o777)    // Set umask, `0o027` by default.  
+        // .umask(027)    // Set umask, `0o027` by default.        
          .stdout(stdout)  // Redirect stdout to `/tmp/daemon.out`.
          .stderr(stderr)  // Redirect stderr to `/tmp/daemon.err`.
          .exit_action(|| println!("Executed before master process exits"))

@@ -2,7 +2,7 @@
 //!
 use serde_derive::*;
 use std::fs::read_to_string;
-//use std::path::Path;
+use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
 use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
@@ -16,7 +16,7 @@ use zmq::{Message, Socket};
 pub mod error;
 pub mod host_information;
 
-/***** DEMONIZATION CODE *******/
+/***** DEMONIZATION CODE *******
 mod ffi;
 
 extern crate boxfnonce;
@@ -42,7 +42,7 @@ pub use libc::{gid_t, mode_t, uid_t};
 
 use self::ffi::{chroot, flock, get_gid_by_name, get_uid_by_name};
 
-/***** DEMONIZATION CODE lib.rs declration  ENDS HERE*******/
+***** DEMONIZATION CODE lib.rs declration  ENDS HERE*******/
 
 
 pub fn load_config<T>(config_dir: &Path, name: &str) -> BynarResult<T>
@@ -342,7 +342,7 @@ pub fn unset_maintenance(s: &mut Socket) -> BynarResult<()>{
 }
 
 
-/**** DEMONIZATION CODE *****/
+/**** DEMONIZATION CODE *****
 
 macro_rules! tryret {
     ($expr:expr, $ret:expr, $err:expr) => {
@@ -839,5 +839,5 @@ fn errno() -> Errno {
     io::Error::last_os_error().raw_os_error().expect("errno")
 }
 
-/**** DEMONIZATION CODE ENDS HERE *****/
+**** DEMONIZATION CODE ENDS HERE *****/
 
