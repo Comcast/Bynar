@@ -21,6 +21,7 @@ pub struct HardwareHealthSummary {
     pub thermals: Vec<BynarResult<()>>,
 }
 
+/// collect the hardware health information from redfish
 fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSummary> {
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
@@ -91,10 +92,12 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
     })
 }
 
+/// public wrapper for collect_redfish_info
 pub fn check_hardware(config: &ConfigSettings) -> BynarResult<HardwareHealthSummary> {
     collect_redfish_info(&config)
 }
 
+/// Evaluate an input hardware of type Hardware + Status
 fn evaluate_storage<T>(hardware: T) -> BynarResult<()>
 where
     T: Hardware + Status,
@@ -111,6 +114,7 @@ where
     Ok(())
 }
 
+/// Evaluate the ilo status
 fn evaluate_manager(manager: &Manager) -> Vec<BynarResult<()>> {
     // Look through all the self test results
     // Check if this is an HP machine first?
@@ -127,6 +131,7 @@ fn evaluate_manager(manager: &Manager) -> Vec<BynarResult<()>> {
     results
 }
 
+/// evaluate the power supply 
 fn evaluate_power(power: &Power) -> Vec<BynarResult<()>> {
     let mut results: Vec<BynarResult<()>> = Vec::new();
 
@@ -141,6 +146,7 @@ fn evaluate_power(power: &Power) -> Vec<BynarResult<()>> {
     results
 }
 
+/// evaluate the status of the fans and temperature
 fn evaluate_thermals(thermal: &Thermal) -> Vec<BynarResult<()>> {
     let mut results: Vec<BynarResult<()>> = Vec::new();
     for fan in &thermal.fans {
