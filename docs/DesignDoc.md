@@ -12,147 +12,38 @@ Revision History
   Michelle Zhong   10/10/2019   Reorganize Headers in API section, Fill out the Backend, add Database Schema, add Error Module, Host Information, Helper Library   0.3
   Michelle Zhong   10/11/2019   Update Database Schema, Add Client, Jira Modules, Database Logging Section                                                         0.4
   Michelle Zhong   10/14/2019   Start Updating the Disk Testing Section                                                                                            0.5
+  Michelle Zhong   10/16/2019   Updated the Disk Testing Section, Add Hardware Testing Section, add in the main Bynar program section                              0.6
 
 Table of Contents
 =================
 
 [Revision History 2](#revision-history)
 
-[Table of Contents 3](#_Toc21964845)
+[Table of Contents 3](#_Toc22131550)
 
 [API 6](#api)
 
-[Introduction 6](#introduction)
-
-[Messages 6](#messages)
-
-[Enums 6](#enums)
-
-[Structs 7](#structs)
-
 [Configuration Files 9](#configuration-files)
-
-[Introduction 9](#introduction-1)
-
-[List of Config Files 9](#list-of-config-files)
-
-[Bynar JSON 9](#bynar-json)
-
-[Ceph JSON 10](#ceph-json)
-
-[Disk-Manager JSON 10](#disk-manager-json)
 
 [Backend 10](#backend)
 
-[Introduction 10](#introduction-2)
-
-[Backend Module 10](#backend-module)
-
-[Enums 10](#enums-1)
-
-[Interface 10](#interface)
-
-[Ceph 11](#ceph)
-
-[Structs 11](#structs-1)
-
-[Helper Functions 15](#helper-functions)
-
 [Database Schema 19](#database-schema)
-
-[Introduction 19](#introduction-3)
-
-[Postgres 19](#postgres)
-
-[Schema 20](#schema)
 
 [Database Logging 20](#database-logging)
 
-[Introduction 20](#introduction-4)
-
-[Logging 20](#logging)
-
-[Enums 20](#enums-2)
-
-[Structs 21](#structs-2)
-
-[Interface and Helper Functions 24](#interface-and-helper-functions)
-
 [Helper Functions 29](#helper-functions-1)
-
-[Introduction 29](#introduction-5)
-
-[Error Module 29](#error-module)
-
-[Type 29](#type)
-
-[Enums 29](#enums-3)
-
-[Structs 30](#structs-3)
-
-[Host Information 31](#host-information)
-
-[Enums 31](#enums-4)
-
-[Structs 31](#structs-4)
-
-[Helper Functions 32](#helper-functions-2)
-
-[Helper Module 32](#helper-module)
-
-[Structs 33](#structs-5)
-
-[Helper Functions 33](#helper-functions-3)
 
 [Client 35](#client)
 
-[Introduction 35](#introduction-6)
-
-[Client Interface 35](#client-interface)
-
 [Support Tickets 37](#support-tickets)
-
-[Introduction 37](#introduction-7)
-
-[JIRA Support 37](#jira-support)
 
 [Disk Manager 37](#disk-manager)
 
-[Introduction 37](#introduction-8)
-
-[Disk Manager 37](#disk-manager-1)
-
-[Structs 37](#structs-6)
-
-[Functions 38](#functions)
-
 [Disk Testing 40](#disk-testing)
 
-[Introduction 40](#introduction-9)
+[Hardware Testing 51](#hardware-testing)
 
-[State Machine 40](#state-machine)
-
-[Type 41](#type-1)
-
-[Trait 41](#trait)
-
-[Enums 41](#enums-5)
-
-[Structs 42](#structs-7)
-
-[Functions 48](#functions-1)
-
-[Hardware Testing 48](#hardware-testing)
-
-[Introduction 48](#introduction-10)
-
-[Hardware Tests 48](#hardware-tests)
-
-[Bynar 48](#bynar)
-
-[Introduction 48](#introduction-11)
-
-[Main Process 48](#main-process)
+[Bynar 53](#bynar)
 
 API
 ===
@@ -3136,9 +3027,46 @@ A State Machine
 | onto the dot graph, and add an edge to the graph from the from\_state |
 | to the to\_state using the callback as the transition function        |
 +-----------------------------------------------------------------------+
+| run(&mut self)                                                        |
 |                                                                       |
+| DESCRIPTION: run all transitions until no more transitions can be run |
+| and return                                                            |
+|                                                                       |
+| PARAMETERS: None                                                      |
+|                                                                       |
+| RETURNS: None                                                         |
+|                                                                       |
+| IMPLEMENTATION: Loop, and loop again for each edge in the current     |
+| state, check the next state in the transition. If the state is Fail,  |
+| continue, if the state is WaitingForReplacement break the outer loop, |
+| if the state is Good break the outer loop, otherwise continue. before |
+| looping, if the transition succeeded, save the state and loop again   |
+| (does not detect unexpected values). Once the edge loop ends we       |
+| should have advanced the state machine, if not there is an infinite   |
+| loop, thus we break the loop, otherwise continue the process          |
 +-----------------------------------------------------------------------+
+| print\_graph(& self)                                                  |
 |                                                                       |
+| DESCRIPTION: print the state machine as a graph                       |
+|                                                                       |
+| PARAMETERS: None                                                      |
+|                                                                       |
+| RETURNS: None                                                         |
+|                                                                       |
+| IMPLEMENTATION: for each entry in the dot graph, walk the graph and   |
+| create a Dot and add in the edges between the states                  |
++-----------------------------------------------------------------------+
+| setup\_state\_machine(&mut self)                                      |
+|                                                                       |
+| DESCRIPTION: add all the transition states here.                      |
+|                                                                       |
+| PARAMETERS: None the dot graph creation                               |
+|                                                                       |
+| RETURNS: StateMachine with transition added                           |
+|                                                                       |
+| IMPLEMENTATION: Add transitions to the state graph, which will be run |
+| in they order they are added, for multiple edges the states are       |
+| ordered from the most to the least ideal outcome.                     |
 +-----------------------------------------------------------------------+
 
 ##### Trait Implementations
@@ -3579,13 +3507,391 @@ This transition currently not \"implemented".
 
 ### Functions
 
++-----------------------------------------------------------------------+
+| Function Definition                                                   |
++=======================================================================+
+| filter\_disks(devices: &\[PathBuf\], storage\_detail\_id: u32) -\>    |
+| BynarResult\<Vec\<BlockDevice\>\>                                     |
+|                                                                       |
+| DESCRIPTION: filter disks and get their information while skipping    |
+| devices that should not be changed, removed etc, such as loopback,    |
+| LVM, CD/DVD rom, RAM, root, and BOOT                                  |
+|                                                                       |
+| PARAMETERS: devices -- list of devices                                |
+|                                                                       |
+| > storage\_detail\_id -- the id of some storage detail entry in the   |
+| > database                                                            |
+|                                                                       |
+| RETURNS: Ok(block devices matching the criteria) on success, Error    |
+| otherwise                                                             |
+|                                                                       |
+| IMPLEMENTATION: get a list of all device info from the list of        |
+| devices, removing all devices where information cannot be looked up.  |
+| For each device left, check the mount point and partition information |
+| and update them accordingly. Then, filter the devices by removing all |
+| loopback devices, LVM devices, CD/DVD rom devices, RAM devices, and   |
+| skip the root disk                                                    |
++-----------------------------------------------------------------------+
+| add\_previous\_devices(devices: &mut Vec\<BlockDevice\>, pool:        |
+| &Pool\<ConnectionManager\>, host\_mapping: &HostDetailsMapping) -\>   |
+| BynarResult\<()\>                                                     |
+|                                                                       |
+| DESCRIPTION: Add in any disks that the database new about that linux  |
+| can no longer find                                                    |
+|                                                                       |
+| PARAMETERS: devices -- list of devices                                |
+|                                                                       |
+| > pool -- the pool of connections to the database                     |
+| >                                                                     |
+| > host\_mapping -- the details on how hosts are mapped                |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: get a list of devices from the database. Add back in  |
+| any missing devices to the vector. Since the host doesn't know about  |
+| the device, we check if the device is waiting for repair. If not,     |
+| then the database things the disk is still good, so set it as waiting |
+| for repair so someone goes and replaces it.                           |
++-----------------------------------------------------------------------+
+| check\_all\_disks(host\_info: &Host, pool:                            |
+| &Pool\<ConnectionManager\>, host\_mapping: &HostDetailsMapping) -\>   |
+| BynarResult\<Vec\<BynarResult\<StateMachine\>\>\>                     |
+|                                                                       |
+| DESCRIPTION: retrieves a list of disks and sets up a state machine on |
+| each of them. Retrieves previous state and runs through the state     |
+| machine and preserves the final state in the database before          |
+| returning a vector of StateMachine                                    |
+|                                                                       |
+| PARAMETERS: host\_info -- information on the host                     |
+|                                                                       |
+| > pool -- the pool of connections to the database                     |
+| >                                                                     |
+| > host\_mapping -- the details on how hosts are mapped                |
+|                                                                       |
+| RETURNS: Ok( a vector of state machines ) on success, Error otherwise |
+|                                                                       |
+| IMPLEMENTATION: get a list of all devices currently attached to the   |
+| tree (does not show dead and disconnected devices that are still      |
+| mounted in /etc/mtab and their scsi information. get the information  |
+| on all currently mounted devices and remove the ones that we already  |
+| have, which gives us all broken mounted devices. Get all the info on  |
+| all devices and filter them, then add any previous devices. Add       |
+| filtered devices to the database and create a state machine per       |
+| device. run each state machine and save the state to the database     |
+| then the run finishes. return a list of state machine end states,     |
+| otherwise error out if not successful.                                |
++-----------------------------------------------------------------------+
+| check\_filesystem(filesystem\_type: &FilesystemType, device: &Path)   |
+| -\> BynarResult\<Fsck\>                                               |
+|                                                                       |
+| DESCRIPTION: check if the filesystem on a device is corrupt, given    |
+| the device and filesystem type. Note this assumes that the device is  |
+| unmounted                                                             |
+|                                                                       |
+| PARAMETERS: filesystem\_type -- the type of filesystem on the device  |
+|                                                                       |
+| > device -- the device to check the filesystem on                     |
+|                                                                       |
+| RETURNS: Ok(Fsck result ) on success, Error otherwise                 |
+|                                                                       |
+| IMPLEMENTATION: match the filesystem type and run the correct check   |
+| function, returning the result.                                       |
++-----------------------------------------------------------------------+
+| repair\_filesystem(filesystem\_type: &FilesystemType, device: &Path)  |
+| -\> BynarResult\<()\>                                                 |
+|                                                                       |
+| DESCRIPTION: repair a filesystem, given a corrupted device and        |
+| filesystem type. Note, this assumes the filesystem is corrupt and the |
+| device is unmounted                                                   |
+|                                                                       |
+| PARAMETERS: filesystem\_type -- the type of filesystem on the device  |
+|                                                                       |
+| > device -- the device to repair the filesystem on                    |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: match the filesystem type and run the correct repair  |
+| function, returning the result.                                       |
++-----------------------------------------------------------------------+
+| check\_writable(path: &Path) -\> BynarResult\<()\>                    |
+|                                                                       |
+| DESCRIPTION: check if the path is writable                            |
+|                                                                       |
+| PARAMETERS: path -- the path to check                                 |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: create a temporary directory in the path, and a       |
+| temporary file in the path. Try writing to the file. If successful,   |
+| return Ok(()), else error out. Note that the TempDir is deleted once  |
+| the function exits                                                    |
++-----------------------------------------------------------------------+
+| check\_lvm(device: &Path) -\> BynarResult\<Fsck\>                     |
+|                                                                       |
+| DESCRIPTION: check if the lvm on a device is corrupt, given the       |
+| device. Note this assumes that the device is unmounted                |
+|                                                                       |
+| PARAMETERS: device -- the device to check the lvm on                  |
+|                                                                       |
+| RETURNS: Ok(Fsck result ) on success, Error otherwise                 |
+|                                                                       |
+| IMPLEMENTATION: scan the LVM on the device. get the list of volume    |
+| groups, and check if the physical volumes in each volume group is     |
+| accessible                                                            |
++-----------------------------------------------------------------------+
+| check\_xfs(device: &Path) -\> BynarResult\<Fsck\>                     |
+|                                                                       |
+| DESCRIPTION: check if the xfs filesystem on a device is corrupt.      |
+|                                                                       |
+| PARAMETERS: device -- the device to check the xfs filesystem on       |
+|                                                                       |
+| RETURNS: Ok(Fsck result ) on success, Error otherwise                 |
+|                                                                       |
+| IMPLEMENTATION: run the xfs\_repair command with the --n flag, which  |
+| means it will not modify the filesystem but scan it for corruption.   |
+| If successful, match the error code to Ok, Corrupt, or a fail code.   |
+| Return the result or error out.                                       |
++-----------------------------------------------------------------------+
+| repair\_xfs(device: &Path) -\> BynarResult\<()\>                      |
+|                                                                       |
+| DESCRIPTION: repair an xfs filesystem, given a corrupted device Note, |
+| this assumes the filesystem is corrupt and the device is unmounted    |
+|                                                                       |
+| PARAMETERS: device -- the device to repair the filesystem on          |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: run the xfs\_repair command on the device path. If    |
+| successful return Ok(()), else error out.                             |
++-----------------------------------------------------------------------+
+| check\_ext(device: &Path) -\> BynarResult\<Fsck\>                     |
+|                                                                       |
+| DESCRIPTION: check if the ext filesystem on a device is corrupt.      |
+|                                                                       |
+| PARAMETERS: device -- the device to check the ext filesystem on       |
+|                                                                       |
+| RETURNS: Ok(Fsck result ) on success, Error otherwise                 |
+|                                                                       |
+| IMPLEMENTATION: run the e2fsk command with the --n flag, which means  |
+| it will not modify the filesystem but scan it for corruption. If      |
+| successful, match the error code to Ok, Corrupt, or a fail code.      |
+| Return the result or error out.                                       |
++-----------------------------------------------------------------------+
+| repair\_ext(device: &Path) -\> BynarResult\<()\>                      |
+|                                                                       |
+| DESCRIPTION: repair an ext filesystem, given a corrupted device Note, |
+| this assumes the filesystem is corrupt and the device is unmounted    |
+|                                                                       |
+| PARAMETERS: device -- the device to repair the filesystem on          |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: run the e2fsck command with the --p flag and the      |
+| device path. If successful return Ok(()), else error out.             |
++-----------------------------------------------------------------------+
+| run\_smart\_checks(device: &Path) -\> BynarResult\<bool\>             |
+|                                                                       |
+| DESCRIPTION: run smart checks against the disk                        |
+|                                                                       |
+| PARAMETERS: device -- the device to repair the filesystem on          |
+|                                                                       |
+| RETURNS: Ok(bool) on success, Error otherwise                         |
+|                                                                       |
+| IMPLEMENTATION: get the handle for the libatasmart. Get the smart     |
+| status. If successful, return Ok(true) if the smart status is true,   |
+| Ok(false) if the smart status is false, otherwise error out.          |
++-----------------------------------------------------------------------+
+| format\_device(device: &Path) -\> BynarResult\<()\>                   |
+|                                                                       |
+| DESCRIPTION: format the device with the proper filesystem type.       |
+|                                                                       |
+| PARAMETERS: device -- the device to format                            |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: get the filesystem type of the device. If the         |
+| filesystem type is Xfs then it needs to be forced to overwrite.       |
+| format the block device. If successful, return Ok(()), else error out |
++-----------------------------------------------------------------------+
+| is\_device\_mounted(dev\_path: &Path) -\> bool                        |
+|                                                                       |
+| DESCRIPTION: check if the device is mounted                           |
+|                                                                       |
+| PARAMETERS: dev\_path -- the device to check is mounted               |
+|                                                                       |
+| RETURNS: true if mounted, false if not                                |
+|                                                                       |
+| IMPLEMENTATION: first check if the device is mounted, if true then    |
+| return. otherwise, check if any of the partitions contained in the    |
+| device are mounted. If so, then return true, otherwise return false   |
++-----------------------------------------------------------------------+
+| is\_disk\_blank(dev: &Path) -\> BynarResult\<bool\>                   |
+|                                                                       |
+| DESCRIPTION: make a best guess as to whether a disk is blank          |
+|                                                                       |
+| PARAMETERS: dev -- the device to check if blank                       |
+|                                                                       |
+| RETURNS: Ok(is blank?) else Error                                     |
+|                                                                       |
+| IMPLEMENTATION: open and scan the LVM. Got each volume group, check   |
+| if there is a PVM with the same name as the input device. If so,      |
+| return Ok(false). check if the GPT header is readable. If so, return  |
+| Ok(false). If the device is currently mounted, return true. Attempt   |
+| to mount the device to a temporary directory, and if successful       |
+| return false, otherwise it's probably blank. If successful return     |
+| Ok(false) for passing tests, Ok(true) if none of the tests pass, and  |
+| therefore the disk is probably blank                                  |
++-----------------------------------------------------------------------+
+| is\_raid\_backed(scsi\_info: &Option\<(ScsiInfo,                      |
+| Option\<ScsiInfo\>)\>) -\> (bool, Vendor)                             |
+|                                                                       |
+| DESCRIPTION: check if the disk is RAID backed                         |
+|                                                                       |
+| PARAMETERS: scsi\_info -- the scsi information to check               |
+|                                                                       |
+| RETURNS: (is raid backed?, Who is the Vendor?)                        |
+|                                                                       |
+| IMPLEMENTATION: if both input option values are None (the outer and   |
+| inner ScsiInfo), then return (false, Vendor::NONE), otherwise, check  |
+| if the scsi\_type is StorageArray and Enclosure. If so, then check    |
+| the vendor. If the vendor is Hp, then it is RAID backed, so return    |
+| (true, Vendor::Hp), otherwise return (false, vendor).                 |
++-----------------------------------------------------------------------+
+
 Hardware Testing
 ================
 
 Introduction
 ------------
 
-### Hardware Tests
+Hardware testing module, this module uses the libredfish to check the
+Hardware status.
+
+Hardware Tests
+--------------
+
+### Struct
+
+#### HardwareHealthSummary
+
+A summary of all the hardware status information
+
+##### Attributes
+
+  Name                  Type                       Description
+  --------------------- -------------------------- ------------------------------------------
+  array\_controllers    Vec\<BynarResult\<()\>\>   Status of the array controllers
+  disk\_drives          Vec\<BynarResult\<()\>\>   A list of the physical disk drive status
+  manager               Vec\<BynarResult\<()\>\>   The iLo status
+  power                 Vec\<BynarResult\<()\>\>   The Power supply status
+  storage\_enclosures   Vec\<BynarResult\<()\>\>   Status of the storage enclosures
+  thermals              Vec\<BynarResult\<()\>\>   The fan status
+
+### Functions
+
++-----------------------------------------------------------------------+
+| Function Definition                                                   |
++=======================================================================+
+| collect\_redfish\_info(config: &ConfigSettings) -\>                   |
+| BynarResult\<HardwareHealthSummary\>                                  |
+|                                                                       |
+| DESCRIPTION: collect the hardware health information from redfish     |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed to connect to |
+| redfish                                                               |
+|                                                                       |
+| RETURNS: Ok(hardware health summary) on success, Error otherwise      |
+|                                                                       |
+| IMPLEMENTATION: Build a Client socket. If the redfish ip address is   |
+| not specified, skip that check. Otherwise, parse the redfish          |
+| configuration from the config input. Create a new instance of a       |
+| Redfish handler, and get the array controllers. For each controller,  |
+| add it to the list of controllers and get all storage enclosures      |
+| attached to the controller and grab all disks attached to the         |
+| controller. On the resulting lists, evaluate the storage and collect  |
+| the results into vectors. Get the manager from the redfish handler    |
+| and evaluate it, same with the thermal and power. If everything is    |
+| successful, return Ok(HardwareHealthSummary) otherwise error out.     |
++-----------------------------------------------------------------------+
+| check\_hardware(config: &ConfigSettings) -\>                          |
+| BynarResult\<HardwareHealthSummary\>                                  |
+|                                                                       |
+| DESCRIPTION: public wrapper function for collect\_redfish\_info       |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed to connect to |
+| redfish                                                               |
+|                                                                       |
+| RETURNS: Ok(hardware health summary) on success, Error otherwise      |
+|                                                                       |
+| IMPLEMENTATION: call collect\_redfish\_info and return the result     |
++-----------------------------------------------------------------------+
+| evaluate\_storage\<T\>(hardware: T) -\> BynarResult\<()\> where T:    |
+| Hardware + Status                                                     |
+|                                                                       |
+| DESCRIPTION: evaluate an input hardware object of type Hardware +     |
+| Status                                                                |
+|                                                                       |
+| PARAMETERS: hardware -- the hardware to evaluate                      |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: Check if the hardware health is NOT OK. If so, return |
+| an Error, otherwise return Ok(())                                     |
++-----------------------------------------------------------------------+
+| evaluate\_manager(manager: &Manager) -\> Vec\<BynarResult\<()\>\>     |
+|                                                                       |
+| DESCRIPTION: evaluate the ilo status. If there are no issues then the |
+| vector should be empty                                                |
+|                                                                       |
+| PARAMETERS: manager -- the ilo status manager                         |
+|                                                                       |
+| RETURNS: Vec\<is the status of an ilo okay?\>                         |
+|                                                                       |
+| IMPLEMENTATION: look through all the self test results. If the result |
+| status is not OK or Informational, then there is an error, so add an  |
+| Error to the vector of results. return the vector.                    |
++-----------------------------------------------------------------------+
+| evaluate\_power(power: &Power) -\> Vec\<BynarResult\<()\>\>           |
+|                                                                       |
+| DESCRIPTION: evaluate the power status. If there are no issues then   |
+| the vector should be empty                                            |
+|                                                                       |
+| PARAMETERS: power -- the Power status                                 |
+|                                                                       |
+| RETURNS: Vec\<is the status of a power supply okay?\>                 |
+|                                                                       |
+| IMPLEMENTATION: look through all the self test results. If the result |
+| status is not OK then the power supply failed, so add an Error to the |
+| vector of results. return the vector.                                 |
++-----------------------------------------------------------------------+
+| evaluate\_power(power: &Power) -\> Vec\<BynarResult\<()\>\>           |
+|                                                                       |
+| DESCRIPTION: evaluate the power status. If there are no issues then   |
+| the vector should be empty                                            |
+|                                                                       |
+| PARAMETERS: power -- the Power status                                 |
+|                                                                       |
+| RETURNS: Vec\<is the status of a power supply okay?\>                 |
+|                                                                       |
+| IMPLEMENTATION: look through all the power supply status. If the      |
+| result status is not OK then the power supply failed, so add an Error |
+| to the vector of results. return the vector.                          |
++-----------------------------------------------------------------------+
+| evaluate\_thermals(thermal: &Thermal) -\> Vec\<BynarResult\<()\>\>    |
+|                                                                       |
+| DESCRIPTION: evaluate the fan status as well as the temperature. If   |
+| there are no issues then the vector should be empty                   |
+|                                                                       |
+| PARAMETERS: thermal -- the Thermal status                             |
+|                                                                       |
+| RETURNS: Vec\<is the status of a fan okay?\>                          |
+|                                                                       |
+| IMPLEMENTATION: look through all the fans. If the result status is    |
+| not OK then the fan failed, so add an Error to the vector of results. |
+| look through all the temperature readings, if the health is not OK,   |
+| then the temperature reading is failing, so add an Error to the       |
+| vector of results. return the vector.                                 |
++-----------------------------------------------------------------------+
 
 Bynar
 =====
@@ -3593,4 +3899,169 @@ Bynar
 Introduction
 ------------
 
-### Main Process
+This program handles detection of failed hard drives, files a ticket for
+a datacenter technician to replace the drive, waits for the resolution
+of the ticket and then makes an API call to the disk-manager to add the
+new disk back into the server.
+
+### Main Process Functions
+
++-----------------------------------------------------------------------+
+| Function Definition                                                   |
++=======================================================================+
+| notify\_slack(config: &ConfigSettings, msg: &str) -\>                 |
+| BynarResult\<()\>                                                     |
+|                                                                       |
+| DESCRIPTION: Send a slack notification                                |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed to connect to |
+| a Slack channel                                                       |
+|                                                                       |
+| > msg -- the message to send                                          |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: Create a Slack handle, and connect to the Slack API   |
+| system using the information in the config. Create the payload to     |
+| send to the Slack channel, and send it. If successful, return Ok(()), |
+| otherwise error out                                                   |
++-----------------------------------------------------------------------+
+| get\_public\_key(config: &ConfigSettings, host\_info: &Host) -\>      |
+| BynarResult\<String\>                                                 |
+|                                                                       |
+| DESCRIPTION: get the server public key if possible from either        |
+| Hashicorp vault or some .pem file.                                    |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed to connect to |
+| the Hashicorp Vault                                                   |
+|                                                                       |
+| > host\_info -- the host information                                  |
+|                                                                       |
+| RETURNS: Ok(public key) on success, Error otherwise                   |
+|                                                                       |
+| IMPLEMENTATION: check if the vault endpoint and token are set. If so, |
+| attempt to get the key from the vault using the get\_vault\_token     |
+| method. otherwise, check for a .pem file in /etc/bynar for the public |
+| key. If successful, return the key, otherwise error out.              |
++-----------------------------------------------------------------------+
+| check\_for\_failed\_disks(config: &ConfigSettings, host\_info: &Host, |
+| pool: &Pool\<ConnectionManager\>, host\_mapping: &HostDetailsMapping, |
+| simulate: bool) -\> BynarResult\<()\>                                 |
+|                                                                       |
+| DESCRIPTION: Run a scan to check for failed disks                     |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed               |
+|                                                                       |
+| > host\_info -- the host information                                  |
+| >                                                                     |
+| > pool -- the pool of connections to the database                     |
+| >                                                                     |
+| > host\_mapping -- the mapping of host details                        |
+| >                                                                     |
+| > simulate -- passed to skip evaluation                               |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: get the public key. Create the description needed to  |
+| open a ticket in case a disk failed. Check all the drives, running    |
+| check\_all\_disks and for each disk check if the state is Waiting For |
+| Replacement. If so, add to the description and check if the database  |
+| knows the disk is waiting for repair. If so, move on to the next      |
+| disk, otherwise ask the disk-manager if the disk is safe to remove.   |
+| If yes, notify slack and remove the disk. If false, notify slack and  |
+| file a ticket with Jira and update the database. If a disk is stuck   |
+| in the fail state, error message. Otherwise the state is Good so move |
+| on. If successful for all disks, return Ok(()), otherwise error out   |
++-----------------------------------------------------------------------+
+| evaluate(results: Vec\<BynarResult\<()\>\>, config: &ConfigSettings,  |
+| pool: &Pool\<ConnectionManager\>, host\_mapping: &HostDetailsMapping) |
+| -\> BynarResult\<()\>                                                 |
+|                                                                       |
+| DESCRIPTION: check if there are any errors besides hardware errors    |
+|                                                                       |
+| PARAMETERS: results -- the list of errors after running a hardware    |
+| scan                                                                  |
+|                                                                       |
+| > config -- the configuration settings needed                         |
+| >                                                                     |
+| > pool -- the pool of connections to the database                     |
+| >                                                                     |
+| > host\_mapping -- the mapping of host details                        |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: for each result, check if the error type is a         |
+| HardwareError type. If so, check if the hardware is waiting for       |
+| repair. If it isn't, file a ticket. If the Error Type is NOT a        |
+| HardwareError type, then Error out.                                   |
++-----------------------------------------------------------------------+
+| check\_for\_failed\_hardware(config: &ConfigSettings, host\_info:     |
+| &Host, pool: &Pool\<ConnectionManager\>, host\_mapping:               |
+| &HostDetailsMapping, simulate: bool) -\> BynarResult\<()\>            |
+|                                                                       |
+| DESCRIPTION: Run a scan to check for failed hardware                  |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed               |
+|                                                                       |
+| > host\_info -- the host information                                  |
+| >                                                                     |
+| > pool -- the pool of connections to the database                     |
+| >                                                                     |
+| > host\_mapping -- the mapping of host details                        |
+| >                                                                     |
+| > simulate -- passed to skip evaluation                               |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: get the public key. Create the description needed to  |
+| open a ticket in case there is a hardware failure. Run                |
+| check\_hardware and evaluate the results disk drives, manager, power, |
+| storage enclosures, and thermals for any errors that aren't Hardware  |
+| errors. If successful, return Ok(()), otherwise error out.            |
++-----------------------------------------------------------------------+
+| add\_repaired\_disks(config: &ConfigSettings, host\_info: &Host,      |
+| pool: &Pool\<ConnectionManager\>, host\_mapping: &HostDetailsMapping, |
+| simulate: bool) -\> BynarResult\<()\>                                 |
+|                                                                       |
+| DESCRIPTION: add repaired disks back to the cluster                   |
+|                                                                       |
+| PARAMETERS: config -- the configuration settings needed               |
+|                                                                       |
+| > host\_info -- the host information                                  |
+| >                                                                     |
+| > pool -- the pool of connections to the database                     |
+| >                                                                     |
+| > host\_mapping -- the mapping of host details                        |
+| >                                                                     |
+| > simulate -- passed to skip evaluation                               |
+|                                                                       |
+| RETURNS: Ok(()) on success, Error otherwise                           |
+|                                                                       |
+| IMPLEMENTATION: get the public key. get the list of outstanding       |
+| repair tickets and check them for resolved tickets. For each ticket   |
+| in the list, check if the ticket is resolved. If so, connect to the   |
+| disk-manager and ask it to add the disk back to the cluster. If       |
+| successful, resolve the ticket in the database. If the ticket is not  |
+| resolved, skip it. If everything is successful, return Ok(()),        |
+| otherwise error out.                                                  |
++-----------------------------------------------------------------------+
+| main()                                                                |
+|                                                                       |
+| DESCRIPTION: The main Bynar program, it gathers a list of all disks,  |
+| checks each disk and decides if it needs replacing and files a        |
+| ticket. It then records the ticket, checks for resolved tickets and   |
+| adds the disks back in records everything in the database             |
+|                                                                       |
+| PARAMETERS: None                                                      |
+|                                                                       |
+| RETURNS: None                                                         |
+|                                                                       |
+| IMPLEMENTATION: Create and get the command line arguments. Bynar      |
+| specifically takes the optional configdir argument, the optional      |
+| simulate argument, and the optional --v argument. Depending on the    |
+| number of input --v flags, increase the verbosity of the logs. Check  |
+| the configdir input and whether the command is a simulation or not.   |
+| Gather the host information and load the configuration. Connect to    |
+| the database and update the host information. Check for failed disks, |
+| failed hardware, and add in any repaired disks.                       |
++-----------------------------------------------------------------------+
