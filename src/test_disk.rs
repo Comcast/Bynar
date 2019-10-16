@@ -764,6 +764,7 @@ impl fmt::Debug for StateMachine {
 }
 
 impl StateMachine {
+    /// create a new State Machine
     fn new(
         block_device: BlockDevice,
         scsi_info: Option<(ScsiInfo, Option<ScsiInfo>)>,
@@ -791,7 +792,7 @@ impl StateMachine {
         self.graph.add_edge(from_state, to_state, callback);
     }
 
-    // Run all transitions until we can't go any further and return
+    /// Run all transitions until we can't go any further and return
     fn run(&mut self) {
         // Start at the current state the disk is at and work our way down the graph
         debug!(
@@ -864,6 +865,7 @@ impl StateMachine {
     }
 
     #[allow(dead_code)]
+    /// print the state machine graph
     fn print_graph(&self) {
         // FIXME: Too simple.  Doesn't label the transitions
         // Walk the graph and create a Dot
@@ -1126,6 +1128,9 @@ enum Fsck {
     Corrupt,
 }
 
+/// filter disks and get their information while skipping devices that
+/// should not be messed with (loopback, LVM, CD/DVD rom, RAM, root disk, 
+/// BOOT should be included)
 fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<BlockDevice>> {
     // Gather info on all devices and skip Loopback devices
 
@@ -1198,7 +1203,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
     Ok(filtered_devices)
 }
 
-// Add in any disks that the database knew about that linux can no longer find
+/// Add in any disks that the database knew about that linux can no longer find
 fn add_previous_devices(
     devices: &mut Vec<BlockDevice>,
     pool: &Pool<ConnectionManager>,
@@ -1263,8 +1268,8 @@ fn add_previous_devices(
     Ok(())
 }
 
-/// Retrives a list of disks, and sets up a state machine on each of them.
-/// Retrives previous state and runs through the state machine and preserves
+/// Retrieves a list of disks, and sets up a state machine on each of them.
+/// Retrieves previous state and runs through the state machine and preserves
 /// the final state in the database before returning a vector of StateMachine
 pub fn check_all_disks(
     host_info: &Host,
@@ -1345,6 +1350,8 @@ pub fn check_all_disks(
 }
 
 #[cfg_attr(test, mockable)]
+/// Given a device and its filesystem type, check the filesystem on the device
+/// Note: this assumes the device is unmounted
 fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarResult<Fsck> {
     match *filesystem_type {
         FilesystemType::Ext2 => check_ext(device),
@@ -1357,6 +1364,8 @@ fn check_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRes
 }
 
 #[cfg_attr(test, mockable)]
+/// repair a filesystem, given a corrupted device and filesystem type. 
+/// Note this assumes the filesystem is unmounted
 fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarResult<()> {
     match *filesystem_type {
         FilesystemType::Ext2 => {
@@ -1380,6 +1389,7 @@ fn repair_filesystem(filesystem_type: &FilesystemType, device: &Path) -> BynarRe
 }
 
 #[cfg_attr(test, mockable)]
+/// Check if a path/disk? is writable
 fn check_writable(path: &Path) -> BynarResult<()> {
     debug!(
         "thread {} Checking if {:?} is writable",
@@ -1398,6 +1408,7 @@ fn check_writable(path: &Path) -> BynarResult<()> {
 }
 
 // TODO: How do you tell if an lvm device is functioning properly?
+/// Check if an lvm is functioning.  
 fn check_lvm(device: &Path) -> BynarResult<Fsck> {
     // lv display should show whether lvm can even access the device
     // do a write test against the device
@@ -1426,6 +1437,7 @@ fn check_lvm(device: &Path) -> BynarResult<Fsck> {
     Ok(Fsck::Ok)
 }
 
+/// check the xfs filesystem on a device
 fn check_xfs(device: &Path) -> BynarResult<Fsck> {
     //Any output that is produced when xfs_check is not run in verbose mode
     //indicates that the filesystem has an inconsistency.
@@ -1450,6 +1462,7 @@ fn check_xfs(device: &Path) -> BynarResult<Fsck> {
     }
 }
 
+/// repair the xfs filesystem on a device
 fn repair_xfs(device: &Path) -> BynarResult<()> {
     debug!("thread {} Running xfs_repair", process::id());
     let status = Command::new("xfs_repair").arg(device).status()?;
@@ -1463,6 +1476,7 @@ fn repair_xfs(device: &Path) -> BynarResult<()> {
     }
 }
 
+/// check the ext filesystem on the input device for corruption
 fn check_ext(device: &Path) -> BynarResult<Fsck> {
     debug!(
         "thread {} running e2fsck -n to check for errors",
@@ -1489,6 +1503,8 @@ fn check_ext(device: &Path) -> BynarResult<Fsck> {
     }
 }
 
+/// repair the ext filesystem on the device, assuming the device filesystem is corrupt
+/// and unmounted
 fn repair_ext(device: &Path) -> BynarResult<()> {
     //Run a noninteractive fix.  This will exit with return code 4
     //if it needs human intervention.
@@ -1517,7 +1533,7 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
     }
 }
 
-// Run smart checks against the disk
+/// Run smart checks against the disk
 #[cfg_attr(test, mockable)]
 fn run_smart_checks(device: &Path) -> BynarResult<bool> {
     let mut smart = libatasmart::Disk::new(device)?;
@@ -1526,6 +1542,7 @@ fn run_smart_checks(device: &Path) -> BynarResult<bool> {
 }
 
 #[cfg_attr(test, mockable)]
+/// Format the device with the Filesystem type.  
 fn format_device(device: &Device) -> BynarResult<()> {
     let tmp = format!("/dev/{}", device.name);
     let dev_path = Path::new(&tmp);
@@ -1539,6 +1556,7 @@ fn format_device(device: &Device) -> BynarResult<()> {
     Ok(())
 }
 
+/// check if the device is mounted
 fn is_device_mounted(dev_path: &Path) -> bool {
     // First check if the device itself is mounted
     if let Ok(Some(mount)) = block_utils::get_mountpoint(&dev_path) {
@@ -1592,6 +1610,7 @@ fn is_device_mounted(dev_path: &Path) -> bool {
 // While difficult to say for certain this runs through
 // a few tests and makes a best guess if the disk is
 // blank
+/// make a best guess as to whether a disk is blank
 fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
     debug!("thread {} Initializing lvm", process::id());
     let lvm = Lvm::new(None)?;
@@ -1651,6 +1670,7 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
     Ok(true)
 }
 
+/// Check if a disk is RAID backed
 fn is_raid_backed(scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>) -> (bool, Vendor) {
     if let Some(scsi_info) = scsi_info {
         if let Some(ref dev_host) = scsi_info.1 {
