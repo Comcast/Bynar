@@ -11,33 +11,33 @@
 
 # Table of Contents
 
-[Revision History 2](#revision-history)
+[Revision History](#revision-history)
 
-[Table of Contents 3](#_Toc22131550)
+[Table of Contents](#_Toc22131550)
 
-[API 6](#api)
+[API](#api)
 
-[Configuration Files 9](#configuration-files)
+[Configuration Files](#configuration-files)
 
-[Backend 10](#backend)
+[Backend](#backend)
 
-[Database Schema 19](#database-schema)
+[Database Schema](#database-schema)
 
-[Database Logging 20](#database-logging)
+[Database Logging](#database-logging)
 
-[Helper Functions 29](#helper-functions-1)
+[Helper Functions](#helper-functions-1)
 
-[Client 35](#client)
+[Client](#client)
 
-[Support Tickets 37](#support-tickets)
+[Support Tickets](#support-tickets)
 
-[Disk Manager 37](#disk-manager)
+[Disk Manager](#disk-manager)
 
-[Disk Testing 40](#disk-testing)
+[Disk Testing](#disk-testing)
 
-[Hardware Testing 51](#hardware-testing)
+[Hardware Testing](#hardware-testing)
 
-[Bynar 53](#bynar)
+[Bynar](#bynar)
 
 # API
 
