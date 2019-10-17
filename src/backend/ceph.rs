@@ -1265,7 +1265,10 @@ ioctl_none!(blkrrpart, 0x12, 95);
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use super::*;
     #[test]
+    // Test if sorting journals by number of partitions works
     fn test_journal_sorting() {
         let a = JournalDevice {
             device: PathBuf::from("/dev/sda"),
@@ -1287,4 +1290,17 @@ mod tests {
         assert_eq!(journal_devices, vec![b, a]);
     }
 
+    #[test]
+    // test update num partitions. Note this assumes there is a /dev/sda device...
+    fn test_update_num_partitions() {
+        let mut a = JournalDevice {
+            device: PathBuf::from("/dev/sda"),
+            partition_id: None,
+            partition_uuid: None,
+            num_partitions: None,
+        };
+        a.update_num_partitions();
+        println!("Number of partitions: {:?}", a.num_partitions);
+        assert_ne!(None, a.num_partitions);
+    }
 }
