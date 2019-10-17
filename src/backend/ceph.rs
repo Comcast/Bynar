@@ -43,7 +43,8 @@ pub struct CephBackend {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 struct JournalDevice {
-    device: PathBuf,
+    /// device path in the form /dev/xxx
+    device: PathBuf, 
     partition_id: Option<u32>,
     partition_uuid: Option<uuid::Uuid>,
     num_partitions: Option<usize>,
@@ -1235,7 +1236,9 @@ fn is_filestore(dev_path: &Path) -> BynarResult<bool> {
     Ok(false)
 }
 
-/// Linux specific ioctl to update the partition table cache.
+/// Linux specific ioctl to update the partition table cache. Take input as /dev/xxx
+/// Please note: this will only work if the device/partition table is NOT in use
+/// or someone doesn't already have a lock on the device
 fn update_partition_cache(device: &Path) -> BynarResult<()> {
     debug!(
         "Requesting kernel to refresh partition cache for {} ",
@@ -1257,16 +1260,17 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
 // and ask it to update its internal partition cache. Without this the
 // partitions don't show up after being created on the disks which then
 // breaks parts of bynar later.
-ioctl_none!(blkrrpart, 0x12, 95);
-/*{
+ioctl_none!{//(blkrrpart, 0x12, 95);
+//{
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95
-}*/
+}
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use super::*;
+    use std::path::PathBuf;
+    use tempdir::TempDir;
     #[test]
     // Test if sorting journals by number of partitions works
     fn test_journal_sorting() {
@@ -1303,4 +1307,44 @@ mod tests {
         println!("Number of partitions: {:?}", a.num_partitions);
         assert_ne!(None, a.num_partitions);
     }
+
+    #[test]
+    // test choose config dir
+    fn test_choose_ceph_config() {
+        // Check the NONE option works
+        let home = home_dir().expect("HOME env variable not defined");
+        let json_path = home.join(".config").join("ceph.json");
+        let err_msg = format!("{} does not exist.  Please create", json_path.display());
+        assert!(
+            match choose_ceph_config(None) {
+                Err(e) => e.to_string().eq(&err_msg), // if it errors, then it should have the same error message
+                Ok(path) => path.eq(&json_path), //If it does not error, then the path returned should be $HOME/.config/ceph.json
+            },
+            "The error message or path should be the same"
+        );
+        // Check the Some(X) path works
+        let tmp_dir = TempDir::new("temp_test").expect("Creating temp failed");
+        assert!(
+            if let Err(e) = choose_ceph_config(Some(tmp_dir.path())) {
+                true
+            } else {
+                false
+            },
+            "This should have errored"
+        ); // test directory does NOT have config
+        let tmp_file = tmp_dir.path().join("ceph.json");
+        let mut tmp_file = File::create(tmp_file).expect("Creating temp file failed");
+        assert!(
+            if let Err(e) = choose_ceph_config(Some(tmp_dir.path())) {
+                false
+            } else {
+                true
+            },
+            "This should not have errored"
+        ); // test directory does have config
+        drop(tmp_file);
+        tmp_dir.close().expect("Did not manage to clean up...");
+    }
+
+    
 }
