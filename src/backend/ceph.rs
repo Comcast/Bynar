@@ -44,7 +44,7 @@ pub struct CephBackend {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 struct JournalDevice {
     /// device path in the form /dev/xxx
-    device: PathBuf, 
+    device: PathBuf,
     partition_id: Option<u32>,
     partition_uuid: Option<uuid::Uuid>,
     num_partitions: Option<usize>,
@@ -1260,7 +1260,7 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
 // and ask it to update its internal partition cache. Without this the
 // partitions don't show up after being created on the disks which then
 // breaks parts of bynar later.
-ioctl_none!{//(blkrrpart, 0x12, 95);
+ioctl_none! {//(blkrrpart, 0x12, 95);
 //{
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95
@@ -1346,5 +1346,4 @@ mod tests {
         tmp_dir.close().expect("Did not manage to clean up...");
     }
 
-    
 }
