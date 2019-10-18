@@ -83,6 +83,7 @@ impl Display for StorageTypeEnum {
     }
 }
 /// Get the default interface
+// Note: it IS possible for there to be no default gateway
 fn get_default_iface() -> BynarResult<String> {
     let p = Path::new("/proc/net/route");
     let proc_route = File::open(p)?;
