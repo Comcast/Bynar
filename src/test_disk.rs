@@ -66,281 +66,6 @@ impl BlockDevice {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-    use std::fs::File;
-    use std::io::Write;
-    use std::path::{Path, PathBuf};
-    use std::process::Command;
-    use std::sync::Mutex;
-
-    use blkid::BlkId;
-    use lazy_static::lazy_static;
-    use log::debug;
-    use mocktopus::mocking::*;
-    use simplelog::{Config, TermLogger};
-    use tempdir::TempDir;
-    use uuid::Uuid;
-
-    lazy_static! {
-        // This prevents all threads from getting the same loopback device
-        static ref LOOP: Mutex<()> = Mutex::new(());
-    }
-
-    fn create_loop_device() -> PathBuf {
-        let _shared = LOOP.lock().unwrap();
-        // Find free loopback device
-        let out = Command::new("losetup").args(&["-f"]).output().unwrap();
-        // Assert we created the device
-        assert_eq!(out.status.success(), true);
-
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        let free_device = stdout.trim();
-
-        // Create a loopback device for testing
-        let random = rand::random::<u32>();
-        let d = TempDir::new(&format!("bynar.{}", random)).expect("Temp dir creation failed");
-        let file_path = d.path().join("file.img");
-
-        let mut f = File::create(&file_path).expect("loop backing file creation failed");
-        // Write 25MB to a file
-        debug!("writing 25MB to {}", file_path.display());
-        let buff = [0x00; 1024];
-        for _ in 0..25600 {
-            f.write(&buff)
-                .expect("Failed to write to loop backing file");
-        }
-        f.sync_all().unwrap();
-
-        // Setup a loopback device for testing filesystem corruption
-        debug!("setting up {} device", free_device);
-        Command::new("losetup")
-            .args(&[free_device, &file_path.to_string_lossy()])
-            .status()
-            .unwrap();
-
-        // Put an xfs filesystem down on it
-        debug!("Putting xfs on to {}", free_device);
-        Command::new("mkfs.xfs")
-            .args(&[free_device])
-            .status()
-            .unwrap();
-
-        PathBuf::from(free_device)
-    }
-
-    fn cleanup_loop_device(p: &Path) {
-        // Cleanup
-        Command::new("umount")
-            .args(&[&p.to_string_lossy().into_owned()])
-            .status()
-            .unwrap();
-
-        Command::new("losetup")
-            .args(&["-d", &p.to_string_lossy()])
-            .status()
-            .unwrap();
-    }
-
-    #[test]
-    fn test_state_machine_base() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
-
-        // Mock smart to return Ok(true)
-        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
-
-        let dev = create_loop_device();
-
-        let blkid = BlkId::new(&dev).unwrap();
-        blkid.do_probe().unwrap();
-        let drive_uuid = blkid.lookup_value("UUID").unwrap();
-        debug!("drive_uuid: {}", drive_uuid);
-
-        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-
-        let d = super::BlockDevice {
-            device: super::Device {
-                id: Some(drive_id),
-                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-                media_type: super::MediaType::Rotational,
-                capacity: 26214400,
-                fs_type: super::FilesystemType::Xfs,
-                serial_number: Some("123456".into()),
-            },
-            dev_path: PathBuf::from(""),
-            device_database_id: None,
-            mount_point: None,
-            partitions: BTreeMap::new(),
-            scsi_info: super::ScsiInfo::default(),
-            state: super::State::Unscanned,
-            storage_detail_id: 1,
-            operation_id: None,
-        };
-        let mut s = super::StateMachine::new(d, None, true);
-        s.setup_state_machine();
-        s.print_graph();
-        s.run();
-        println!("final state: {}", s.block_device.state);
-        cleanup_loop_device(&dev);
-        assert_eq!(s.block_device.state, super::State::Good);
-    }
-
-    #[test]
-    fn test_state_machine_bad_filesystem() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
-
-        // Mock smart to return Ok(true)
-        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
-
-        let dev = create_loop_device();
-        let blkid = BlkId::new(&dev).unwrap();
-        blkid.do_probe().unwrap();
-        let drive_uuid = blkid.lookup_value("UUID").unwrap();
-        debug!("drive_uuid: {}", drive_uuid);
-
-        debug!("Corrupting the filesystem");
-        // This is repairable by xfs_repair
-        Command::new("xfs_db")
-            .args(&[
-                "-x",
-                "-c",
-                "blockget",
-                "-c",
-                "blocktrash",
-                &dev.to_string_lossy().into_owned(),
-            ])
-            .status()
-            .unwrap();
-
-        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-        let d = super::BlockDevice {
-            device: super::Device {
-                id: Some(drive_id),
-                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-                media_type: super::MediaType::Rotational,
-                capacity: 26214400,
-                fs_type: super::FilesystemType::Xfs,
-                serial_number: Some("123456".into()),
-            },
-            dev_path: PathBuf::from(""),
-            device_database_id: None,
-            mount_point: None,
-            partitions: BTreeMap::new(),
-            scsi_info: super::ScsiInfo::default(),
-            state: super::State::Unscanned,
-            storage_detail_id: 1,
-            operation_id: None,
-        };
-        let mut s = super::StateMachine::new(d, None, true);
-        s.setup_state_machine();
-        s.print_graph();
-        s.run();
-        println!("final state: {}", s.block_device.state);
-
-        cleanup_loop_device(&dev);
-        assert_eq!(s.block_device.state, super::State::Good);
-    }
-
-    #[test]
-    fn test_state_machine_replace_disk() {
-        use helpers::error::*;
-        // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
-
-        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
-        super::check_writable
-            .mock_safe(|_| MockResult::Return(Err(BynarError::from("Mock Error"))));
-        super::check_filesystem.mock_safe(|_, _| MockResult::Return(Ok(super::Fsck::Corrupt)));
-        super::repair_filesystem
-            .mock_safe(|_, _| MockResult::Return(Err(BynarError::from("Mock Error"))));
-
-        // TODO: Can't mock outside dependencies.  Need a wrapper function or something
-        super::format_device.mock_safe(|_| MockResult::Return(Err(BynarError::from("error"))));
-        // That should leave the disk in WaitingForReplacement
-
-        let dev = create_loop_device();
-
-        let blkid = BlkId::new(&dev).unwrap();
-        blkid.do_probe().unwrap();
-        let drive_uuid = blkid.lookup_value("UUID").unwrap();
-        debug!("drive_uuid: {}", drive_uuid);
-
-        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-
-        let d = super::BlockDevice {
-            device: super::Device {
-                id: Some(drive_id),
-                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-                media_type: super::MediaType::Rotational,
-                capacity: 26214400,
-                fs_type: super::FilesystemType::Xfs,
-                serial_number: Some("123456".into()),
-            },
-            dev_path: PathBuf::from(""),
-            device_database_id: None,
-            mount_point: None,
-            partitions: BTreeMap::new(),
-            scsi_info: super::ScsiInfo::default(),
-            state: super::State::Unscanned,
-            storage_detail_id: 1,
-            operation_id: None,
-        };
-        let mut s = super::StateMachine::new(d, None, false);
-        s.setup_state_machine();
-        s.print_graph();
-        s.run();
-        println!("final state: {}", s.block_device.state);
-
-        cleanup_loop_device(&dev);
-
-        assert_eq!(s.block_device.state, super::State::WaitingForReplacement);
-    }
-
-    #[test]
-    fn test_state_machine_replaced_disk() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
-        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
-
-        let dev = create_loop_device();
-
-        let blkid = BlkId::new(&dev).unwrap();
-        blkid.do_probe().unwrap();
-        let drive_uuid = blkid.lookup_value("UUID").unwrap();
-        debug!("drive_uuid: {}", drive_uuid);
-
-        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
-
-        // Set the previous state to something other than Unscanned
-
-        let d = super::BlockDevice {
-            device: super::Device {
-                id: Some(drive_id),
-                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
-                media_type: super::MediaType::Rotational,
-                capacity: 26214400,
-                fs_type: super::FilesystemType::Xfs,
-                serial_number: Some("123456".into()),
-            },
-            dev_path: PathBuf::from(""),
-            device_database_id: None,
-            mount_point: None,
-            partitions: BTreeMap::new(),
-            scsi_info: super::ScsiInfo::default(),
-            state: super::State::Replaced,
-            storage_detail_id: 1,
-            operation_id: None,
-        };
-        // restore state?
-        let mut s = super::StateMachine::new(d, None, true);
-        s.setup_state_machine();
-        s.print_graph();
-        s.run();
-        println!("final state: {}", s.block_device.state);
-        assert_eq!(s.block_device.state, super::State::Good);
-    }
-}
-
 trait Transition {
     /// Transition from the current state to an ending state given an Event
     // database connection can be used to save and resume state
@@ -1697,4 +1422,279 @@ fn is_raid_backed(scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>) -> (bool, Ve
         }
     }
     (false, Vendor::None)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::sync::Mutex;
+
+    use blkid::BlkId;
+    use lazy_static::lazy_static;
+    use log::debug;
+    use mocktopus::mocking::*;
+    use simplelog::{Config, TermLogger};
+    use tempdir::TempDir;
+    use uuid::Uuid;
+
+    lazy_static! {
+        // This prevents all threads from getting the same loopback device
+        static ref LOOP: Mutex<()> = Mutex::new(());
+    }
+
+    fn create_loop_device() -> PathBuf {
+        let _shared = LOOP.lock().unwrap();
+        // Find free loopback device
+        let out = Command::new("losetup").args(&["-f"]).output().unwrap();
+        // Assert we created the device
+        assert_eq!(out.status.success(), true);
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let free_device = stdout.trim();
+
+        // Create a loopback device for testing
+        let random = rand::random::<u32>();
+        let d = TempDir::new(&format!("bynar.{}", random)).expect("Temp dir creation failed");
+        let file_path = d.path().join("file.img");
+
+        let mut f = File::create(&file_path).expect("loop backing file creation failed");
+        // Write 25MB to a file
+        debug!("writing 25MB to {}", file_path.display());
+        let buff = [0x00; 1024];
+        for _ in 0..25600 {
+            f.write(&buff)
+                .expect("Failed to write to loop backing file");
+        }
+        f.sync_all().unwrap();
+
+        // Setup a loopback device for testing filesystem corruption
+        debug!("setting up {} device", free_device);
+        Command::new("losetup")
+            .args(&[free_device, &file_path.to_string_lossy()])
+            .status()
+            .unwrap();
+
+        // Put an xfs filesystem down on it
+        debug!("Putting xfs on to {}", free_device);
+        Command::new("mkfs.xfs")
+            .args(&[free_device])
+            .status()
+            .unwrap();
+
+        PathBuf::from(free_device)
+    }
+
+    fn cleanup_loop_device(p: &Path) {
+        // Cleanup
+        Command::new("umount")
+            .args(&[&p.to_string_lossy().into_owned()])
+            .status()
+            .unwrap();
+
+        Command::new("losetup")
+            .args(&["-d", &p.to_string_lossy()])
+            .status()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_state_machine_base() {
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+
+        // Mock smart to return Ok(true)
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+
+        let dev = create_loop_device();
+
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
+
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: BTreeMap::new(),
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 1,
+            operation_id: None,
+        };
+        let mut s = super::StateMachine::new(d, None, true);
+        s.setup_state_machine();
+        s.print_graph();
+        s.run();
+        println!("final state: {}", s.block_device.state);
+        cleanup_loop_device(&dev);
+        assert_eq!(s.block_device.state, super::State::Good);
+    }
+
+    #[test]
+    fn test_state_machine_bad_filesystem() {
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+
+        // Mock smart to return Ok(true)
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+
+        let dev = create_loop_device();
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        debug!("Corrupting the filesystem");
+        // This is repairable by xfs_repair
+        Command::new("xfs_db")
+            .args(&[
+                "-x",
+                "-c",
+                "blockget",
+                "-c",
+                "blocktrash",
+                &dev.to_string_lossy().into_owned(),
+            ])
+            .status()
+            .unwrap();
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: BTreeMap::new(),
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 1,
+            operation_id: None,
+        };
+        let mut s = super::StateMachine::new(d, None, true);
+        s.setup_state_machine();
+        s.print_graph();
+        s.run();
+        println!("final state: {}", s.block_device.state);
+
+        cleanup_loop_device(&dev);
+        assert_eq!(s.block_device.state, super::State::Good);
+    }
+
+    #[test]
+    fn test_state_machine_replace_disk() {
+        use helpers::error::*;
+        // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+        super::check_writable
+            .mock_safe(|_| MockResult::Return(Err(BynarError::from("Mock Error"))));
+        super::check_filesystem.mock_safe(|_, _| MockResult::Return(Ok(super::Fsck::Corrupt)));
+        super::repair_filesystem
+            .mock_safe(|_, _| MockResult::Return(Err(BynarError::from("Mock Error"))));
+
+        // TODO: Can't mock outside dependencies.  Need a wrapper function or something
+        super::format_device.mock_safe(|_| MockResult::Return(Err(BynarError::from("error"))));
+        // That should leave the disk in WaitingForReplacement
+
+        let dev = create_loop_device();
+
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
+
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: BTreeMap::new(),
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Unscanned,
+            storage_detail_id: 1,
+            operation_id: None,
+        };
+        let mut s = super::StateMachine::new(d, None, false);
+        s.setup_state_machine();
+        s.print_graph();
+        s.run();
+        println!("final state: {}", s.block_device.state);
+
+        cleanup_loop_device(&dev);
+
+        assert_eq!(s.block_device.state, super::State::WaitingForReplacement);
+    }
+
+    #[test]
+    fn test_state_machine_replaced_disk() {
+        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
+
+        let dev = create_loop_device();
+
+        let blkid = BlkId::new(&dev).unwrap();
+        blkid.do_probe().unwrap();
+        let drive_uuid = blkid.lookup_value("UUID").unwrap();
+        debug!("drive_uuid: {}", drive_uuid);
+
+        let drive_id = Uuid::parse_str(&drive_uuid).unwrap();
+
+        // Set the previous state to something other than Unscanned
+
+        let d = super::BlockDevice {
+            device: super::Device {
+                id: Some(drive_id),
+                name: dev.file_name().unwrap().to_str().unwrap().to_string(),
+                media_type: super::MediaType::Rotational,
+                capacity: 26214400,
+                fs_type: super::FilesystemType::Xfs,
+                serial_number: Some("123456".into()),
+            },
+            dev_path: PathBuf::from(""),
+            device_database_id: None,
+            mount_point: None,
+            partitions: BTreeMap::new(),
+            scsi_info: super::ScsiInfo::default(),
+            state: super::State::Replaced,
+            storage_detail_id: 1,
+            operation_id: None,
+        };
+        // restore state?
+        let mut s = super::StateMachine::new(d, None, true);
+        s.setup_state_machine();
+        s.print_graph();
+        s.run();
+        println!("final state: {}", s.block_device.state);
+        assert_eq!(s.block_device.state, super::State::Good);
+    }
 }
