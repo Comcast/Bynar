@@ -1405,7 +1405,7 @@ mod tests {
         assert!(get_osd_id(&tmp_dir.path(), false).is_err());
         //simulate == true should ALWAYS be okay
         assert!(get_osd_id(&tmp_dir.path(), true).is_ok());
-        
+
         // with a empty whoami file should fail
         let tmp_file = tmp_dir.path().join("whoami");
         let mut file = File::create(tmp_file).expect("Creating temp file failed");
