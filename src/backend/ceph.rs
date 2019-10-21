@@ -1346,4 +1346,52 @@ mod tests {
         tmp_dir.close().expect("Did not manage to clean up...");
     }
 
+    #[test]
+    /// Note: this test function ONLY tests getting the osd id from the mount point if 
+    /// 1) the path is properly formatted (in the expected manner)
+    /// 2) Errors if the path is NOT formatted properly
+    /// 3) Errors the path does not end in a proper filename (i.e is / or */..)
+    /// This does not test if the id is a valid id, if the path passed is a valid mount point etc. 
+    fn test_get_osd_id_from_path()
+    {
+        // check ok answer
+        let p = Path::new("/test/osd-123");
+        match get_osd_id_from_path(&p) {
+            Ok(id) => assert!(id == 123),
+            Err(e) => panic!("Function Failed")
+        }
+        // check weird path but still works
+        let p = Path::new("/test/osd-222-ohwell");
+        match get_osd_id_from_path(&p) {
+            Ok(id) => {println!("oddly enough this works");assert!(id == 222)},
+            Err(e) => panic!("Function Failed")
+        }
+        //check weirdo path that probably should work but DOESNT
+        let p = Path::new("/test/osd123");
+        let result = std::panic::catch_unwind(|| {get_osd_id_from_path(&p)});
+        assert!(result.is_err());
+        // should also error if after the first dash ISNT a number...
+        let p = Path::new("/test/osd-dumm1");
+        assert!(get_osd_id_from_path(&p).is_err());
+        //check it failse on /.. and /
+        let p = Path::new("/test/osd-123/..");
+        match get_osd_id_from_path(&p) {
+            Ok(id) => panic!("This should have returned an error"),
+            Err(e) => assert_eq!("Unable to get filename from /test/osd-123/..", e.to_string())
+        }
+        let p = Path::new("/");
+        match get_osd_id_from_path(&p) {
+            Ok(id) => panic!("This should have returned an error"),
+            Err(e) => assert_eq!("Unable to get filename from /", e.to_string())
+        }
+    } 
+
+    #[test]
+    // test if the function can read an id from a whoami file from
+    // an input directory.  Please note that this assumes whoami
+    // contains the osd id and does not have junk input
+    // though it SHOULD error if the whoami file does not have numerical data
+    fn test_get_osd_id(){
+
+    }
 }
