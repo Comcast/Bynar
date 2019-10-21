@@ -1269,6 +1269,9 @@ ioctl_none! {//(blkrrpart, 0x12, 95);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::io::SeekFrom;
     use std::path::PathBuf;
     use tempdir::TempDir;
     #[test]
@@ -1347,28 +1350,30 @@ mod tests {
     }
 
     #[test]
-    /// Note: this test function ONLY tests getting the osd id from the mount point if 
+    /// Note: this test function ONLY tests getting the osd id from the mount point if
     /// 1) the path is properly formatted (in the expected manner)
     /// 2) Errors if the path is NOT formatted properly
     /// 3) Errors the path does not end in a proper filename (i.e is / or */..)
-    /// This does not test if the id is a valid id, if the path passed is a valid mount point etc. 
-    fn test_get_osd_id_from_path()
-    {
+    /// This does not test if the id is a valid id, if the path passed is a valid mount point etc.
+    fn test_get_osd_id_from_path() {
         // check ok answer
         let p = Path::new("/test/osd-123");
         match get_osd_id_from_path(&p) {
             Ok(id) => assert!(id == 123),
-            Err(e) => panic!("Function Failed")
+            Err(e) => panic!("Function Failed"),
         }
         // check weird path but still works
         let p = Path::new("/test/osd-222-ohwell");
         match get_osd_id_from_path(&p) {
-            Ok(id) => {println!("oddly enough this works");assert!(id == 222)},
-            Err(e) => panic!("Function Failed")
+            Ok(id) => {
+                println!("oddly enough this works");
+                assert!(id == 222)
+            }
+            Err(e) => panic!("Function Failed"),
         }
         //check weirdo path that probably should work but DOESNT
         let p = Path::new("/test/osd123");
-        let result = std::panic::catch_unwind(|| {get_osd_id_from_path(&p)});
+        let result = std::panic::catch_unwind(|| get_osd_id_from_path(&p));
         assert!(result.is_err());
         // should also error if after the first dash ISNT a number...
         let p = Path::new("/test/osd-dumm1");
@@ -1377,21 +1382,53 @@ mod tests {
         let p = Path::new("/test/osd-123/..");
         match get_osd_id_from_path(&p) {
             Ok(id) => panic!("This should have returned an error"),
-            Err(e) => assert_eq!("Unable to get filename from /test/osd-123/..", e.to_string())
+            Err(e) => assert_eq!(
+                "Unable to get filename from /test/osd-123/..",
+                e.to_string()
+            ),
         }
         let p = Path::new("/");
         match get_osd_id_from_path(&p) {
             Ok(id) => panic!("This should have returned an error"),
-            Err(e) => assert_eq!("Unable to get filename from /", e.to_string())
+            Err(e) => assert_eq!("Unable to get filename from /", e.to_string()),
         }
-    } 
+    }
 
     #[test]
     // test if the function can read an id from a whoami file from
     // an input directory.  Please note that this assumes whoami
     // contains the osd id and does not have junk input
     // though it SHOULD error if the whoami file does not have numerical data
-    fn test_get_osd_id(){
+    fn test_get_osd_id() {
+        // test with temp dir no file whoami should fail
+        let tmp_dir = TempDir::new("temp_test").expect("Creating temp failed");
+        assert!(get_osd_id(&tmp_dir.path(), false).is_err());
+        //simulate == true should ALWAYS be okay
+        assert!(get_osd_id(&tmp_dir.path(), true).is_ok());
+        
+        // with a empty whoami file should fail
+        let tmp_file = tmp_dir.path().join("whoami");
+        let mut file = File::create(tmp_file).expect("Creating temp file failed");
+        assert!(get_osd_id(&tmp_dir.path(), false).is_err());
 
+        assert!(get_osd_id(&tmp_dir.path(), true).is_ok());
+
+        // with a whoami file with non-number data should fail
+        writeln!(file, "This be broke").expect("Write broke...");
+        assert!(get_osd_id(&tmp_dir.path(), false).is_err());
+
+        assert!(get_osd_id(&tmp_dir.path(), true).is_ok());
+        drop(file);
+
+        // with a whoami file with a number should work
+        let tmp_file = tmp_dir.path().join("whoami");
+        let mut file = File::create(tmp_file).expect("Creating temp file failed");
+        writeln!(file, "123").expect("Cannot write number");
+        assert!(get_osd_id(&tmp_dir.path(), false).is_ok());
+
+        assert!(get_osd_id(&tmp_dir.path(), true).is_ok());
+        //clean up
+        drop(file);
+        tmp_dir.close().expect("Did not manage to clean up...");
     }
 }
