@@ -283,3 +283,31 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dirs::home_dir;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::io::SeekFrom;
+    use std::path::PathBuf;
+    use tempdir::TempDir;
+
+    #[test]
+    // test loading a bynar.json file
+    fn test_load_config_bynarjson() {
+        //test config file does not exist
+        let tmp_dir = TempDir::new("temp_test").expect("Creating temp failed");
+        assert!(load_config::<ConfigSettings>(tmp_dir.path(), "bynar.json").is_err());
+
+        // test loading config file from Bynar work environment
+        // assumes you have the Bynar Repo downloaded into your
+        // home directory
+        let home = home_dir().expect("HOME env variable not defined");
+        let json_path = home.join("Bynar").join("config");
+        let s = load_config::<ConfigSettings>(&json_path, "bynar.json");
+        println!("{:?}", s);
+        assert!(s.is_ok());
+    }
+}
