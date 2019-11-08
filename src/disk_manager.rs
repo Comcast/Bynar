@@ -77,14 +77,14 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
         let client = VaultClient::new(endpoint.as_str(), token)?;
         client.set_secret(
             format!("{}/{}.pem", config_dir.display(), hostname),
-            String::from_utf8_lossy(&keypair.public_key),
+            String::from_utf8_lossy(keypair.public_key.as_bytes()),
         )?;
         s.set_curve_secretkey(&keypair.secret_key)?;
     } else {
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
-        f.write_all(&keypair.public_key)?;
+        f.write_all(keypair.public_key.as_bytes())?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
     debug!("Curve server: {:?}", s.is_curve_server());
@@ -247,7 +247,7 @@ fn listen(
 fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     debug!("Responding to client with msg len: {}", encoded.len());
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
     Ok(())
 }
 
@@ -349,7 +349,7 @@ fn list_disks(s: &Socket) -> BynarResult<()> {
     let encoded = disks.write_to_bytes()?;
 
     debug!("Responding to client with msg len: {}", encoded.len());
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
     Ok(())
 }
 
@@ -412,13 +412,13 @@ fn safe_to_remove_disk(
             result.set_error_msg(e.to_string());
             let encoded = result.write_to_bytes()?;
             debug!("Responding to client with msg len: {}", encoded.len());
-            s.send(encoded, 0)?;
+            s.send(&encoded, 0)?;
             return Err(BynarError::new(format!("safe to remove error: {}", e)));
         }
     };
     let encoded = result.write_to_bytes()?;
     debug!("Responding to client with msg len: {}", encoded.len());
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
     Ok(())
 }
 
