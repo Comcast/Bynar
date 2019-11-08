@@ -112,7 +112,6 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
         if !p.exists() {
             error!("{} does not exist", p.display());
         }
-        debug!("Reading public key from {:?}", p);
         let key = read_to_string(p)?;
         Ok(key)
     }

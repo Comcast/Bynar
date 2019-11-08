@@ -84,7 +84,6 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
-        debug!("public key {:?}", &keypair.public_key);
         f.write_all(keypair.public_key.as_bytes())?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
