@@ -24,6 +24,7 @@ use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /*#[derive(Clone, Debug, Deserialize)]

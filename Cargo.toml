@@ -65,7 +65,7 @@ log = "~0.4"
 lvm = "~0.3"
 nix = "~0.15"
 petgraph = "~0.4"
-pnet = "~0.22"
+pnet = "~0.23"
 postgres = "~0.15"
 postgres-shared = "~0.4"
 protobuf = "~2"
@@ -83,7 +83,7 @@ tempdir = "~0.3"
 time = "~0.1"
 uname = "~0.1"
 uuid = { version="~0.7", features = ["v4"]}
-zmq = {version="~0.9"}
+zmq = {version="~0.8"}
 
 [lib]
 name = "helpers"

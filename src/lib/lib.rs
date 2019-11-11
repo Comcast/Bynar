@@ -35,8 +35,8 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     let context = zmq::Context::new();
     let requester = context.socket(zmq::REQ)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
-
-    requester.set_curve_serverkey(server_publickey.as_bytes())?;
+    debug!("Created new keypair");
+    requester.set_curve_serverkey(server_publickey)?;
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
     debug!("Connecting to tcp://{}:{}", host, port);
@@ -71,7 +71,7 @@ pub fn add_disk_request(
 
     let encoded = o.write_to_bytes().unwrap();
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let add_response = s.recv_bytes(0)?;
@@ -126,7 +126,7 @@ pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
     debug!("{:?}", encoded);
 
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let disks_response = s.recv_bytes(0)?;
@@ -148,7 +148,7 @@ pub fn safe_to_remove_request(s: &Socket, path: &Path) -> BynarResult<bool> {
     o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let safe_response = s.recv_bytes(0)?;
@@ -177,7 +177,7 @@ pub fn remove_disk_request(
 
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
@@ -244,7 +244,7 @@ pub fn get_jira_tickets(s: &Socket) -> BynarResult<()>{
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
     debug!("Sending message in get_jira_tickets");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;
