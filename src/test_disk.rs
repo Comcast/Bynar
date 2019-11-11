@@ -464,7 +464,6 @@ impl Transition for Eval {
             return to_state;
         }
         debug!("thread {} device: {:?}", process::id(), device);
-        debug!("fs_type {:?}, actual device info {:?}", device.device.fs_type, device);
         if device.device.fs_type == FilesystemType::Lvm {
             debug!("Checking LVM");
             match check_lvm(&device.dev_path) {
@@ -1180,11 +1179,11 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                         return false;
                     }
                     if mount == Path::new("/boot"){
-                        debug!("Found /boot disk.  Skipping");
+                        debug!("Found /boot partition.  Skipping");
                         return false;
                     }
                     if mount == Path::new("/boot/efi"){
-                        debug!("Found /boot/efi disk. Skipping");
+                        debug!("Found /boot/efi partition. Skipping");
                         return false;
                     }
                 }
