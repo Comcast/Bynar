@@ -36,8 +36,8 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     let context = zmq::Context::new();
     let requester = context.socket(zmq::REQ)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
-
-    requester.set_curve_serverkey(server_publickey.as_bytes())?;
+    debug!("Created new keypair");
+    requester.set_curve_serverkey(server_publickey)?;
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
     debug!("Connecting to tcp://{}:{}", host, port);
@@ -58,7 +58,7 @@ pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResu
 
 /// Send a request to add a disk to a cluster
 pub fn add_disk_request(
-    s: &mut Socket,
+    s: &Socket,
     path: &Path,
     id: Option<u64>,
     simulate: bool,
@@ -74,7 +74,7 @@ pub fn add_disk_request(
 
     let encoded = o.write_to_bytes().unwrap();
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let add_response = s.recv_bytes(0)?;
@@ -120,7 +120,7 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 */
 
 /// send a request to list the disks in a cluster
-pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
+pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
     o.set_Op_type(Op::List);
@@ -130,7 +130,7 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     debug!("{:?}", encoded);
 
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let disks_response = s.recv_bytes(0)?;
@@ -146,14 +146,14 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
 }
 
 /// Send a message to ask if a disk is safe to remove from a cluster
-pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> {
+pub fn safe_to_remove_request(s: &Socket, path: &Path) -> BynarResult<bool> {
     let mut o = Operation::new();
     debug!("Creating safe to remove operation request");
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let safe_response = s.recv_bytes(0)?;
@@ -167,7 +167,7 @@ pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> 
 
 /// send a message to remove a disk from the cluster
 pub fn remove_disk_request(
-    s: &mut Socket,
+    s: &Socket,
     path: &Path,
     id: Option<u64>,
     simulate: bool,
@@ -183,7 +183,7 @@ pub fn remove_disk_request(
 
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
@@ -245,13 +245,13 @@ pub struct DBConfig {
 }
 
 /// Send a request to get the JIRA ticket information and print it
-pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()> {
+pub fn get_jira_tickets(s: &Socket) -> BynarResult<()>{
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
     debug!("Sending message in get_jira_tickets");
-    s.send(encoded, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;

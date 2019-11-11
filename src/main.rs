@@ -24,6 +24,7 @@ use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /*#[derive(Clone, Debug, Deserialize)]
@@ -181,13 +182,13 @@ fn check_for_failed_disks(
                         (false, false) => {
                             debug!("Asking disk-manager if it's safe to remove disk");
                             // CALL RPC
-                            let mut socket = helpers::connect(
+                            let socket = helpers::connect(
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
                                 &public_key,
                             )?;
                             match (
-                                helpers::safe_to_remove_request(&mut socket, &dev_path),
+                                helpers::safe_to_remove_request(&socket, &dev_path),
                                 config.slack_webhook.is_some(),
                             ) {
                                 (Ok(true), true) => {
@@ -203,7 +204,7 @@ fn check_for_failed_disks(
                                     );
 
                                     match helpers::remove_disk_request(
-                                        &mut socket,
+                                        &socket,
                                         &dev_path,
                                         None,
                                         false,
@@ -401,14 +402,14 @@ fn add_repaired_disks(
             Ok(true) => {
                 //CALL RPC
                 debug!("Connecting to disk-manager");
-                let mut socket = helpers::connect(
+                let socket = helpers::connect(
                     &config.manager_host,
                     &config.manager_port.to_string(),
                     &public_key,
                 )?;
 
                 match helpers::add_disk_request(
-                    &mut socket,
+                    &socket,
                     &Path::new(&ticket.device_path),
                     None,
                     simulate,
