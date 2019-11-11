@@ -1416,7 +1416,7 @@ pub fn check_all_disks(
     // There's a bug in LVM that segfaults if more than 1 is started at the same
     // time.
     let mut disk_states: Vec<BynarResult<StateMachine>> = Vec::new();
-    for device in device_info {
+    for mut device in device_info {
         let scsi_info = scsi_info
             .iter()
             .find(|r| {
@@ -1433,6 +1433,10 @@ pub fn check_all_disks(
             })
             .cloned();
         debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
+        //Update device here? Create new device?
+        if let Some((i, opt)) = scsi_info.clone() {
+            device.scsi_info = i;
+        }
         debug!("thread {} device: {:?}", process::id(), device);
         let mut s = StateMachine::new(device, scsi_info, false);
         s.setup_state_machine();
