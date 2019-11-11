@@ -1,43 +1,466 @@
 # Revision History
 
-| Name           | Date       | Reason for Change                                                                                                                | Version |
-| -------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Michelle Zhong | 10/8/2019  | Outline the Document                                                                                                             | 0.1     |
-| Michelle Zhong | 10/9/2019  | Outline the Document Modules, fill in the API section, Config File section, start filling out the Backend Section                | 0.2     |
-| Michelle Zhong | 10/10/2019 | Reorganize Headers in API section, Fill out the Backend, add Database Schema, add Error Module, Host Information, Helper Library | 0.3     |
-| Michelle Zhong | 10/11/2019 | Update Database Schema, Add Client, Jira Modules, Database Logging Section                                                       | 0.4     |
-| Michelle Zhong | 10/14/2019 | Start Updating the Disk Testing Section                                                                                          | 0.5     |
-| Michelle Zhong | 10/16/2019 | Updated the Disk Testing Section, Add Hardware Testing Section, add in the main Bynar program section                            | 0.6     |
+| Name           | Date       | Reason for Change                                                                                                                                                    | Version |
+| -------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Michelle Zhong | 10/8/2019  | Outline the Document                                                                                                                                                 | 0.1     |
+| Michelle Zhong | 10/9/2019  | Outline the Document Modules, fill in the API section, Config File section, start filling out the Backend Section                                                    | 0.2     |
+| Michelle Zhong | 10/10/2019 | Reorganize Headers in API section, Fill out the Backend, add Database Schema, add Error Module, Host Information, Helper Library                                     | 0.3     |
+| Michelle Zhong | 10/11/2019 | Update Database Schema, Add Client, Jira Modules, Database Logging Section                                                                                           | 0.4     |
+| Michelle Zhong | 10/14/2019 | Start Updating the Disk Testing Section                                                                                                                              | 0.5     |
+| Michelle Zhong | 10/16/2019 | Updated the Disk Testing Section, Add Hardware Testing Section, add in the main Bynar program section                                                                | 0.6     |
+| Michelle Zhong | 10/17/2019 | Added Section to Backend Explaining the GPT crate and what modifications are needed to fix its problems                                                              | 0.7     |
+| Michelle Zhong | 11/1/2019  | Added Section on Daemonizing Bynar, explaining the Signal Handling and process of making a program a daemon. Add section on detecting maintenance (single-user) mode | 0.8     |
+| Michelle Zhong | 11/11/2019 | Added Section on Current Bugs + Feature Implementations                                                                                                              | 0.9     |
 
 # Table of Contents
 
-[Revision History](#revision-history)
+[Revision History 2](#revision-history)
 
-[Table of Contents](#_Toc22131550)
+[Table of Contents 3](#_Toc24367301)
 
-[API](#api)
+[List of Current Bugs and Feature Implementations
+6](#list-of-current-bugs-and-feature-implementations)
 
-[Configuration Files](#configuration-files)
+[Terms 6](#terms)
 
-[Backend](#backend)
+[Bugs 6](#bugs)
 
-[Database Schema](#database-schema)
+[Features 7](#features)
 
-[Database Logging](#database-logging)
+[Maintenance (Single-User) Mode 7](#maintenance-single-user-mode)
 
-[Helper Functions](#helper-functions-1)
+[Background 7](#background)
 
-[Client](#client)
+[Daemonizing Bynar 7](#daemonizing-bynar)
 
-[Support Tickets](#support-tickets)
+[Background 7](#background-1)
 
-[Disk Manager](#disk-manager)
+[What is a Daemon 7](#what-is-a-daemon)
 
-[Disk Testing](#disk-testing)
+[Why are we daemonizing Bynar? 8](#_Toc24367311)
 
-[Hardware Testing](#hardware-testing)
+[Notes and Signal Handling 8](#notes-and-signal-handling)
 
-[Bynar](#bynar)
+[Old Style 8](#old-style)
+
+[How to Daemonize a Process 9](#how-to-daemonize-a-process)
+
+[SysV (Traditional) daemon 9](#sysv-traditional-daemon)
+
+[New-Style Daemons (Systemd) 10](#new-style-daemons-systemd)
+
+[API 10](#api)
+
+[Introduction 10](#introduction)
+
+[Messages 10](#messages)
+
+[Enums 10](#enums)
+
+[Structs 11](#structs)
+
+[Configuration Files 13](#configuration-files)
+
+[Introduction 13](#introduction-1)
+
+[List of Config Files 14](#list-of-config-files)
+
+[Bynar JSON 14](#bynar-json)
+
+[Ceph JSON 14](#ceph-json)
+
+[Disk-Manager JSON 14](#disk-manager-json)
+
+[Backend 15](#backend)
+
+[Introduction 15](#introduction-2)
+
+[GPT 15](#gpt)
+
+[Backend Module 15](#backend-module)
+
+[Enums 15](#enums-1)
+
+[Interface 15](#interface)
+
+[Ceph 16](#ceph)
+
+[Structs 16](#structs-1)
+
+[Helper Functions 20](#helper-functions)
+
+[Database Schema 24](#database-schema)
+
+[Introduction 24](#introduction-3)
+
+[Postgres 24](#postgres)
+
+[Schema 25](#schema)
+
+[Database Logging 25](#database-logging)
+
+[Introduction 25](#introduction-4)
+
+[Logging 25](#logging)
+
+[Enums 25](#enums-2)
+
+[Structs 26](#structs-2)
+
+[Interface and Helper Functions 29](#interface-and-helper-functions)
+
+[Helper Functions 34](#helper-functions-1)
+
+[Introduction 34](#introduction-5)
+
+[Error Module 34](#error-module)
+
+[Type 34](#type)
+
+[Enums 34](#enums-3)
+
+[Structs 35](#structs-3)
+
+[Host Information 36](#host-information)
+
+[Enums 36](#enums-4)
+
+[Structs 36](#structs-4)
+
+[Helper Functions 37](#helper-functions-2)
+
+[Helper Module 38](#helper-module)
+
+[Structs 38](#structs-5)
+
+[Helper Functions 38](#helper-functions-3)
+
+[Client 40](#client)
+
+[Introduction 40](#introduction-6)
+
+[Client Interface 40](#client-interface)
+
+[Support Tickets 42](#support-tickets)
+
+[Introduction 42](#introduction-7)
+
+[JIRA Support 42](#jira-support)
+
+[Disk Manager 42](#disk-manager)
+
+[Introduction 42](#introduction-8)
+
+[Disk Manager 42](#disk-manager-1)
+
+[Structs 42](#structs-6)
+
+[Functions 43](#functions)
+
+[Disk Testing 45](#disk-testing)
+
+[Introduction 45](#introduction-9)
+
+[State Machine 45](#state-machine)
+
+[Special Cases 46](#special-cases)
+
+[Type 46](#type-1)
+
+[Trait 46](#trait)
+
+[Enums 46](#enums-5)
+
+[Structs 47](#structs-7)
+
+[Functions 54](#functions-1)
+
+[Hardware Testing 57](#hardware-testing)
+
+[Introduction 57](#introduction-10)
+
+[Hardware Tests 57](#hardware-tests)
+
+[Struct 57](#struct)
+
+[Functions 57](#functions-2)
+
+[Bynar 58](#bynar)
+
+[Introduction 58](#introduction-11)
+
+[Main Process Functions 58](#main-process-functions)
+
+# List of Current Bugs and Feature Implementations
+
+### Terms
+
+#### Status
+
+  - BL – Back logged.
+
+  - D – Draft stage. Either the Bug or the solution (or both) has not
+    been flushed out yet
+
+  - WIP – Work in Progress. Some work has/is being done.
+
+  - PR – Pull Request made, waiting for review/fixes/nitpicks etc
+
+  - Complete – Pull Request merged, will be removed on next revision
+    update
+
+## Bugs
+
+| Description                                                                                                     | Solution/Implementation and Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Status |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| Filter does not filter out /boot or /boot/efi. If on MBR partitioned disk it is not filtered out.               | Check the mountpoint for /, /boot, and /boot/efi and filter those devices/partitions out                                                                                                                                                                                                                                                                                                                                                                                                | WIP    |
+| Disk-manager port always binds to 5555 regardless of input port value                                           | Change the function so it takes in the port input if added (Note that this will add some complexity, for if the disk-manager port and the bynar/bynar-client port values do not match then they will not be able to communicate)                                                                                                                                                                                                                                                        | BL     |
+| State Machine does not check if the filesystem/device is unmounted before running fsck                          | This is a rather minor bug since fsck should abort if the filesystem is unmounted unless the command is forced. Just add a check before running any fsck, or check\_filesystem commands for if the device is mounted first                                                                                                                                                                                                                                                              | BL     |
+| Smart Health Check currently only uses libata’s smart checks. This can fail if the device does not support ATA. | Run smartctl (smartmon) health checks. Yes this can ALSO have problems since not all devices support smartmon tools/have it enabled. This would also add a dependency on having smartmontools installed. Different error types can let the program know if the error is an ACTUAL error or if it is due to a lack of the needed program on the device, which can help with the check.                                                                                                   | BL     |
+| Ceph\_safe\_disk crate has JSON deserialize error                                                               | This probably is due to ceph well, outputting bad JSON in its newer versions. Luckily, ceph has a function ceph osd safe-to-destroy \<id\> that can be run now on Luminous+ versions (Jewel we don’t know yet). This may require an upgrade in the ceph crate version. Regardless, if it fails in Jewel, it is probably best to default to Not Safe to remove, so a manual check can be made                                                                                            | BL     |
+| Ceph Journals should not ever get mounted (that includes their disks)                                           | We’ll need to figure out some special case for Ceph Journals, which still need to and can be scanned by smartmon tools, but cannot be mounted (and therefore cannot undergo read/write/filesystem corruption checks) so that they aren’t filed for replacement accidentally.                                                                                                                                                                                                            | D      |
+| SCSIInfo does not get correctly sent to JIRA.                                                                   | Check\_all\_disks does happen to get the correct list of ScsiInfo objects. The problem is the BlockDevice object being used by JIRA uses a default ScsiInfo object reference which well, never gets replaced with the correct ScsiInfo object. So while the behavior in check\_all\_disks is correct since both are looped over, since the BlockDevice is never modified to use the correct ScsiInfo, well, it defaults to using the default. A fix will probably require a double loop | D      |
+
+## Features
+
+| Description                                                                          | Solution/Implementation                                                                                                                                                                                                                                                                                                                                                                                           | Status |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| Maintenance Mode check. Bynar should not run while the system is in Maintenance mode | Current solution implementation is checking and creating a lock file when in maintenance mode, destroying it once maintenance mode is over. Another possible solution is run runlevel and check if it is N 1, and double check with systemctl get-default (if rescue.target). and prevent Bynar from running while that is true. Sample every run of Bynar? Then while maintenance mode == true check every hour? | WIP    |
+| Daemonize Bynar                                                                      | Current solution uses the rust daemonize crate to make Bynar a daemon, still needs to implement signal handling                                                                                                                                                                                                                                                                                                   | WIP    |
+| Better Loop checker for the State Machine                                            | ...Uh, this one needs more thought, especially on how much memory/processing we’re willing to spend...                                                                                                                                                                                                                                                                                                            | D      |
+| ...                                                                                  |                                                                                                                                                                                                                                                                                                                                                                                                                   |        |
+
+# Maintenance (Single-User) Mode
+
+## Background
+
+Maintenance, or single-user mode in linux distributions, is a boot mode
+with only one user, and no network connection. What programs are
+available in this mode differs per distribution. It is easy in Linux to
+check if one is in this mode. Simply run either runlevel to get the run
+level (N 1) is maintenance mode), or systemctl get-default, in which
+rescue.target would be returned.
+
+<https://www.ostechnix.com/check-runlevel-linux/>
+
+# Daemonizing Bynar
+
+## Background
+
+### What is a Daemon
+
+A daemon (not the helpful critters from Greek mythology but a program)
+is a program that runs in the background. It performs tasks periodically
+in a manner that usually goes unnoticed by users.
+
+<span id="_Toc24367311" class="anchor"></span>Why are we daemonizing
+Bynar?
+
+Bynar can in fact, be run hourly as a CRON job. However, we would like
+to run this in the background periodically, and while cron can run the
+process periodically, making Bynar a daemon would make its tasks mostly
+unnoticed by users.
+
+## Notes and Signal Handling
+
+A daemon should, in general, be able to handle various signals for
+different reasons and pitfalls.
+
+Old Vs New Style Daemonization:
+<https://www.tecmint.com/systemd-replaces-init-in-linux/>
+
+### Old Style
+
+See <http://cjh.polyplex.org/software/daemon.pdf>
+
+#### Background Job Control Write Checks
+
+Some systems support 4.2BSD job control, and when a daemon attempts I/O
+to their controlling terminal, it gets stopped if they were launched
+from csh in the background. The true handling method is for the daemon
+to disassociate from the controlling terminal, however the daemon might
+want to perform some setup checks and output error messages beforehand.
+While a background process cannot read from its controlling tty, output
+can be performed with the SIGTTOU signal is ignored. If this is done,
+usually it’s a good idea to ignore SIFTTIN and SIGNTSTP, however
+ignoring SIFTTIN also causes all background attempts to read from the
+control terminal to fail.
+
+#### Close All Open File Descriptors
+
+Do NOT leave any stray file descriptors open, and especially file
+descriptors that are terminal devices. Terminal devices must be closed
+to allow reset of the terminal state during logout.
+
+#### Disassociate from Process Group and Controlling Terminal
+
+If the daemon is launched during a login session, it inherits both the
+controlling terminal and the process group of thast session or the job
+within the session. While associated, the daemon is subject to all
+terminal-generated signals such as SIGINT or SIGHUP. It is also subject
+to job control terminal I/O restrictions. The daemon is also subject to
+signals sent to the associated process group like kill.
+
+You could ignore all signals, but then you can’t handle specific cases
+and there are signals that cannot be ignored such as SIGKILL or SIGSTOP.
+
+Disassociate instead from the controlling terminal and progress group.
+If the system is 4.2BSD, TIOCNOTTY ioctl can be used as well as setpgrp.
+If AT\&T UNIX, use setpgrp for both, but only if this is the first time
+the process has called it (it is not already a group leader, aka process
+group ID == process ID). In otherwords, fork first before calling
+setpgrp. In general, the daemon should for and run in the child while
+the parent immediately exits.
+
+#### Do Not Reacquire a Controlling Terminal 
+
+Once the daemon no longer has a controlling terminal, it can reacquire
+one. It should not, as doing so will prevent other processes from
+acquiring the terminal correctly as the controlling terminal. (NOTE this
+is not a problem in 4.2BSD). Should the daemon reacquire the controlling
+terminal, all login attempts for accounts with passwords will silently
+fail without prompting for a password. Keyboard signals are not sent to
+the processes spawned.
+
+If using an AT\&T Unix system, a new controlling terminal is acquired
+whenever a process group leader without one opens a terminal (that isn’t
+also a control terminal), and once done there is no means to relinquish
+it. To prevent this, fork again after calling setpgrp and ensure the
+parent ignores the SIGHUP signal before forking the second child. The
+second child (daemon) will then have no controller terminal and be in a
+new process group immune to signals from the tty driver.
+
+#### Do Not Hold Open TTY Files
+
+Terminal state settings are only reset to the default state when the
+LAST process having the terminal open finally closes it. If the daemon
+has the terminal open continuously, then the last close never happens
+and the settings are not reset. These files include stdin, stdout,
+stderr, and /dev/console. Best practice is to log errors and status
+messages to a disk file. If terminal logging is needed, then only hold
+the terminal long enough to do a SINGLE logging transaction (its still a
+window of time where a logout will not reset the terminal). Though since
+this can STILL cause problems its best to just log to a disk file.
+
+#### Change Current Directory to “/”
+
+Every process has a current working directory that the kernel holds open
+during the life of the process. If the process current directory is on a
+mounted file system it cannot be dismounted by the admin without first
+finding and killing the process. Daemons should adopt a current
+directory NOT located on a mounted filesystem. The most reliable is the
+root filesystem.
+
+#### Reset the File Mode Creation Mask
+
+A umask is associated with each process, which specifies how file
+permissions are restricted for each file created by the process. Its
+inherited from the parent process unless changed, and a daemon should
+reset its umask to an appropriate value. (this is usually 0).
+
+#### Any Inherited Attribute
+
+In general, anything that can be inherited can cause problems, like the
+nice priority value, the time left until an alarm signal, and the signal
+mask and set of pending signals.
+
+## How to Daemonize a Process
+
+<https://stackoverflow.com/questions/17954432/creating-a-daemon-in-linux>
+
+1.  Fork off the parent process and let it terminate (assuming forking
+    was successful). The child process should now be running in the
+    background
+
+2.  Setsid and create a new session. The calling process should become
+    the leader of the new sessions and the process group leader of the
+    new process group. The process should now be detached from its
+    controlling terminal (or CTTY)
+
+3.  Catch signals (via ignoring or handling)
+
+4.  Fork Again – and let the parent process terminate to ensure the
+    session leading process is gone
+
+5.  Chdir – change the working directory of the daemon
+
+6.  Umask – change the file mode mask according to the daemon needs
+
+7.  Close – close all open file descriptors that might be inherited from
+    the parent process. ESPECIALLY stdin, stdout, stderr. If any of the
+    file descriptors are terminal devices then they MUST be closed to
+    allow reset of the terminal state during logout.
+
+### SysV (Traditional) daemon
+
+1.  Close all open file descriptors except stdin, stdout, stderr
+
+2.  Reset all signal handlers to default
+
+3.  Reset Sig Mask
+
+4.  Sanitize environment block, remove or reset environmental variables
+    that might break things
+
+5.  Call fork
+
+6.  Call setsid to detach from terminall
+
+7.  Fork again so it cannot reacquire a terminal
+
+8.  Call exit in the first child so only the second sticks around
+
+9.  Connect /dev/null in daemon process to stdin/out/err
+
+10. Reset umask to 0
+
+11. Change current directory to root
+
+12. Write the pid to a .pid file to ensure the daemon is only started
+    once. (do this in a race free way)
+
+13. Drop priviliges
+
+14. Notify the original process that initialization is complete
+
+15. Call exit in the original process
+
+### New-Style Daemons (Systemd)
+
+1.  If SIGTERM is received, shut down the daemon and exit cleanly
+
+2.  If SIGHUP received, reload the config files (assuming there are
+    config files)
+
+3.  Provide a correct exit code from the main daemon process (this is
+    used by init to detect service errors and problems). Recommended to
+    use scheme defined
+    <http://refspecs.linuxbase.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-generic/iniscrptact.html>
+
+4.  If possible (and applicable) expose daemon’s interface via D-Bus IPC
+    system and grab a bus name as last step of init
+
+5.  For integration in systemd, provice a .service unit file with
+    information about start, stop, and maintaining the daemon.
+
+6.  Rely on init system to limit access of daemon (yse systemd’s
+    resource limit control, privilege dropping, etc.
+
+7.  If D-Bus used, make daemon bus-activatable by supplying D-Bus
+    service activation config file. This lets the daemon get started
+    lazily on-demand, in parallel with other daemons, restarted on
+    failure without losing bus requests etc.
+
+8.  If daemon provides services to other local processes/remote clients
+    via socket, it should be made socket-activatable following the
+    scheme here
+    <https://www.freedesktop.org/software/systemd/man/daemon.html#Activation>
+
+9.  If applicable, the daemon should notify the init system about
+    startup completion/status updates
+
+10. Instead of using syslog(), log the error via fprintf(), which is
+    forwarded to syslog by inity.
 
 # API
 
@@ -328,6 +751,16 @@ backend storage system is
 Different distributed storage clusters have different ways of adding and
 removing disks, the backend module seeks to create an interface to the
 different backends
+
+## GPT
+
+The GPT crate is used to parse the GUID Partition Table in a device.
+Some modifications to the crate were necessary, as the num\_partitions
+field in the GPT header actually indicates the total number of partition
+entries. As such, the .partition() method returned all possible
+partition entries, the actual partitions as well as empty entries. Due
+to this, a change was made to skip all empty entries, which are zeroed
+out, which lets GPT return the correct number of partitions.
 
 ## Backend Module
 
@@ -1554,7 +1987,12 @@ BynarError\>
 
 ## Host Information
 
-Gather information about the current host
+Gather information about the current host. Please note that Host
+Information makes a few assumptions, such as that there IS a default
+interface (it is possible, but VERY UNLIKELY, that there is no default
+interface). Once a gateway is found, the FIRST ip address that is an
+ipv4 address is returned. That means, that if there are multiple valid
+IPv4 addresses, only the first seen will be used.
 
 ### Enums
 
@@ -2161,6 +2599,21 @@ an end state is reached and return. It will start from the current state
 that the machine is in, and loop through all possible next states
 (edges). If a transition returns Fail, try the next path until all paths
 are exhausted.
+
+### Special Cases
+
+Depending on the Storage Type, special cases might arise. Some
+transitions may not be possible.
+
+#### Ceph
+
+Ceph Journals are a special type of device/partition that act akin to
+cache. A part of this special property includes that a ceph journal
+can’t be mounted. This includes the disk the partitions are on.
+However, a smartmon/smartctl scan can still be run on the disk as a
+health check. However, since the disk cannot be mounted, nor would it
+have a filesystem, no filesystem, write, read, or wear checks can be
+made on these types of disks.
 
 ### Type
 
