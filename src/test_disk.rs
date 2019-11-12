@@ -469,15 +469,15 @@ impl Transition for Eval {
             match check_lvm(&device.dev_path) {
                 Ok(_) => {
                     debug!("Return state {:?}", to_state);
-                    return to_state
-                },
+                    return to_state;
+                }
                 Err(e) => {
                     error!("check_lvm failed: {:?}", e);
                     return State::Fail;
                 }
             };
         }
-        
+
         if device.mount_point.is_none() {
             debug!("Try mounting in EVAL");
             debug!(
@@ -1178,11 +1178,11 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                         debug!("Found root disk. Skipping");
                         return false;
                     }
-                    if mount == Path::new("/boot"){
+                    if mount == Path::new("/boot") {
                         debug!("Found /boot partition.  Skipping");
                         return false;
                     }
-                    if mount == Path::new("/boot/efi"){
+                    if mount == Path::new("/boot/efi") {
                         debug!("Found /boot/efi partition. Skipping");
                         return false;
                     }
@@ -1517,8 +1517,46 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
 // Run smart checks against the disk
 #[cfg_attr(test, mockable)]
 fn run_smart_checks(device: &Path) -> BynarResult<bool> {
-    let mut smart = libatasmart::Disk::new(device)?;
-    let status = smart.get_smart_status()?;
+    let status: bool = match libatasmart::Disk::new(device) {
+        Ok(mut smart) => {
+            match smart.get_smart_status() {
+                Ok(stat) => stat,
+                Err(e) => {
+                    error!("Error {:?} Run SmartMonTools", e);
+                    // If ata smart fails, run smartmontools' smartctl -H
+                    let out = Command::new("smartctl")
+                        .args(&["-H", &device.to_string_lossy()])
+                        .output()?;
+                    match out.status.code() {
+                        Some(code) => match code {
+                            // no errors
+                            0 => true,
+                            _ => false,
+                        },
+                        //Process terminated by signal
+                        None => return Err(BynarError::from("smartctl terminated by signal")),
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("Error {:?} Run SmartMonTools", e);
+            // If ata smart fails, run smartmontools' smartctl -H
+            let out = Command::new("smartctl")
+                .args(&["-H", &device.to_string_lossy()])
+                .output()?;
+            match out.status.code() {
+                Some(code) => match code {
+                    // no errors
+                    0 => true,
+                    _ => false,
+                },
+                //Process terminated by signal
+                None => return Err(BynarError::from("smartctl terminated by signal")),
+            }
+        }
+    };
+
     Ok(status)
 }
 
