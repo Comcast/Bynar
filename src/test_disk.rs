@@ -1514,6 +1514,39 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
     }
 }
 
+// Run the smartctl checks against the disk if libata fails
+#[cfg_attr(test, mockable)]
+fn run_smartctl_check(device: &Path) -> BynarResult<bool> {
+    // Enable Smart Scan
+    let out = Command::new("smartctl")
+        .args(&["-s", "on", &device.to_string_lossy()])
+        .output()?;
+    let status = match out.status.code() {
+        Some(code) => match code {
+            // no errors, smart enabled
+            0 => {
+                let out = Command::new("smartctl")
+                    .args(&["-H", &device.to_string_lossy()])
+                    .output()?; //Run overall health scan
+                match out.status.code() {
+                    Some(code) => match code {
+                        // no errors, health scan successful
+                        0 => true,
+                        _ => false,
+                    },
+                    //Process terminated by signal
+                    None => return Err(BynarError::from("smartctl terminated by signal")),
+                }
+            }
+            // could not enable smart checks
+            _ => return Err(BynarError::from("smartctl could not enable smart checks")),
+        },
+        //Process terminated by signal
+        None => return Err(BynarError::from("smartctl terminated by signal")),
+    };
+    Ok(status)
+}
+
 // Run smart checks against the disk
 #[cfg_attr(test, mockable)]
 fn run_smart_checks(device: &Path) -> BynarResult<bool> {
@@ -1523,37 +1556,15 @@ fn run_smart_checks(device: &Path) -> BynarResult<bool> {
                 Ok(stat) => stat,
                 Err(e) => {
                     error!("Error {:?} Run SmartMonTools", e);
-                    // If ata smart fails, run smartmontools' smartctl -H
-                    let out = Command::new("smartctl")
-                        .args(&["-H", &device.to_string_lossy()])
-                        .output()?;
-                    match out.status.code() {
-                        Some(code) => match code {
-                            // no errors
-                            0 => true,
-                            _ => false,
-                        },
-                        //Process terminated by signal
-                        None => return Err(BynarError::from("smartctl terminated by signal")),
-                    }
+                    // If ata smart fails, run smartmontools
+                    return run_smartctl_check(device);
                 }
             }
         }
         Err(e) => {
             error!("Error {:?} Run SmartMonTools", e);
-            // If ata smart fails, run smartmontools' smartctl -H
-            let out = Command::new("smartctl")
-                .args(&["-H", &device.to_string_lossy()])
-                .output()?;
-            match out.status.code() {
-                Some(code) => match code {
-                    // no errors
-                    0 => true,
-                    _ => false,
-                },
-                //Process terminated by signal
-                None => return Err(BynarError::from("smartctl terminated by signal")),
-            }
+            // If ata smart fails, run smartmontools
+            return run_smartctl_check(device);
         }
     };
 
