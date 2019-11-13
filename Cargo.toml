@@ -43,7 +43,7 @@ api = { path = "api" }
 blkid = "~0.2"
 block-utils = "~0.6"
 bytes = "*"
-ceph = "~2.0"
+ceph = "~3.0"
 ceph-safe-disk = "~0.1"
 chrono = "~0.4"
 clap = "~2"

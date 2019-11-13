@@ -80,6 +80,7 @@ pub enum BynarError {
     #[error(msg, non_std, no_from)]
     PwdError(PwdBError),
     R2d2Error(R2d2Error),
+    #[error(msg, non_std)]
     RadosError(RadosError),
     ReqwestError(ReqwestError),
     SerdeJsonError(SerdeJsonError),
