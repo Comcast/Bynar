@@ -465,16 +465,21 @@ impl Transition for Eval {
         }
         debug!("thread {} device: {:?}", process::id(), device);
         if device.device.fs_type == FilesystemType::Lvm {
+            debug!("Checking LVM");
             match check_lvm(&device.dev_path) {
-                Ok(_) => return to_state,
+                Ok(_) => {
+                    debug!("Return state {:?}", to_state);
+                    return to_state
+                },
                 Err(e) => {
                     error!("check_lvm failed: {:?}", e);
                     return State::Fail;
                 }
             };
         }
-
+        
         if device.mount_point.is_none() {
+            debug!("Try mounting in EVAL");
             debug!(
                 "thread {} Mounting device: {}",
                 process::id(),
@@ -1153,6 +1158,11 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
         // Get rid of ram devices
         .filter(|b| !(b.device.media_type == MediaType::Ram))
         // Get rid of root disk
+        .filter(|b| !(b.mount_point == Some(Path::new("/").to_path_buf())))
+        // Get rid of /boot
+        .filter(|b| !(b.mount_point == Some(Path::new("/boot").to_path_buf())))
+        // Get rid of /boot/efi
+        .filter(|b| !(b.mount_point == Some(Path::new("/boot/efi").to_path_buf())))
         .filter(|b| {
             for p in b.partitions.iter().enumerate() {
                 let partition_path = Path::new("/dev").join(format!(
@@ -1168,11 +1178,20 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                         debug!("Found root disk. Skipping");
                         return false;
                     }
+                    if mount == Path::new("/boot"){
+                        debug!("Found /boot partition.  Skipping");
+                        return false;
+                    }
+                    if mount == Path::new("/boot/efi"){
+                        debug!("Found /boot/efi partition. Skipping");
+                        return false;
+                    }
                 }
             }
             true
         })
         .collect();
+    debug!("Filtered disks {:?}", filtered_devices);
     Ok(filtered_devices)
 }
 
