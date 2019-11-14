@@ -15,7 +15,6 @@ use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
 use ceph::cmd::*;
 use ceph::CephVersion;
-use ceph_safe_disk::diag::{DiagMap, Format, Status};
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
@@ -28,6 +27,7 @@ use nix::{ ioctl_none, request_code_none,
 };
 use pwd::Passwd;
 use serde_derive::*;
+use serde_json::*;
 use tempdir::TempDir;
 
 /// Ceph cluster
@@ -710,14 +710,49 @@ impl Backend for CephBackend {
         Ok(())
     }
 
-    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
-        let diag_map = DiagMap::new().map_err(|e| BynarError::new(e.to_string()))?;
-        debug!("Checking if a disk is safe to remove from ceph");
-        match diag_map.exhaustive_diag(Format::Json) {
-            Status::Safe => Ok(true),
-            Status::NonSafe => Ok(false),
-            Status::Unknown => Ok(false),
-        }
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+        //Get the mountpoint
+        let mount_point = match block_utils::get_mountpoint(&device)? {
+            Some(osd_path) => osd_path,
+            None => {
+                let temp_dir = TempDir::new("osd")?;
+                temp_dir.into_path()
+            }
+        };
+        debug!("Device mounted at: {:?}", mount_point);
+        // get the osd id
+        let osd_id = match get_osd_id(&mount_point, simulate) {
+            Ok(osd_id) => osd_id,
+            Err(e) => {
+                error!(
+                    "Failed to discover osd id: {:?}.  Falling back on path name",
+                    e
+                );
+                match get_osd_id_from_path(&mount_point){
+                    Ok(osd_id) => osd_id,
+                    Err(e) => {
+                        //probably NOT an osd, assume NOT safe to remove
+                        error!("Not an OSD, unsafe to remove");
+                        return Ok(false);
+                    }
+                }
+            }
+        };
+        // create and send the command to check if the osd is safe to remove
+        let cmd = json!({
+            "prefix": "osd safe-to-destroy",
+            "ids": [osd_id.to_string()]
+        });
+        let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd){
+            Err(e) => {
+                error!("Unsafe to remove"); 
+                return Ok(false);
+            },
+            Ok(r) => r,
+        };
+        debug!("Message: {:?}", result.1);
+        // osd is safe to remove
+        Ok(true)
     }
 }
 
@@ -727,6 +762,7 @@ impl Backend for CephBackend {
 fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
     match path.file_name() {
         Some(name) => {
+            debug!("file name: {:?}", name);
             let name_string = name.to_string_lossy().into_owned();
             let parts: Vec<&str> = name_string.split('-').collect();
             let id = u64::from_str(parts[1])?;
