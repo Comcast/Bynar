@@ -552,18 +552,16 @@ impl CephBackend {
         }
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
+            if simulate{
+                break;
+            }
             let cmd = json!({
                 "prefix": "pg ls-by-osd",
                 "osdname": format!("osd.{}", osd_id),
             });
-            if !simulate {
-                let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-                debug!("PG List {:?}", result.1);
-                if result.1.is_none() {
-                    break;
-                }
-            }
-            else {
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
                 break;
             }
         }
@@ -633,8 +631,37 @@ impl CephBackend {
                 get_osd_id_from_path(&mount_point)?
             }
         };
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(&self.cluster_handle, &OsdOption::NoDeepScrub, false, simulate)?;
+        debug!("Crush reweight to 0");
+        if !simulate {
+            let cmd = json!({
+                "prefix": "osd crush reweight",
+                "name": format!("osd.{}", osd_id),
+                "float[0.0-]": "0.0",
+            });
+            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+        }
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            if simulate {
+                break;
+            }
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "osdname": format!("osd.{}", osd_id),
+            });
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
+                break;
+            }
+        }
         debug!("Setting osd {} out", osd_id);
         osd_out(&self.cluster_handle, osd_id, simulate)?;
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
