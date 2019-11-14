@@ -28,6 +28,7 @@ use nix::{ ioctl_none, request_code_none,
 };
 use pwd::Passwd;
 use serde_derive::*;
+use serde_json::*;
 use tempdir::TempDir;
 
 /// Ceph cluster
@@ -537,13 +538,43 @@ impl CephBackend {
             )));
         }
         let osd_id = osd_id.unwrap();
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(&self.cluster_handle, &OsdOption::NoDeepScrub, false, simulate)?;
+        debug!("Crush reweight to 0");
+        let cmd = json!({
+            "prefix": "osd crush reweight",
+            "name": format!("osd.{}", osd_id),
+            "float[0.0-]": "0.0",
+        });
+        if !simulate {
+            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+        }
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "osdname": format!("osd.{}", osd_id),
+            });
+            if !simulate {
+                let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+                debug!("PG List {:?}", result.1);
+                if result.1.is_none() {
+                    break;
+                }
+            }
+            else {
+                break;
+            }
+        }
         debug!("Setting osd {} out", osd_id);
         osd_out(&self.cluster_handle, osd_id, simulate)?;
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
         auth_del(&self.cluster_handle, osd_id, simulate)?;
-        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {}", osd_id);
         osd_rm(&self.cluster_handle, osd_id, simulate)?;
 
