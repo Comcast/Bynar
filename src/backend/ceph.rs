@@ -3,8 +3,7 @@ use std::fmt;
 use std::fs::{
     create_dir, read_dir, read_to_string, remove_dir_all, symlink_metadata, File, OpenOptions,
 };
-use std::ascii::escape_default;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::os::unix::{fs::symlink, io::AsRawFd};
 use std::path::{Path, PathBuf};
 use std::process::Command;
