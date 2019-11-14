@@ -543,8 +543,8 @@ impl CephBackend {
         debug!("Crush reweight to 0");
         let cmd = json!({
             "prefix": "osd crush reweight",
-            "name": format!("osd.{}", osd_id),
-            "float[0.0-]": "0.0",
+            "name":  format!("osd.{}", osd_id),
+            "weight": 0.0,
         });
         if !simulate {
             self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
@@ -556,7 +556,7 @@ impl CephBackend {
             }
             let cmd = json!({
                 "prefix": "pg ls-by-osd",
-                "osdname": format!("osd.{}", osd_id),
+                "name":  format!("osd.{}", osd_id),
             });
             let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
             debug!("PG List {:?}", result.1);
@@ -638,7 +638,7 @@ impl CephBackend {
             let cmd = json!({
                 "prefix": "osd crush reweight",
                 "name": format!("osd.{}", osd_id),
-                "float[0.0-]": "0.0",
+                "weight": 0.0,
             });
             self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
         }
@@ -649,7 +649,7 @@ impl CephBackend {
             }
             let cmd = json!({
                 "prefix": "pg ls-by-osd",
-                "osdname": format!("osd.{}", osd_id),
+                "name":  format!("osd.{}", osd_id),
             });
             let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
             debug!("PG List {:?}", result.1);
@@ -795,6 +795,7 @@ impl Backend for CephBackend {
                 }
             }
         };
+        debug!("Ceph Commands: {:?}", self.cluster_handle.ceph_commands(None));
         // create and send the command to check if the osd is safe to remove
         let cmd = json!({
             "prefix": "osd safe-to-destroy",
