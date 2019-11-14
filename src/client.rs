@@ -71,10 +71,21 @@ fn handle_jira_tickets(s: &Socket) -> BynarResult<()>{
     let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
-   
-   
 }
 
+fn handle_set_maintenance(s: &mut Socket) -> BynarResult<()>{
+    trace!("handle_set_maintenance called");
+    helpers::set_maintenance(s)?;
+    trace!("handle_set_maintenance finished");    
+    Ok(())  
+}
+
+fn handle_unset_maintenance(s: &mut Socket) -> BynarResult<()>{
+    trace!("handle_unset_maintenance called");
+    helpers::unset_maintenance(s)?;
+    trace!("handle_unset_maintenance finished");    
+    Ok(())  
+}
 
 fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
@@ -158,6 +169,8 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
         )
         .subcommand(SubCommand::with_name("list").about("List all disks on a server"))
         .subcommand(SubCommand::with_name("get_jira_tickets").about("get all tickets created"))
+        .subcommand(SubCommand::with_name("set_maintenance").about("Set maintenance status"))
+        .subcommand(SubCommand::with_name("unset_maintenance").about("Remove maintenance status"))
         .subcommand(
             SubCommand::with_name("remove")
                 .about("Remove a disk from the cluster")
@@ -239,5 +252,11 @@ fn main() {
     }
     if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
         handle_jira_tickets(&mut s);
+    }
+    if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
+        handle_set_maintenance(&mut s);
+    }
+    if let Some(ref matches) = matches.subcommand_matches("unset_maintenance") {        
+        handle_unset_maintenance(&mut s);
     }
 }

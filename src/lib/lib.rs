@@ -16,6 +16,7 @@ use zmq::{Message, Socket};
 pub mod error;
 pub mod host_information;
 
+
 pub fn load_config<T>(config_dir: &Path, name: &str) -> BynarResult<T>
 where
     T: DeserializeOwned,
@@ -274,3 +275,36 @@ pub fn get_jira_tickets(s: &Socket) -> BynarResult<()>{
     }
    
 }
+
+pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{
+    let mut o = Operation::new();
+    debug!("Calling set_maintenance ");
+    o.set_Op_type(Op::SetMaintenance);
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Sending message in set_maintenance");
+    s.send_msg(msg, 0)?;
+
+    debug!("Waiting for response: SetMaintenance");
+    let response = s.recv_bytes(0)?;
+
+    Ok(())
+    
+}
+
+pub fn unset_maintenance(s: &mut Socket) -> BynarResult<()>{
+    let mut o = Operation::new();
+    debug!("Calling unset_maintenance ");
+    o.set_Op_type(Op::UnsetMaintenance);
+    let encoded = o.write_to_bytes()?;
+    let msg = Message::from_slice(&encoded)?;
+    debug!("Sending message in set_maintenance");
+    s.send_msg(msg, 0)?;
+
+    debug!("Waiting for response: SetMaintenance");
+    let response = s.recv_bytes(0)?;
+
+    Ok(())
+    
+}
+

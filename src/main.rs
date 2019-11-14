@@ -440,6 +440,7 @@ fn add_repaired_disks(
 // 5. Record the replacement in the in_progress sqlite database
 
 fn main() {
+    
     let matches = App::new("Dead Disk Detector")
         .version(crate_version!())
         .author(crate_authors!())
@@ -519,6 +520,12 @@ fn main() {
     }
     let config: ConfigSettings = config.expect("Failed to load config");
 
+    let f: bool =  Path::new("/var/log/setMaintenance.lock").is_file();
+    if f {
+        info!("Lock file found... quitting");
+        return;
+    }
+    
     let db_pool = match create_db_connection_pool(&config.database) {
         Err(e) => {
             error!("Failed to create database pool {}", e);
