@@ -16,7 +16,6 @@ use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
 use ceph::cmd::*;
 use ceph::CephVersion;
-use ceph_safe_disk::diag::{DiagMap, Format, Status};
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
@@ -713,6 +712,7 @@ impl Backend for CephBackend {
     }
 
     fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+        //Get the mountpoint
         let mount_point = match block_utils::get_mountpoint(&device)? {
             Some(osd_path) => osd_path,
             None => {
@@ -721,7 +721,7 @@ impl Backend for CephBackend {
             }
         };
         debug!("Device mounted at: {:?}", mount_point);
-
+        // get the osd id
         let osd_id = match get_osd_id(&mount_point, simulate) {
             Ok(osd_id) => osd_id,
             Err(e) => {
@@ -729,28 +729,31 @@ impl Backend for CephBackend {
                     "Failed to discover osd id: {:?}.  Falling back on path name",
                     e
                 );
-                //if you still can't get the osd id name, its probably NOT an osd, assume NOT safe to remove
                 match get_osd_id_from_path(&mount_point){
                     Ok(osd_id) => osd_id,
                     Err(e) => {
+                        //probably NOT an osd, assume NOT safe to remove
                         error!("Not an OSD, unsafe to remove");
                         return Ok(false);
                     }
                 }
             }
         };
+        // create and send the command to check if the osd is safe to remove
         let cmd = json!({
-        "prefix": "osd safe-to-destroy",
-        "ids": [osd_id.to_string()]
+            "prefix": "osd safe-to-destroy",
+            "ids": [osd_id.to_string()]
         });
         let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd){
-        Err(e) => {error!("Unsafe to remove"); return Ok(false);},
+            Err(e) => {
+                error!("Unsafe to remove"); 
+                return Ok(false);
+            },
             Ok(r) => r,
         };
-        debug!("Result: {:?}", result);
-        let return_data = String::from_utf8(result.0).unwrap();
-        debug!("Return_data: {:?}", return_data);
-        Ok(false)
+        debug!("Message: {:?}", result.1);
+        // osd is safe to remove
+        Ok(true)
     }
 }
 
