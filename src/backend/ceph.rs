@@ -828,10 +828,6 @@ impl Backend for CephBackend {
                 }
             }
         };
-        debug!(
-            "Ceph Commands: {:?}",
-            self.cluster_handle.ceph_commands(None)
-        );
         // create and send the command to check if the osd is safe to remove
         let cmd = json!({
             "prefix": "osd safe-to-destroy",
