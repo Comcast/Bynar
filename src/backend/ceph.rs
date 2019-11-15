@@ -21,7 +21,8 @@ use helpers::{error::*, host_information::Host};
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
-use nix::{ ioctl_none, request_code_none,
+use nix::{
+    ioctl_none, request_code_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
@@ -34,11 +35,11 @@ use tempdir::TempDir;
 pub struct CephBackend {
     /*
         Note: RADOS (Reliable Autonomic Distributed Object Store)
-        Open source obj storage service 
+        Open source obj storage service
         -Usually has storage nodes? (commodity servers?)
         Probably either storage or backed for Openstack
     */
-    cluster_handle: Rados, 
+    cluster_handle: Rados,
     config: CephConfig,
     version: CephVersion,
 }
@@ -481,6 +482,12 @@ impl CephBackend {
         Ok(())
     }
 
+    fn unset_noscrub(&self, simulate: bool) -> BynarResult<()> {
+        osd_unset(&self.cluster_handle, &OsdOption::NoScrub, simulate)?;
+        osd_unset(&self.cluster_handle, &OsdOption::NoDeepScrub, simulate)?;
+        Ok(())
+    }
+
     fn remove_bluestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         debug!("initializing LVM");
         let lvm = Lvm::new(None)?;
@@ -537,13 +544,46 @@ impl CephBackend {
             )));
         }
         let osd_id = osd_id.unwrap();
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(
+            &self.cluster_handle,
+            &OsdOption::NoDeepScrub,
+            false,
+            simulate,
+        )?;
+        debug!("Crush reweight to 0");
+        let cmd = json!({
+            "prefix": "osd crush reweight",
+            "name":  format!("osd.{}", osd_id),
+            "weight": 0.0,
+        });
+        if !simulate {
+            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+        }
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            if simulate {
+                break;
+            }
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "name":  format!("osd.{}", osd_id),
+            });
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
+                break;
+            }
+        }
         debug!("Setting osd {} out", osd_id);
         osd_out(&self.cluster_handle, osd_id, simulate)?;
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
         auth_del(&self.cluster_handle, osd_id, simulate)?;
-        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {}", osd_id);
         osd_rm(&self.cluster_handle, osd_id, simulate)?;
 
@@ -602,8 +642,42 @@ impl CephBackend {
                 get_osd_id_from_path(&mount_point)?
             }
         };
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(
+            &self.cluster_handle,
+            &OsdOption::NoDeepScrub,
+            false,
+            simulate,
+        )?;
+        debug!("Crush reweight to 0");
+        if !simulate {
+            let cmd = json!({
+                "prefix": "osd crush reweight",
+                "name": format!("osd.{}", osd_id),
+                "weight": 0.0,
+            });
+            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+        }
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            if simulate {
+                break;
+            }
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "name":  format!("osd.{}", osd_id),
+            });
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
+                break;
+            }
+        }
         debug!("Setting osd {} out", osd_id);
         osd_out(&self.cluster_handle, osd_id, simulate)?;
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
@@ -703,9 +777,25 @@ impl Backend for CephBackend {
     fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<()> {
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
-            self.remove_bluestore_osd(device, simulate)?;
+            match self.remove_bluestore_osd(device, simulate) {
+                Ok(_) => {
+                    self.unset_noscrub(simulate)?;
+                }
+                Err(e) => {
+                    self.unset_noscrub(simulate)?;
+                    return Err(BynarError::from(e));
+                }
+            };
         } else {
-            self.remove_filestore_osd(device, simulate)?;
+            match self.remove_filestore_osd(device, simulate) {
+                Ok(_) => {
+                    self.unset_noscrub(simulate)?;
+                }
+                Err(e) => {
+                    self.unset_noscrub(simulate)?;
+                    return Err(BynarError::from(e));
+                }
+            };
         }
         Ok(())
     }
@@ -728,7 +818,7 @@ impl Backend for CephBackend {
                     "Failed to discover osd id: {:?}.  Falling back on path name",
                     e
                 );
-                match get_osd_id_from_path(&mount_point){
+                match get_osd_id_from_path(&mount_point) {
                     Ok(osd_id) => osd_id,
                     Err(e) => {
                         //probably NOT an osd, assume NOT safe to remove
@@ -743,11 +833,11 @@ impl Backend for CephBackend {
             "prefix": "osd safe-to-destroy",
             "ids": [osd_id.to_string()]
         });
-        let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd){
+        let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd) {
             Err(e) => {
-                error!("Unsafe to remove"); 
+                error!("Unsafe to remove");
                 return Ok(false);
-            },
+            }
             Ok(r) => r,
         };
         debug!("Message: {:?}", result.1);
@@ -765,6 +855,12 @@ fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
             debug!("file name: {:?}", name);
             let name_string = name.to_string_lossy().into_owned();
             let parts: Vec<&str> = name_string.split('-').collect();
+            if (parts.len() < 2) {
+                return Err(BynarError::new(format!(
+                    "Unable to get osd id from {}",
+                    path.display()
+                )));
+            }
             let id = u64::from_str(parts[1])?;
             Ok(id)
         }
