@@ -859,6 +859,12 @@ fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
             debug!("file name: {:?}", name);
             let name_string = name.to_string_lossy().into_owned();
             let parts: Vec<&str> = name_string.split('-').collect();
+            if (parts.len() < 2) {
+                return Err(BynarError::new(format!(
+                    "Unable to get osd id from {}",
+                    path.display()
+                )));
+            }
             let id = u64::from_str(parts[1])?;
             Ok(id)
         }
