@@ -469,15 +469,15 @@ impl Transition for Eval {
             match check_lvm(&device.dev_path) {
                 Ok(_) => {
                     debug!("Return state {:?}", to_state);
-                    return to_state
-                },
+                    return to_state;
+                }
                 Err(e) => {
                     error!("check_lvm failed: {:?}", e);
                     return State::Fail;
                 }
             };
         }
-        
+
         if device.mount_point.is_none() {
             debug!("Try mounting in EVAL");
             debug!(
@@ -1178,11 +1178,11 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                         debug!("Found root disk. Skipping");
                         return false;
                     }
-                    if mount == Path::new("/boot"){
+                    if mount == Path::new("/boot") {
                         debug!("Found /boot partition.  Skipping");
                         return false;
                     }
-                    if mount == Path::new("/boot/efi"){
+                    if mount == Path::new("/boot/efi") {
                         debug!("Found /boot/efi partition. Skipping");
                         return false;
                     }
@@ -1514,11 +1514,60 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
     }
 }
 
+// Run the smartctl checks against the disk if libata fails
+#[cfg_attr(test, mockable)]
+fn run_smartctl_check(device: &Path) -> BynarResult<bool> {
+    // Enable Smart Scan
+    let out = Command::new("smartctl")
+        .args(&["-s", "on", &device.to_string_lossy()])
+        .output()?;
+    let status = match out.status.code() {
+        Some(code) => match code {
+            // no errors, smart enabled
+            0 => {
+                let out = Command::new("smartctl")
+                    .args(&["-H", &device.to_string_lossy()])
+                    .output()?; //Run overall health scan
+                match out.status.code() {
+                    Some(code) => match code {
+                        // no errors, health scan successful
+                        0 => true,
+                        _ => false,
+                    },
+                    //Process terminated by signal
+                    None => return Err(BynarError::from("smartctl terminated by signal")),
+                }
+            }
+            // could not enable smart checks
+            _ => return Err(BynarError::from("smartctl could not enable smart checks")),
+        },
+        //Process terminated by signal
+        None => return Err(BynarError::from("smartctl terminated by signal")),
+    };
+    Ok(status)
+}
+
 // Run smart checks against the disk
 #[cfg_attr(test, mockable)]
 fn run_smart_checks(device: &Path) -> BynarResult<bool> {
-    let mut smart = libatasmart::Disk::new(device)?;
-    let status = smart.get_smart_status()?;
+    let status: bool = match libatasmart::Disk::new(device) {
+        Ok(mut smart) => {
+            match smart.get_smart_status() {
+                Ok(stat) => stat,
+                Err(e) => {
+                    error!("Error {:?} Run SmartMonTools", e);
+                    // If ata smart fails, run smartmontools
+                    return run_smartctl_check(device);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Error {:?} Run SmartMonTools", e);
+            // If ata smart fails, run smartmontools
+            return run_smartctl_check(device);
+        }
+    };
+
     Ok(status)
 }
 
