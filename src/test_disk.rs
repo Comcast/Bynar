@@ -859,6 +859,10 @@ impl StateMachine {
                     self.block_device.state,
                     beginning_state
                 );
+                // Note: if the loop is state::Good, then rescan
+                if self.block_device.state == State::Good {
+                    self.block_device.state = State::Unscanned;
+                }
                 break 'outer;
             }
         }
@@ -982,7 +986,7 @@ impl StateMachine {
             "MarkForReplacement",
         );
 
-        self.add_transition(State::Repaired, State::Good, NoOp::transition, "NoOp");
+        self.add_transition(State::Repaired, State::Unscanned, NoOp::transition, "NoOp");
         self.add_transition(
             State::WaitingForReplacement,
             State::Replaced,
