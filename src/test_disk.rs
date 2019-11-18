@@ -361,6 +361,14 @@ impl Transition for AttemptRepair {
         debug!("thread {} running AttemptRepair transition", process::id());
         // Disk filesystem is corrupted.  Attempt repairs.
         if !simulate {
+            // keep ref to mountpoint.  check if filesystem unmounted (if not unmount first)
+            // After running repair remount filesystem if unmounted
+            if let Some(ref mnt) = device.mount_point {
+                debug!("Attempt to unmount filesystem for repair");
+                if let Err(e) = unmount_device(&mnt) {
+                    error!("unmount {} failed: {}", mnt.display(), e);
+                };
+            }
             match repair_filesystem(&device.device.fs_type, &device.dev_path) {
                 Ok(_) => to_state,
                 Err(e) => {
@@ -801,6 +809,10 @@ impl StateMachine {
             self.block_device.dev_path.display(),
             self.block_device.state
         );
+        if self.block_device.state == State::Good{
+            debug!("Starting state is Good, replacing with Unscanned");
+            self.block_device.state = State::Unscanned;
+        }
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(State, State, &TransitionFn)> =
