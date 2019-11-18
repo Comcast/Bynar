@@ -370,9 +370,26 @@ impl Transition for AttemptRepair {
                 };
             }
             match repair_filesystem(&device.device.fs_type, &device.dev_path) {
-                Ok(_) => to_state,
+                Ok(_) => {
+                    // This requires root perms.  If the filesystem was previously mounted remount the filesystem
+                    if let Some(ref mnt) = device.mount_point {
+                        if let Err(e) = mount_device(&device.device, &mnt) {
+                            error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                        }
+                    }
+                    to_state
+                },
                 Err(e) => {
                     error!("repair_filesystem failed on {:?}: {}", device, e);
+                    // This requires root perms.  If the filesystem was previously mounted remount the filesystem
+                    if let Some(ref mnt) = device.mount_point {
+                        if !is_device_mounted(&device.dev_path){
+                            // attempted to remount the filesystem
+                            if let Err(e) = mount_device(&device.device, &mnt) {
+                                error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                            }
+                        }
+                    }
                     State::Fail
                 }
             }
@@ -871,10 +888,6 @@ impl StateMachine {
                     self.block_device.state,
                     beginning_state
                 );
-                // Note: if the loop is state::Good, then rescan
-                if self.block_device.state == State::Good {
-                    self.block_device.state = State::Unscanned;
-                }
                 break 'outer;
             }
         }
@@ -1725,6 +1738,8 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
                 dev.display(),
                 e
             );
+            //If the partition is EMPTY, it should be mountable, which means if it ISN'T mountable its probably corrupt (and not blank)
+            return Ok(false)
         }
     }
 
