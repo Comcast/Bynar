@@ -16,7 +16,7 @@ use crate::in_progress::{
 };
 use blkid::BlkId;
 use block_utils::{
-    format_block_device, get_device_info, mount_device, unmount_device, Device, DeviceState,
+    format_block_device, get_device_info, mount_device, unmount_device, Device, DeviceState,DeviceType,
     Filesystem, FilesystemType, MediaType, ScsiDeviceType, ScsiInfo, Vendor,
 };
 use gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
@@ -690,7 +690,20 @@ impl Transition for Scan {
         let raid_backed = is_raid_backed(&scsi_info);
         match (raid_backed.0, raid_backed.1) {
             (false, _) => match run_smart_checks(&Path::new(&device.dev_path)) {
-                Ok(_) => to_state,
+                Ok(stat) => {
+                    // If the device is a Disk, then end the state machine here. 
+                    if device.device.device_type == DeviceType::Disk {
+                        if stat {
+                            debug!("Disk is healthy");
+                            return State::Good;
+                        }
+                        else {
+                            debug!("Disk Health Scan Failed");
+                            return State::Fail;
+                        }
+                    }
+                    to_state
+                },
                 Err(e) => {
                     error!("Smart test failed: {:?}", e);
                     State::Fail
@@ -707,6 +720,11 @@ impl Transition for Scan {
                     Some(state) => {
                         debug!("thread {} scsi device state: {}", process::id(), state);
                         if *state == DeviceState::Running {
+                            // If the device is a Disk, then end the state machine here. 
+                            if device.device.device_type == DeviceType::Disk {
+                                debug!("Disk is Healthy");
+                                return State::Good;
+                            }
                             to_state
                         } else {
                             State::Fail
@@ -1238,6 +1256,7 @@ fn add_previous_devices(
                             .to_string_lossy()
                             .into_owned(),
                         media_type: block_utils::MediaType::Unknown,
+                        device_type: block_utils::DeviceType::Unknown,
                         capacity: 0,
                         fs_type: block_utils::FilesystemType::Unknown,
                         serial_number: None,
