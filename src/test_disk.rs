@@ -533,16 +533,29 @@ impl Transition for Eval {
             // Mount point is writeable, smart passed.  Good to go
             Ok(_) => {
                 // clean up the mount we used.  First check if it is a /tmp mount
-                if mnt.strip_prefix("/tmp").is_ok(){
-                    if let Err(e) = unmount_device(&mnt) {
-                        error!("unmount {} failed: {}", mnt.display(), e);
+                if mnt.starts_with("/tmp") {
+                    debug!("Clean up temporary mount");
+                    if let Err(e) = unmount_device(&device.dev_path) {
+                        error!("unmount {} failed: {}", device.dev_path.display(), e);
                     };
+
+                    let mountpoint = block_utils::get_mountpoint(&device.dev_path).expect("Failed to get mountpoint");
+                    debug!("Mountpoint after cleaning: {:?}", mountpoint); 
                 }
                 device.mount_point = None;
                 to_state
             }
             Err(e) => {
                 //Should proceed to error checking now
+                if mnt.starts_with("/tmp") {
+                    debug!("Clean up temporary mount");
+                    if let Err(e) = unmount_device(&device.dev_path) {
+                        error!("unmount {} failed: {}", device.dev_path.display(), e);
+                    };
+
+                    let mountpoint = block_utils::get_mountpoint(&device.dev_path).expect("Failed to get mountpoint");
+                    debug!("Mountpoint after cleaning: {:?}", mountpoint); 
+                }
                 error!("Error writing to disk: {:?}", e);
                 State::WriteFailed
             }
@@ -1743,7 +1756,10 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
     );
     let mnt_dir = TempDir::new("bynar")?;
     match mount_device(&device, &mnt_dir.path()) {
-        Ok(_) => return Ok(false),
+        Ok(_) => {
+            unmount_device(&mnt_dir.path())?;
+            return Ok(false)
+        },
         Err(e) => {
             debug!(
                 "thread {} Mounting {} failed: {}",
