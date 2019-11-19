@@ -41,7 +41,7 @@ rand = "~0.7"
 [dependencies]
 api = { path = "api" }
 blkid = "~0.2"
-block-utils = "~0.6"
+block-utils = {git = "https://github.com/cholcombe973/block-utils.git"}#"~0.6"
 bytes = "*"
 ceph = "~3.0"
 chrono = "~0.4"
