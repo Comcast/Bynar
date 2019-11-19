@@ -532,10 +532,12 @@ impl Transition for Eval {
         match check_writable(&mnt) {
             // Mount point is writeable, smart passed.  Good to go
             Ok(_) => {
-                // clean up the mount we used
-                if let Err(e) = unmount_device(&mnt) {
-                    error!("unmount {} failed: {}", mnt.display(), e);
-                };
+                // clean up the mount we used.  First check if it is a /tmp mount
+                if mnt.strip_prefix("/tmp").is_ok(){
+                    if let Err(e) = unmount_device(&mnt) {
+                        error!("unmount {} failed: {}", mnt.display(), e);
+                    };
+                }
                 device.mount_point = None;
                 to_state
             }
@@ -636,11 +638,22 @@ impl Transition for Reformat {
                     Uuid::parse_str(&drive_uuid)
                         .unwrap_or_else(|_| panic!("Invalid drive_uuid: {}", drive_uuid)),
                 );
-
+                //We need to remount the block device now
+                if let Some(ref mnt) = device.mount_point {
+                    if let Err(e) = mount_device(&device.device, &mnt) {
+                        error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                    }
+                }
                 to_state
             }
             Err(e) => {
                 error!("Reformat failed: {}", e);
+                //We need to remount the block device now
+                if let Some(ref mnt) = device.mount_point {
+                    if let Err(e) = mount_device(&device.device, &mnt) {
+                        error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                    }
+                }
                 State::Fail
             }
         }
