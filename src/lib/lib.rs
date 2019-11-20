@@ -58,7 +58,7 @@ pub fn add_disk_request(
     path: &Path,
     id: Option<u64>,
     simulate: bool,
-) -> BynarResult<()> {
+) -> BynarResult<bool> {
     let mut o = Operation::new();
     debug!("Creating add disk operation request");
     o.set_Op_type(Op::Add);
@@ -75,12 +75,9 @@ pub fn add_disk_request(
     debug!("Waiting for response");
     let add_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", add_response.len());
-    let op_result = parse_from_bytes::<api::service::OpResult>(&add_response)?;
+    let op_result = parse_from_bytes::<api::service::OpBoolResult>(&add_response)?;
     match op_result.get_result() {
-        ResultType::OK => {
-            debug!("Add disk successful");
-            Ok(())
-        }
+        ResultType::OK => Ok(op_result.get_value()),
         ResultType::ERR => {
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
@@ -164,7 +161,7 @@ pub fn remove_disk_request(
     path: &Path,
     id: Option<u64>,
     simulate: bool,
-) -> BynarResult<()> {
+) -> BynarResult<bool> {
     let mut o = Operation::new();
     debug!("Creating remove operation request");
     o.set_Op_type(Op::Remove);
@@ -181,7 +178,7 @@ pub fn remove_disk_request(
     debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", remove_response.len());
-    let op_result = match parse_from_bytes::<api::service::OpResult>(&remove_response) {
+    let op_result = match parse_from_bytes::<api::service::OpBoolResult>(&remove_response) {
         Err(e) => {
             error!("Unable to Parse Message {:?}", e);
             return Err(BynarError::from(e));
@@ -189,10 +186,7 @@ pub fn remove_disk_request(
         Ok(o) => o,
     };
     match op_result.get_result() {
-        ResultType::OK => {
-            debug!("Remove disk successful");
-            Ok(())
-        }
+        ResultType::OK => Ok(op_result.get_value()),
         ResultType::ERR => {
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();

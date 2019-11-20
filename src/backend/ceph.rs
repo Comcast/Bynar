@@ -773,24 +773,31 @@ impl CephBackend {
 }
 
 impl Backend for CephBackend {
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<bool> {
         debug!("ceph version: {:?}", self.version,);
         // check if the disk is a boot disk or journal disk first and skip evaluation if so.
         if is_boot_disk(&self.config.boot_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
-            return Ok(());
+            return Ok(false);
         }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
             self.add_filestore_osd(device, id, simulate)?;
         }
-        Ok(())
+        Ok(true)
     }
 
-    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<()> {
+    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+        // check if the disk is a boot disk or journal disk first and skip evaluation if so.
+        if is_boot_disk(&self.config.boot_disks, device)
+            || is_journal(&self.config.journal_devices, device)
+        {
+            debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok(false);
+        }
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
             match self.remove_bluestore_osd(device, simulate) {
@@ -813,10 +820,17 @@ impl Backend for CephBackend {
                 }
             };
         }
-        Ok(())
+        Ok(true)
     }
 
     fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+        // check if the disk is a boot disk or journal disk first and skip evaluation if so.
+        if is_boot_disk(&self.config.boot_disks, device)
+            || is_journal(&self.config.journal_devices, device)
+        {
+            debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok(false);
+        }
         //Get the mountpoint
         let mount_point = match block_utils::get_mountpoint(&device)? {
             Some(osd_path) => osd_path,
@@ -837,8 +851,8 @@ impl Backend for CephBackend {
                 match get_osd_id_from_path(&mount_point) {
                     Ok(osd_id) => osd_id,
                     Err(e) => {
-                        //probably NOT an osd, assume NOT safe to remove
-                        error!("Not an OSD, unsafe to remove");
+                        //Unable to get OSD id, unsafe to remove.
+                        error!("Unable to get OSD id, unsafe to remove");
                         return Ok(false);
                     }
                 }

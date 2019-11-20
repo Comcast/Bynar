@@ -9,16 +9,16 @@ use api::service::Disk;
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
-use log::{error, info,trace};
+use log::{error, info, trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::add_disk_request(s, path, id, simulate)?;
-    Ok(())
+fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<bool> {
+    let res = helpers::add_disk_request(s, path, id, simulate)?;
+    Ok(res)
 }
 
 fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
@@ -28,9 +28,9 @@ fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
     Ok(disks)
 }
 
-fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::remove_disk_request(s, path, id, simulate)?;
-    Ok(())
+fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<bool> {
+    let res = helpers::remove_disk_request(s, path, id, simulate)?;
+    Ok(res)
 }
 
 fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
@@ -45,8 +45,12 @@ fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
         None => false,
     };
     match add_disk(s, &p, id, simulate) {
-        Ok(_) => {
-            println!("Adding disk successful");
+        Ok(res) => {
+            if res {
+                println!("Adding disk successful");
+            } else {
+                println!("Disk cannot be added");
+            }
         }
         Err(e) => {
             println!("Adding disk failed: {}", e);
@@ -66,15 +70,12 @@ fn handle_list_disks(s: &Socket) {
     };
 }
 
-fn handle_jira_tickets(s: &Socket) -> BynarResult<()>{
+fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
     let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
-   
-   
 }
-
 
 fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
@@ -88,8 +89,12 @@ fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
         None => false,
     };
     match remove_disk(s, &p, id, simulate) {
-        Ok(_) => {
-            println!("Removing disk successful");
+        Ok(res) => {
+            if res {
+                println!("Removing disk successful");
+            } else {
+                println!("Disk cannot be added");
+            }
         }
         Err(e) => {
             println!("Removing disk failed: {}", e);
