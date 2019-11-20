@@ -90,6 +90,21 @@ message OpStringResult {
   optional string error_msg = 3;
 }
 
+message OpEnumResult{
+  required ResultType result = 1;
+  optional OpEnum value = 2;
+  optional string error_msg = 3;
+}
+
+enum OpEnum {
+  // Operation Succeeded
+  Success = 1;
+  // Skipped this disk for some reason (boot disk, cannot run operation on specific device, etc.)
+  Skipped = 2;
+  // The operation has already been done on the disk
+  SkipRepeat = 3;
+}
+
 message  JiraInfo{
       required string ticket_id = 1;
       required string server_name = 2;
