@@ -177,7 +177,7 @@ fn listen(
                     error!("Remove operation must include disk field.  Ignoring request");
                     continue;
                 }
-                let mut result = OpResult::new();
+                let mut result = OpBoolResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
                     Ok(true) => {
                         match remove_disk(
@@ -197,6 +197,7 @@ fn listen(
                     Ok(false) => {
                         debug!("Disk is not safe to remove");
                         //Response to client
+                        result.set_value(false);
                         result.set_result(ResultType::ERR);
                         result.set_error_msg("Not safe to remove disk".to_string());
                         let _ = respond_to_client(&result, &mut responder);
@@ -204,6 +205,7 @@ fn listen(
                     Err(e) => {
                         error!("safe to remove failed: {:?}", e);
                         // Response to client
+                        result.set_value(false);
                         result.set_result(ResultType::ERR);
                         result.set_error_msg(e.to_string());
                         let _ = respond_to_client(&result, &mut responder);
