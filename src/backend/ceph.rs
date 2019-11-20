@@ -99,12 +99,21 @@ fn test_journal_sorting() {
     assert_eq!(journal_devices, vec![b, a]);
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+/// A disk with either the / or /boot or /boot/efi partition(s)
+struct BootDisk {
+    device: PathBuf,
+}
+
 #[derive(Deserialize, Debug)]
 struct CephConfig {
     /// The location of the ceph.conf file
     config_file: String,
     /// The cephx user to connect to the Ceph service with
     user_id: String,
+    /// The /dev/xxx devices that have one of the /, /boot, or /boot/efi partitions
+    /// Bynar will need to skip evaluation on those disks
+    boot_disks: Vec<BootDisk>,
     /// The /dev/xxx devices to use for journal partitions.
     /// Bynar will create new partitions on these devices as needed
     /// if no journal_partition_id is given
@@ -766,6 +775,13 @@ impl CephBackend {
 impl Backend for CephBackend {
     fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
         debug!("ceph version: {:?}", self.version,);
+        // check if the disk is a boot disk or journal disk first and skip evaluation if so.
+        if is_boot_disk(&self.config.boot_disks, device)
+            || is_journal(&self.config.journal_devices, device)
+        {
+            debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok(());
+        }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
@@ -1381,6 +1397,32 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
     } else {
         Ok(())
     }
+}
+
+/// check if a device is in the list of BootDisks
+fn is_boot_disk(boot_disks: &Vec<BootDisk>, device: &Path) -> bool {
+    debug!("Checking config boot disk list for {}", device.display());
+    if let disks = boot_disks {
+        for bdisk in disks {
+            if bdisk.device == device {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// check if a device is in the list of Journal Disks
+fn is_journal(journal_devices: &Option<Vec<JournalDevice>>, device: &Path) -> bool {
+    debug!("Checking config journal list for {}", device.display());
+    if let Some(devices) = journal_devices {
+        for journal in devices {
+            if journal.device == device {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // This macro from the nix crate crates an ioctl to call the linux kernel

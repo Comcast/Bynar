@@ -102,6 +102,11 @@ where to look for ceph configuration, user details etc.
 {
   "config_file": "/etc/ceph/ceph.conf",
   "user_id": "admin",
+  "boot_disks": [
+    {
+      "device": "/dev/sdc"
+    }
+  ],
   "journal_devices": [
 		{
 			"device": "/dev/sda"
