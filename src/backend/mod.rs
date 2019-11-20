@@ -18,11 +18,11 @@ pub trait Backend {
     /// For gluster or other services it might be much easier
     /// If simulate is passed no action should be taken
     /// An optional osd_id can be provided to ensure the osd is set to that
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()>;
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<bool>;
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<()>;
+    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<bool>;
 
     /// Check if it's safe to remove a disk from a cluster
     /// If simulate is passed then this always returns true

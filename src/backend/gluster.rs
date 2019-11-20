@@ -24,14 +24,14 @@ pub struct GlusterBackend;
 */
 
 impl Backend for GlusterBackend {
-    fn add_disk(&self, _device: &Path, _id: Option<u64>, _simulate: bool) -> BynarResult<()> {
-        Ok(())
+    fn add_disk(&self, _device: &Path, _id: Option<u64>, _simulate: bool) -> BynarResult<bool> {
+        Ok(true)
     }
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, _device: &Path, _simulate: bool) -> BynarResult<()> {
-        Ok(())
+    fn remove_disk(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
+        Ok(true)
     }
 
     /// Check if it's safe to remove a disk from a cluster

@@ -28,7 +28,7 @@ use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
-use zmq::{ Socket};
+use zmq::Socket;
 
 #[derive(Clone, Debug, Deserialize)]
 struct DiskManagerConfig {
@@ -230,7 +230,7 @@ fn listen(
                 };
             }
             Op::GetCreatedTickets => {
-               match get_jira_tickets(&mut responder,config_dir) {
+                match get_jira_tickets(&mut responder, config_dir) {
                     Ok(_) => {
                         info!("Fetching jira tickets finished");
                     }
@@ -258,7 +258,7 @@ fn add_disk(
     id: Option<u64>,
     config_dir: &Path,
 ) -> BynarResult<()> {
-    let mut result = OpResult::new();
+    let mut result = OpBoolResult::new();
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(backend) => backend,
         Err(e) => {
@@ -271,9 +271,10 @@ fn add_disk(
         }
     };
 
-    //Send back OpResult
+    //Send back OpBoolResult
     match backend.add_disk(&Path::new(d), id, false) {
-        Ok(_) => {
+        Ok(val) => {
+            result.set_value(val);
             result.set_result(ResultType::OK);
         }
         Err(e) => {
@@ -353,14 +354,9 @@ fn list_disks(s: &Socket) -> BynarResult<()> {
     Ok(())
 }
 
-fn remove_disk(
-    s: &Socket,
-    d: &str,
-    backend: &BackendType,
-    config_dir: &Path,
-) -> BynarResult<()> {
+fn remove_disk(s: &Socket, d: &str, backend: &BackendType, config_dir: &Path) -> BynarResult<()> {
     //Returns OpResult
-    let mut result = OpResult::new();
+    let mut result = OpBoolResult::new();
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(b) => b,
         Err(e) => {
@@ -373,7 +369,8 @@ fn remove_disk(
         }
     };
     match backend.remove_disk(&Path::new(d), false) {
-        Ok(_) => {
+        Ok(val) => {
+            result.set_value(val);
             result.set_result(ResultType::OK);
         }
         Err(e) => {
@@ -422,7 +419,7 @@ fn safe_to_remove_disk(
     Ok(())
 }
 
- pub fn get_jira_tickets(s: &Socket, config_dir: &Path) -> BynarResult<()> {
+pub fn get_jira_tickets(s: &Socket, config_dir: &Path) -> BynarResult<()> {
     let mut result = OpJiraTicketsResult::new();
     let config: ConfigSettings = match helpers::load_config(&config_dir, "bynar.json") {
         Ok(p) => p,
@@ -459,7 +456,7 @@ fn safe_to_remove_disk(
         .map(|j| {
             let mut jira_result = JiraInfo::new();
             jira_result.set_ticket_id(j.ticket_id.clone());
-            let host_name = in_progress::get_host_name(&db_pool,j.device_id);
+            let host_name = in_progress::get_host_name(&db_pool, j.device_id);
             jira_result.set_server_name(host_name.unwrap().unwrap());
             jira_result
         })

@@ -200,13 +200,14 @@ fn check_for_failed_disks(
                                     );
 
                                     match helpers::remove_disk_request(
-                                        &socket,
-                                        &dev_path,
-                                        None,
-                                        false,
+                                        &socket, &dev_path, None, false,
                                     ) {
-                                        Ok(_) => {
-                                            debug!("Disk removal successful");
+                                        Ok(res) => {
+                                            if res {
+                                                debug!("Disk removal successful");
+                                            } else {
+                                                error!("Disk is not removable, Disk skipped.");
+                                            }
                                         }
                                         Err(e) => {
                                             error!("Disk removal failed: {}", e);
@@ -407,8 +408,13 @@ fn add_repaired_disks(
                     None,
                     simulate,
                 ) {
-                    Ok(_) => {
-                        debug!("Disk added successfully. Updating database record");
+                    Ok(res) => {
+                        if res {
+                            debug!("Disk added successfully. Updating database record");
+                        } else {
+                            // Disk was either boot or something that shouldn't be added via backend
+                            error!("Disk Skipped.  Updating database record");
+                        }
                         match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
                             Ok(_) => debug!("Database updated"),
                             Err(e) => {
