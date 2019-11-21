@@ -15,7 +15,7 @@ mod backend;
 mod in_progress;
 mod test_disk;
 
-use crate::backend::{BackendType, OperationOutcome};
+use crate::backend::BackendType;
 use crate::in_progress::create_db_connection_pool;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
@@ -179,7 +179,7 @@ fn listen(
                 }
                 let mut result = OpOutcomeResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
-                    Ok((OperationOutcome::Success, true)) => {
+                    Ok((OpOutcome::Success, true)) => {
                         match remove_disk(
                             &mut responder,
                             operation.get_disk(),
@@ -194,12 +194,12 @@ fn listen(
                             }
                         };
                     }
-                    Ok((OperationOutcome::Skipped, _)) => {
+                    Ok((OpOutcome::Skipped, _)) => {
                         debug!("Disk skipped");
                         result.set_outcome(OpOutcome::Skipped);
                         result.set_result(ResultType::OK);
                     }
-                    Ok((OperationOutcome::SkipRepeat, _)) => {
+                    Ok((OpOutcome::SkipRepeat, _)) => {
                         debug!("Disk skipped, safe to remove already ran");
                         result.set_outcome(OpOutcome::SkipRepeat);
                         result.set_result(ResultType::OK);
@@ -399,7 +399,7 @@ fn safe_to_remove(
     d: &Path,
     backend: &BackendType,
     config_dir: &Path,
-) -> BynarResult<(OperationOutcome, bool)> {
+) -> BynarResult<(OpOutcome, bool)> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
     let (safe) = backend.safe_to_remove(d, false)?;
 
