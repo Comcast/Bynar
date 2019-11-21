@@ -1,4 +1,4 @@
-use crate::backend::Backend;
+use crate::backend::{Backend, OperationOutcome};
 
 use helpers::error::*;
 use std::path::Path;
@@ -24,21 +24,30 @@ pub struct GlusterBackend;
 */
 
 impl Backend for GlusterBackend {
-    fn add_disk(&self, _device: &Path, _id: Option<u64>, _simulate: bool) -> BynarResult<bool> {
-        Ok(true)
+    fn add_disk(
+        &self,
+        _device: &Path,
+        _id: Option<u64>,
+        _simulate: bool,
+    ) -> BynarResult<OperationOutcome> {
+        Ok(OperationOutcome::Success)
     }
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
-        Ok(true)
+    fn remove_disk(&self, _device: &Path, _simulate: bool) -> BynarResult<OperationOutcome> {
+        Ok(OperationOutcome::Success)
     }
 
     /// Check if it's safe to remove a disk from a cluster
     /// If simulate is passed then this always returns true
     /// Take any actions needed with this call to figure out if a disk is safe
     /// to remove from the cluster.
-    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
-        Ok(true)
+    fn safe_to_remove(
+        &self,
+        _device: &Path,
+        _simulate: bool,
+    ) -> BynarResult<(OperationOutcome, bool)> {
+        Ok((OperationOutcome::Success, true))
     }
 }

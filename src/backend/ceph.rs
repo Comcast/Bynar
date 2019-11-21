@@ -10,6 +10,7 @@ use std::process::Command;
 use std::str::FromStr;
 
 use crate::backend::Backend;
+use crate::backend::OperationOutcome;
 
 use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
@@ -773,30 +774,35 @@ impl CephBackend {
 }
 
 impl Backend for CephBackend {
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<bool> {
+    fn add_disk(
+        &self,
+        device: &Path,
+        id: Option<u64>,
+        simulate: bool,
+    ) -> BynarResult<OperationOutcome> {
         debug!("ceph version: {:?}", self.version,);
         // check if the disk is a boot disk or journal disk first and skip evaluation if so.
         if is_boot_disk(&self.config.boot_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
-            return Ok(false);
+            return Ok(OperationOutcome::Skipped);
         }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
             self.add_filestore_osd(device, id, simulate)?;
         }
-        Ok(true)
+        Ok(OperationOutcome::Success)
     }
 
-    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<OperationOutcome> {
         // check if the disk is a boot disk or journal disk first and skip evaluation if so.
         if is_boot_disk(&self.config.boot_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
-            return Ok(false);
+            return Ok(OperationOutcome::Skipped);
         }
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
@@ -820,16 +826,20 @@ impl Backend for CephBackend {
                 }
             };
         }
-        Ok(true)
+        Ok(OperationOutcome::Success)
     }
 
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
+    fn safe_to_remove(
+        &self,
+        device: &Path,
+        simulate: bool,
+    ) -> BynarResult<(OperationOutcome, bool)> {
         // check if the disk is a boot disk or journal disk first and skip evaluation if so.
         if is_boot_disk(&self.config.boot_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
-            return Ok(false);
+            return Ok((OperationOutcome::Skipped, false));
         }
         //Get the mountpoint
         let mount_point = match block_utils::get_mountpoint(&device)? {
@@ -851,9 +861,9 @@ impl Backend for CephBackend {
                 match get_osd_id_from_path(&mount_point) {
                     Ok(osd_id) => osd_id,
                     Err(e) => {
-                        //Unable to get OSD id, unsafe to remove.
+                        //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
                         error!("Unable to get OSD id, unsafe to remove");
-                        return Ok(false);
+                        return Err(BynarError::from("Unable to get OSD id from OSD disk"));
                     }
                 }
             }
@@ -865,14 +875,14 @@ impl Backend for CephBackend {
         });
         let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd) {
             Err(e) => {
-                error!("Unsafe to remove");
-                return Ok(false);
+                debug!("Unsafe to remove");
+                return Ok((OperationOutcome::Success, false));
             }
             Ok(r) => r,
         };
         debug!("Message: {:?}", result.1);
         // osd is safe to remove
-        Ok(true)
+        Ok((OperationOutcome::Success, true))
     }
 }
 

@@ -92,8 +92,11 @@ message OpStringResult {
 
 message OpOutcomeResult{
   required ResultType result = 1;
+  // outcome set if OK
   optional OpOutcome outcome = 2;
+  // value set if OK and needs to return a boolean
   optional bool value = 3;
+  // error_msg set if ERR
   optional string error_msg = 4;
 }
 
