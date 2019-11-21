@@ -194,15 +194,19 @@ fn listen(
                             }
                         };
                     }
-                    Ok((OpOutcome::Skipped, _)) => {
+                    Ok((OpOutcome::Skipped, val)) => {
                         debug!("Disk skipped");
                         result.set_outcome(OpOutcome::Skipped);
+                        result.set_value(val);
                         result.set_result(ResultType::OK);
+                        let _ = respond_to_client(&result, &mut responder);
                     }
-                    Ok((OpOutcome::SkipRepeat, _)) => {
+                    Ok((OpOutcome::SkipRepeat, val)) => {
                         debug!("Disk skipped, safe to remove already ran");
                         result.set_outcome(OpOutcome::SkipRepeat);
+                        result.set_value(val);
                         result.set_result(ResultType::OK);
+                        let _ = respond_to_client(&result, &mut responder);
                     }
                     Ok((_, false)) => {
                         debug!("Disk is not safe to remove");
