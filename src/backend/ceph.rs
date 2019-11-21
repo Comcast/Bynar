@@ -112,8 +112,9 @@ struct CephConfig {
     config_file: String,
     /// The cephx user to connect to the Ceph service with
     user_id: String,
-    /// The /dev/xxx devices that have one of the /, /boot, or /boot/efi partitions
-    /// Bynar will need to skip evaluation on those disks
+    /// The /dev/xxxx devices that have one of the /, /boot, or /boot/efi partitions
+    /// This includes the partitions that are /, /boot, or /boot/efi
+    /// Bynar will need to skip evaluation on those disks and partitions
     boot_disks: Vec<BootDisk>,
     /// The /dev/xxx devices to use for journal partitions.
     /// Bynar will create new partitions on these devices as needed

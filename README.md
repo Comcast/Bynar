@@ -118,6 +118,11 @@ where to look for ceph configuration, user details etc.
 	]
 }
 ```
+Boot Disks must be specified for ceph to filter out.  A disk with the root or boot partition, as well
+as the device path of the root and boot (/boot, /boot/efi) partitions must be provided for Bynar to filter 
+out.  Bynar needs to be able to distinguish the disks so it does not try to wipe a boot partition.  If not
+provided ceph will attempt to add/remove the disk/partition as an OSD.  
+
 Journal devices can optionally be specified for ceph to use.  Bynar will attempt
 to balance the number of partitions across the devices given.  If an explict 
 `partition_id` is also given Bynar will make use of that.  If no `partition_id`
