@@ -8,14 +8,14 @@ use std::thread;
 use std::time::Duration;
 
 use api::service::{
-    Disk, DiskType, Disks, JiraInfo, Op, OpBoolResult, OpJiraTicketsResult, OpResult, Partition,
-    PartitionInfo, ResultType,
+    Disk, DiskType, Disks, JiraInfo, Op, OpBoolResult, OpJiraTicketsResult, OpOutcome,
+    OpOutcomeResult, OpResult, Partition, PartitionInfo, ResultType,
 };
 mod backend;
 mod in_progress;
 mod test_disk;
 
-use crate::backend::BackendType;
+use crate::backend::{BackendType, OperationOutcome};
 use crate::in_progress::create_db_connection_pool;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
@@ -177,9 +177,9 @@ fn listen(
                     error!("Remove operation must include disk field.  Ignoring request");
                     continue;
                 }
-                let mut result = OpBoolResult::new();
+                let mut result = OpOutcomeResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
-                    Ok(true) => {
+                    Ok((OperationOutcome::Success, true)) => {
                         match remove_disk(
                             &mut responder,
                             operation.get_disk(),
@@ -194,10 +194,21 @@ fn listen(
                             }
                         };
                     }
-                    Ok(false) => {
+                    Ok((OperationOutcome::Skipped, _)) => {
+                        debug!("Disk skipped");
+                        result.set_outcome(OpOutcome::Skipped);
+                        result.set_result(ResultType::OK);
+                    }
+                    Ok((OperationOutcome::SkipRepeat, _)) => {
+                        debug!("Disk skipped, safe to remove already ran");
+                        result.set_outcome(OpOutcome::SkipRepeat);
+                        result.set_result(ResultType::OK);
+                    }
+                    Ok((_, false)) => {
                         debug!("Disk is not safe to remove");
                         //Response to client
                         result.set_value(false);
+                        result.set_outcome(OpOutcome::Success);
                         result.set_result(ResultType::ERR);
                         result.set_error_msg("Not safe to remove disk".to_string());
                         let _ = respond_to_client(&result, &mut responder);
@@ -260,7 +271,7 @@ fn add_disk(
     id: Option<u64>,
     config_dir: &Path,
 ) -> BynarResult<()> {
-    let mut result = OpBoolResult::new();
+    let mut result = OpOutcomeResult::new();
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(backend) => backend,
         Err(e) => {
@@ -273,10 +284,10 @@ fn add_disk(
         }
     };
 
-    //Send back OpBoolResult
+    //Send back OpOutcomeResult
     match backend.add_disk(&Path::new(d), id, false) {
-        Ok(val) => {
-            result.set_value(val);
+        Ok(outcome) => {
+            result.set_outcome(OpOutcome::from(outcome));
             result.set_result(ResultType::OK);
         }
         Err(e) => {
@@ -357,8 +368,8 @@ fn list_disks(s: &Socket) -> BynarResult<()> {
 }
 
 fn remove_disk(s: &Socket, d: &str, backend: &BackendType, config_dir: &Path) -> BynarResult<()> {
-    //Returns OpResult
-    let mut result = OpBoolResult::new();
+    //Returns OpOutcomeResult
+    let mut result = OpOutcomeResult::new();
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(b) => b,
         Err(e) => {
@@ -371,8 +382,8 @@ fn remove_disk(s: &Socket, d: &str, backend: &BackendType, config_dir: &Path) ->
         }
     };
     match backend.remove_disk(&Path::new(d), false) {
-        Ok(val) => {
-            result.set_value(val);
+        Ok(outcome) => {
+            result.set_outcome(OpOutcome::from(outcome));
             result.set_result(ResultType::OK);
         }
         Err(e) => {
@@ -384,9 +395,13 @@ fn remove_disk(s: &Socket, d: &str, backend: &BackendType, config_dir: &Path) ->
     Ok(())
 }
 
-fn safe_to_remove(d: &Path, backend: &BackendType, config_dir: &Path) -> BynarResult<bool> {
+fn safe_to_remove(
+    d: &Path,
+    backend: &BackendType,
+    config_dir: &Path,
+) -> BynarResult<(OperationOutcome, bool)> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
-    let safe = backend.safe_to_remove(d, false)?;
+    let (safe) = backend.safe_to_remove(d, false)?;
 
     Ok(safe)
 }
@@ -398,12 +413,13 @@ fn safe_to_remove_disk(
     config_dir: &Path,
 ) -> BynarResult<()> {
     debug!("Checking if {} is safe to remove", d);
-    let mut result = OpBoolResult::new();
+    let mut result = OpOutcomeResult::new();
     match safe_to_remove(&Path::new(d), &backend, &config_dir) {
-        Ok(val) => {
+        Ok((outcome, val)) => {
             debug!("Safe to remove: {}", val);
             result.set_result(ResultType::OK);
             result.set_value(val);
+            result.set_outcome(OpOutcome::from(outcome));
         }
         Err(e) => {
             debug!("Safe to remove err: {}", e);
