@@ -7,9 +7,29 @@ use std::str::FromStr;
 
 use self::ceph::CephBackend;
 use self::gluster::GlusterBackend;
+use api::service::OpOutcome;
 use helpers::error::*;
 use serde_derive::*;
 
+/// The outcome of a Backend Operation
+pub enum OperationOutcome {
+    /// Operation Succeeded
+    Success,
+    /// Skipped this disk for some reason (boot disk, cannot run operation on specific device, etc.)
+    Skipped,
+    /// The operation has already been done on the disk
+    SkipRepeat,
+}
+
+impl From<OperationOutcome> for OpOutcome {
+    fn from(out: OperationOutcome) -> OpOutcome {
+        match out {
+            OperationOutcome::Success => OpOutcome::Success,
+            OperationOutcome::Skipped => OpOutcome::Skipped,
+            OperationOutcome::SkipRepeat => OpOutcome::SkipRepeat,
+        }
+    }
+}
 /// Different distributed storage clusters have different ways of adding and removing
 /// disks.  This will be consolidated here in trait impl's.
 pub trait Backend {
@@ -18,17 +38,26 @@ pub trait Backend {
     /// For gluster or other services it might be much easier
     /// If simulate is passed no action should be taken
     /// An optional osd_id can be provided to ensure the osd is set to that
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<bool>;
+    fn add_disk(
+        &self,
+        device: &Path,
+        id: Option<u64>,
+        simulate: bool,
+    ) -> BynarResult<OperationOutcome>;
 
     /// Remove a disk from a cluster
     /// If simulate is passed no action should be taken
-    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<bool>;
+    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<OperationOutcome>;
 
     /// Check if it's safe to remove a disk from a cluster
     /// If simulate is passed then this always returns true
     /// Take any actions needed with this call to figure out if a disk is safe
     /// to remove from the cluster.
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<bool>;
+    fn safe_to_remove(
+        &self,
+        device: &Path,
+        simulate: bool,
+    ) -> BynarResult<(OperationOutcome, bool)>;
 }
 
 /// The supported backend types
