@@ -90,13 +90,14 @@ message OpStringResult {
   optional string error_msg = 3;
 }
 
-message OpEnumResult{
+message OpOutcomeResult{
   required ResultType result = 1;
-  optional OpEnum value = 2;
-  optional string error_msg = 3;
+  optional OpOutcome outcome = 2;
+  optional bool value = 3;
+  optional string error_msg = 4;
 }
 
-enum OpEnum {
+enum OpOutcome {
   // Operation Succeeded
   Success = 1;
   // Skipped this disk for some reason (boot disk, cannot run operation on specific device, etc.)
