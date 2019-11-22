@@ -43,7 +43,7 @@ api = { path = "api" }
 blkid = "~0.2"
 block-utils = {git = "https://github.com/cholcombe973/block-utils.git"}#"~0.6"
 bytes = "*"
-ceph = "~3.0"
+ceph = {git = "https://github.com/mzhong1/ceph-rust"}#"~3.0"
 chrono = "~0.4"
 clap = "~2"
 derive-error = "0.0.4"
@@ -52,7 +52,7 @@ dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~1.0"
 goji = { git = "https://github.com/cholcombe973/goji.git" }
-gpt = { git = "https://github.com/Quyzi/gpt"}
+gpt = { git = "https://github.com/mzhong1/gpt"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 hostname = "~0.1"
 init-daemon = "~0.1"
@@ -81,7 +81,7 @@ slack-hook = "~0.8"
 tempdir = "~0.3"
 time = "~0.1"
 uname = "~0.1"
-uuid = { version="~0.7", features = ["v4"]}
+uuid = { version="~0.7", features = ["serde", "v4"]}
 zmq = {version="~0.8"}
 
 [lib]
