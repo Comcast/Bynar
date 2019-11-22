@@ -19,6 +19,7 @@ use ceph::CephVersion;
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
+use hostname::get_hostname;
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
@@ -774,6 +775,11 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
+        // check if the disk is already in the cluster
+        if is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!("Device {} is already in the cluster.  Skipping", device.display());
+            return Ok(OpOutcome::Skipped);
+        }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
@@ -788,6 +794,11 @@ impl Backend for CephBackend {
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok(OpOutcome::Skipped);
+        }
+        // check if the disk is already out of the cluster
+        if !is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!("Device {} is already out of the cluster.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
         if self.version >= CephVersion::Luminous {
@@ -858,7 +869,8 @@ impl Backend for CephBackend {
     }
 }
 
-fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path, host: String) -> BynarResult<bool> {
+fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
+    let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
     let path = dev_path.to_string_lossy();
     let osd_meta = osd_metadata(cluster_handle)?;
     for osd in osd_meta {
@@ -867,7 +879,7 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path, host: String) -
                 bluestore_bdev_partition_path,
                 ..
             } => {
-                if bluestore_bdev_partition_path == path && osd.hostname == host{
+                if bluestore_bdev_partition_path == path && osd.hostname == host {
                     return Ok(true);
                 }
             }
@@ -876,7 +888,7 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path, host: String) -
                 backend_filestore_partition_path,
                 ..
             } => {
-                if backend_filestore_partition_path == path && osd.hostname == host{
+                if backend_filestore_partition_path == path && osd.hostname == host {
                     return Ok(true);
                 }
             }
