@@ -778,7 +778,7 @@ impl Backend for CephBackend {
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
             debug!("Device {} is already in the cluster.  Skipping", device.display());
-            return Ok(OpOutcome::Skipped);
+            return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
@@ -799,7 +799,7 @@ impl Backend for CephBackend {
         // check if the disk is already out of the cluster
         if !is_device_in_cluster(&self.cluster_handle, device)? {
             debug!("Device {} is already out of the cluster.  Skipping", device.display());
-            return Ok(OpOutcome::Skipped);
+            return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
@@ -870,7 +870,9 @@ impl Backend for CephBackend {
 }
 
 fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
+    debug!("Check if device is in cluster");
     let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
+    trace!("Hostname is {:?}", host);
     let path = dev_path.to_string_lossy();
     let osd_meta = osd_metadata(cluster_handle)?;
     for osd in osd_meta {
