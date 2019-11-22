@@ -5,20 +5,20 @@ use std::path::Path;
 use std::str::FromStr;
 
 //use disk_manager::disk_manager;
-use api::service::Disk;
+use api::service::{Disk, OpOutcome};
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
-use log::{error, info,trace};
+use log::{error, info, trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::add_disk_request(s, path, id, simulate)?;
-    Ok(())
+fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
+    let outcome = helpers::add_disk_request(s, path, id, simulate)?;
+    Ok(outcome)
 }
 
 fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
@@ -28,9 +28,9 @@ fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
     Ok(disks)
 }
 
-fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::remove_disk_request(s, path, id, simulate)?;
-    Ok(())
+fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
+    let outcome = helpers::remove_disk_request(s, path, id, simulate)?;
+    Ok(outcome)
 }
 
 fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
@@ -45,9 +45,11 @@ fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
         None => false,
     };
     match add_disk(s, &p, id, simulate) {
-        Ok(_) => {
-            println!("Adding disk successful");
-        }
+        Ok(outcome) => match outcome {
+            OpOutcome::Success => println!("Adding disk successful"),
+            OpOutcome::Skipped => println!("Disk cannot be added, Skipping"),
+            OpOutcome::SkipRepeat => println!("Disk already added, Skipping"),
+        },
         Err(e) => {
             println!("Adding disk failed: {}", e);
         }
@@ -66,15 +68,12 @@ fn handle_list_disks(s: &Socket) {
     };
 }
 
-fn handle_jira_tickets(s: &Socket) -> BynarResult<()>{
+fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
     let _tickets = helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
-   
-   
 }
-
 
 fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
@@ -88,9 +87,11 @@ fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
         None => false,
     };
     match remove_disk(s, &p, id, simulate) {
-        Ok(_) => {
-            println!("Removing disk successful");
-        }
+        Ok(outcome) => match outcome {
+            OpOutcome::Success => println!("Removing disk successful"),
+            OpOutcome::Skipped => println!("Disk cannot be removed.  Skipping"),
+            OpOutcome::SkipRepeat => println!("Disk already removed.  Skipping"),
+        },
         Err(e) => {
             println!("Removing disk failed: {}", e);
         }
