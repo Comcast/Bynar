@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.6] - 2019-11-21
+## [0.1.6] - 2019-11-22
 
 ### Changed
 
@@ -19,4 +19,4 @@
 - [Added smartctl health scan check][pr#93]
 - [Add a special case for Disk type block devices so they only undergo Scan transition][pr#97]
 - [Add unmounts and mounts to functions and clean up temporary mounts][pr#98]
-- 
+- [Add Attribute to CephConfig to filter out non-OSD devices and add Protobuf message type to handle skipped disk behavior][pr#100]
