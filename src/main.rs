@@ -16,6 +16,7 @@ mod util;
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::State;
+use api::service::OpOutcome;
 use clap::{crate_authors, crate_version, App, Arg};
 use helpers::{error::*, host_information::Host, ConfigSettings};
 use log::{debug, error, info, warn};
@@ -187,7 +188,7 @@ fn check_for_failed_disks(
                                 helpers::safe_to_remove_request(&socket, &dev_path),
                                 config.slack_webhook.is_some(),
                             ) {
-                                (Ok(true), true) => {
+                                (Ok((OpOutcome::Success, true)), true) => {
                                     debug!("safe to remove: true");
                                     //Ok to remove the disk
                                     let _ = notify_slack(
@@ -200,20 +201,23 @@ fn check_for_failed_disks(
                                     );
 
                                     match helpers::remove_disk_request(
-                                        &socket,
-                                        &dev_path,
-                                        None,
-                                        false,
+                                        &socket, &dev_path, None, false,
                                     ) {
-                                        Ok(_) => {
-                                            debug!("Disk removal successful");
-                                        }
+                                        Ok(outcome) => match outcome {
+                                            OpOutcome::Success => debug!("Disk removal successful"),
+                                            OpOutcome::Skipped => {
+                                                debug!("Disk skipped, disk is not removable")
+                                            }
+                                            OpOutcome::SkipRepeat => {
+                                                debug!("Disk already removed, skipping.")
+                                            }
+                                        },
                                         Err(e) => {
                                             error!("Disk removal failed: {}", e);
                                         }
                                     };
                                 }
-                                (Ok(false), true) => {
+                                (Ok((_, false)), true) => {
                                     debug!("safe to remove: false");
                                     let _ = notify_slack(
                                         config,
@@ -407,8 +411,18 @@ fn add_repaired_disks(
                     None,
                     simulate,
                 ) {
-                    Ok(_) => {
-                        debug!("Disk added successfully. Updating database record");
+                    Ok(outcome) => {
+                        match outcome {
+                            OpOutcome::Success => {
+                                debug!("Disk added successfully. Updating database record")
+                            }
+                            // Disk was either boot or something that shouldn't be added via backend
+                            OpOutcome::Skipped => debug!("Disk Skipped.  Updating database record"),
+                            // Disk is already in the cluster
+                            OpOutcome::SkipRepeat => {
+                                debug!("Disk already added.  Skipping.  Updating database record")
+                            }
+                        }
                         match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
                             Ok(_) => debug!("Database updated"),
                             Err(e) => {
