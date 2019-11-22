@@ -90,6 +90,25 @@ message OpStringResult {
   optional string error_msg = 3;
 }
 
+message OpOutcomeResult{
+  required ResultType result = 1;
+  // outcome set if OK
+  optional OpOutcome outcome = 2;
+  // value set if OK and needs to return a boolean
+  optional bool value = 3;
+  // error_msg set if ERR
+  optional string error_msg = 4;
+}
+
+enum OpOutcome {
+  // Operation Succeeded
+  Success = 1;
+  // Skipped this disk for some reason (boot disk, cannot run operation on specific device, etc.)
+  Skipped = 2;
+  // The operation has already been done on the disk
+  SkipRepeat = 3;
+}
+
 message  JiraInfo{
       required string ticket_id = 1;
       required string server_name = 2;
