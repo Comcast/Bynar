@@ -566,14 +566,7 @@ impl CephBackend {
             simulate,
         )?;
         debug!("Crush reweight to 0");
-        let cmd = json!({
-            "prefix": "osd crush reweight",
-            "name":  format!("osd.{}", osd_id),
-            "weight": 0.0,
-        });
-        if !simulate {
-            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-        }
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -664,14 +657,7 @@ impl CephBackend {
             simulate,
         )?;
         debug!("Crush reweight to 0");
-        if !simulate {
-            let cmd = json!({
-                "prefix": "osd crush reweight",
-                "name": format!("osd.{}", osd_id),
-                "weight": 0.0,
-            });
-            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-        }
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -865,21 +851,48 @@ impl Backend for CephBackend {
             }
         };
         // create and send the command to check if the osd is safe to remove
-        let cmd = json!({
-            "prefix": "osd safe-to-destroy",
-            "ids": [osd_id.to_string()]
-        });
-        let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd) {
-            Err(e) => {
-                debug!("Unsafe to remove");
-                return Ok((OpOutcome::Success, false));
-            }
-            Ok(r) => r,
-        };
-        debug!("Message: {:?}", result.1);
-        // osd is safe to remove
-        Ok((OpOutcome::Success, true))
+        Ok((
+            OpOutcome::Success,
+            osd_safe_to_destroy(&self.cluster_handle, osd_id),
+        ))
     }
+}
+
+fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path, host: String) -> BynarResult<bool> {
+    let path = dev_path.to_string_lossy();
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        match osd.objectstore_meta {
+            ObjectStoreMeta::Bluestore {
+                bluestore_bdev_partition_path,
+                ..
+            } => {
+                if bluestore_bdev_partition_path == path && osd.hostname == host{
+                    return Ok(true);
+                }
+            }
+
+            ObjectStoreMeta::Filestore {
+                backend_filestore_partition_path,
+                ..
+            } => {
+                if backend_filestore_partition_path == path && osd.hostname == host{
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool> {
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        if osd_id == osd.id {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // A fallback function to get the osd id from the mount path.  This isn't
