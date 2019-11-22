@@ -101,8 +101,8 @@ fn test_journal_sorting() {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-/// A disk with either the / or /boot or /boot/efi partition(s)
-struct BootDisk {
+/// A disk or partition that should not be touched by ceph
+struct SystemDisk {
     device: PathBuf,
 }
 
@@ -112,10 +112,11 @@ struct CephConfig {
     config_file: String,
     /// The cephx user to connect to the Ceph service with
     user_id: String,
-    /// The /dev/xxxx devices that have one of the /, /boot, or /boot/efi partitions
+    /// The /dev/xxx devices that have one of the /, /boot, or /boot/efi partitions
     /// This includes the partitions that are /, /boot, or /boot/efi
+    /// Or in general any disk that should not be touched by ceph
     /// Bynar will need to skip evaluation on those disks and partitions
-    boot_disks: Vec<BootDisk>,
+    system_disks: Vec<SystemDisk>,
     /// The /dev/xxx devices to use for journal partitions.
     /// Bynar will create new partitions on these devices as needed
     /// if no journal_partition_id is given
@@ -777,8 +778,8 @@ impl CephBackend {
 impl Backend for CephBackend {
     fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
         debug!("ceph version: {:?}", self.version,);
-        // check if the disk is a boot disk or journal disk first and skip evaluation if so.
-        if is_boot_disk(&self.config.boot_disks, device)
+        // check if the disk is a system disk or journal disk first and skip evaluation if so.
+        if is_system_disk(&self.config.system_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
@@ -793,8 +794,8 @@ impl Backend for CephBackend {
     }
 
     fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<OpOutcome> {
-        // check if the disk is a boot disk or journal disk first and skip evaluation if so.
-        if is_boot_disk(&self.config.boot_disks, device)
+        // check if the disk is a system disk or journal disk first and skip evaluation if so.
+        if is_system_disk(&self.config.system_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
@@ -826,8 +827,8 @@ impl Backend for CephBackend {
     }
 
     fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<(OpOutcome, bool)> {
-        // check if the disk is a boot disk or journal disk first and skip evaluation if so.
-        if is_boot_disk(&self.config.boot_disks, device)
+        // check if the disk is a system disk or journal disk first and skip evaluation if so.
+        if is_system_disk(&self.config.system_disks, device)
             || is_journal(&self.config.journal_devices, device)
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
@@ -1415,10 +1416,10 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
     }
 }
 
-/// check if a device is in the list of BootDisks
-fn is_boot_disk(boot_disks: &Vec<BootDisk>, device: &Path) -> bool {
+/// check if a device is in the list of SystemDisks
+fn is_system_disk(system_disks: &Vec<SystemDisk>, device: &Path) -> bool {
     debug!("Checking config boot disk list for {}", device.display());
-    if let disks = boot_disks {
+    if let disks = system_disks {
         for bdisk in disks {
             if bdisk.device == device {
                 return true;

@@ -102,7 +102,7 @@ where to look for ceph configuration, user details etc.
 {
   "config_file": "/etc/ceph/ceph.conf",
   "user_id": "admin",
-  "boot_disks": [
+  "system_disks": [
     {
       "device": "/dev/sdc"
     }
@@ -118,7 +118,7 @@ where to look for ceph configuration, user details etc.
 	]
 }
 ```
-Boot Disks must be specified for ceph to filter out.  A disk with the root or boot partition, as well
+System Disks must be specified for ceph to filter out.  This is a list of all disks that Ceph should not run on.  A disk with the root or boot partition, as well
 as the device path of the root and boot (/boot, /boot/efi) partitions must be provided for Bynar to filter 
 out.  Bynar needs to be able to distinguish the disks so it does not try to wipe a boot partition.  If not
 provided ceph will attempt to add/remove the disk/partition as an OSD.  
