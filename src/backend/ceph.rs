@@ -168,6 +168,7 @@ impl CephBackend {
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
             */
+        debug!("Select a Journal");
         // Create the journal device if requested
         let journal = self.select_journal()?;
 
@@ -739,6 +740,7 @@ impl CephBackend {
         journal_devices.sort_by_key(|j| j.num_partitions);
         // Clear any space that we can
         //remove_unused_journals(&journal_devices)?;
+        debug!("Journal Devices to select over {:?}", journal_devices);
         let journal: Option<&JournalDevice> = journal_devices
             .iter()
             // Remove any devices without enough free space
@@ -756,6 +758,7 @@ impl CephBackend {
             // Take the first one
             .take(1)
             .next();
+        debug!("Selected Journal {:?}", journal);
         match journal {
             Some(ref j) => Ok(Some(evaluate_journal(j, journal_size_mb)?)),
             None => Ok(None),
@@ -1252,6 +1255,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
     match (&journal.device, journal.partition_id) {
         (journal, Some(part_id)) => {
             // Got both a journal device and a partition id
+            debug!("Have journal and partition ID to use");
             // Check if it exists and whether it's in use by another osd
             let cfg = gpt::GptConfig::new().writable(false).initialized(true);
             let disk = cfg.open(&journal)?;
@@ -1278,6 +1282,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                             partition_uuid: Some(partition_info.1),
                             num_partitions: None,
                         };
+                        debug!("Created new Journal Device {:?}", j);
                         j.update_num_partitions()?;
                         return Ok(j);
                     }
@@ -1300,6 +1305,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                 partition_uuid: Some(partition_info.1),
                 num_partitions: None,
             };
+            debug!("Created new Journal Device {:?}", j);
             j.update_num_partitions()?;
             Ok(j)
         }
