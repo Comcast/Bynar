@@ -19,6 +19,7 @@ use ceph::CephVersion;
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
+use hostname::get_hostname;
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
@@ -180,6 +181,7 @@ impl CephBackend {
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
             */
+        debug!("Select a Journal");
         // Create the journal device if requested
         let journal = self.select_journal()?;
 
@@ -565,14 +567,7 @@ impl CephBackend {
             simulate,
         )?;
         debug!("Crush reweight to 0");
-        let cmd = json!({
-            "prefix": "osd crush reweight",
-            "name":  format!("osd.{}", osd_id),
-            "weight": 0.0,
-        });
-        if !simulate {
-            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-        }
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -663,14 +658,7 @@ impl CephBackend {
             simulate,
         )?;
         debug!("Crush reweight to 0");
-        if !simulate {
-            let cmd = json!({
-                "prefix": "osd crush reweight",
-                "name": format!("osd.{}", osd_id),
-                "weight": 0.0,
-            });
-            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-        }
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -751,6 +739,7 @@ impl CephBackend {
         journal_devices.sort_by_key(|j| j.num_partitions);
         // Clear any space that we can
         //remove_unused_journals(&journal_devices)?;
+        debug!("Journal Devices to select over {:?}", journal_devices);
         let journal: Option<&JournalDevice> = journal_devices
             .iter()
             // Remove any devices without enough free space
@@ -768,6 +757,7 @@ impl CephBackend {
             // Take the first one
             .take(1)
             .next();
+        debug!("Selected Journal {:?}", journal);
         match journal {
             Some(ref j) => Ok(Some(evaluate_journal(j, journal_size_mb)?)),
             None => Ok(None),
@@ -785,6 +775,11 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
+        // check if the disk is already in the cluster
+        if is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!("Device {} is already in the cluster.  Skipping", device.display());
+            return Ok(OpOutcome::SkipRepeat);
+        }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
@@ -800,6 +795,11 @@ impl Backend for CephBackend {
         {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
+        }
+        // check if the disk is already out of the cluster
+        if !is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!("Device {} is already out of the cluster.  Skipping", device.display());
+            return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
@@ -862,21 +862,51 @@ impl Backend for CephBackend {
             }
         };
         // create and send the command to check if the osd is safe to remove
-        let cmd = json!({
-            "prefix": "osd safe-to-destroy",
-            "ids": [osd_id.to_string()]
-        });
-        let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd) {
-            Err(e) => {
-                debug!("Unsafe to remove");
-                return Ok((OpOutcome::Success, false));
-            }
-            Ok(r) => r,
-        };
-        debug!("Message: {:?}", result.1);
-        // osd is safe to remove
-        Ok((OpOutcome::Success, true))
+        Ok((
+            OpOutcome::Success,
+            osd_safe_to_destroy(&self.cluster_handle, osd_id),
+        ))
     }
+}
+
+fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
+    debug!("Check if device is in cluster");
+    let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
+    trace!("Hostname is {:?}", host);
+    let path = dev_path.to_string_lossy();
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        match osd.objectstore_meta {
+            ObjectStoreMeta::Bluestore {
+                bluestore_bdev_partition_path,
+                ..
+            } => {
+                if bluestore_bdev_partition_path == path && osd.hostname == host {
+                    return Ok(true);
+                }
+            }
+
+            ObjectStoreMeta::Filestore {
+                backend_filestore_partition_path,
+                ..
+            } => {
+                if backend_filestore_partition_path == path && osd.hostname == host {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool> {
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        if osd_id == osd.id {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // A fallback function to get the osd id from the mount path.  This isn't
@@ -1285,6 +1315,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
     match (&journal.device, journal.partition_id) {
         (journal, Some(part_id)) => {
             // Got both a journal device and a partition id
+            debug!("Have journal and partition ID to use");
             // Check if it exists and whether it's in use by another osd
             let cfg = gpt::GptConfig::new().writable(false).initialized(true);
             let disk = cfg.open(&journal)?;
@@ -1311,6 +1342,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                             partition_uuid: Some(partition_info.1),
                             num_partitions: None,
                         };
+                        debug!("Created new Journal Device {:?}", j);
                         j.update_num_partitions()?;
                         return Ok(j);
                     }
@@ -1333,6 +1365,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                 partition_uuid: Some(partition_info.1),
                 num_partitions: None,
             };
+            debug!("Created new Journal Device {:?}", j);
             j.update_num_partitions()?;
             Ok(j)
         }
