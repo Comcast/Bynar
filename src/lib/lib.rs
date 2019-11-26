@@ -6,15 +6,14 @@ use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
 use api::service::{
-    Disk, JiraInfo, Op, OpBoolResult, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, Operation,
-    ResultType,
+    Disk, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, Operation, ResultType,
 };
 use hashicorp_vault::client::VaultClient;
 use log::{debug, error};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
-use zmq::{Message, Socket};
+use zmq::Socket;
 
 pub mod error;
 pub mod host_information;
@@ -199,8 +198,8 @@ pub fn remove_disk_request(
     o.set_Op_type(Op::Remove);
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
-    if id.is_some() {
-        o.set_osd_id(id.unwrap());
+    if let Some(osd_id) = id {
+        o.set_osd_id(osd_id);
     }
 
     let encoded = o.write_to_bytes()?;

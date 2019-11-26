@@ -9,20 +9,19 @@ use std::time::Duration;
 use std::fs;
 
 use api::service::{
-    Disk, DiskType, Disks, JiraInfo, Op, OpBoolResult, OpJiraTicketsResult, OpOutcome,
-    OpOutcomeResult, OpResult, Partition, PartitionInfo, ResultType,
+    Disk, DiskType, Disks, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, OpResult,
+    Partition, PartitionInfo, ResultType,
 };
 mod backend;
 mod in_progress;
 mod test_disk;
 
 use crate::backend::BackendType;
-use crate::in_progress::create_db_connection_pool;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
-use helpers::{error::*, host_information::Host, ConfigSettings};
+use helpers::{error::*, ConfigSettings};
 use hostname::get_hostname;
 use log::{debug, error, info, trace, warn};
 use protobuf::parse_from_bytes;
@@ -104,11 +103,11 @@ fn listen(
 ) -> BynarResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
-    let mut responder = context.socket(zmq::REP)?;
+    let responder = context.socket(zmq::REP)?;
 
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
-    setup_curve(&mut responder, config_dir, vault)?;
+    setup_curve(&responder, config_dir, vault)?;
     assert!(responder
         .bind(&format!("tcp://{}:5555", listen_address))
         .is_ok());
@@ -142,11 +141,11 @@ fn listen(
                         "missing operation field in protocol. Ignoring request".to_string(),
                     );
 
-                    let _ = respond_to_client(&result, &mut responder);
+                    let _ = respond_to_client(&result, &responder);
                     continue;
                 }
                 match add_disk(
-                    &mut responder,
+                    &responder,
                     operation.get_disk(),
                     &backend_type,
                     id,
@@ -164,7 +163,7 @@ fn listen(
                 //
             }
             Op::List => {
-                match list_disks(&mut responder) {
+                match list_disks(&responder) {
                     Ok(_) => {
                         info!("List disks finished");
                     }
@@ -182,7 +181,7 @@ fn listen(
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
                     Ok((OpOutcome::Success, true)) => {
                         match remove_disk(
-                            &mut responder,
+                            &responder,
                             operation.get_disk(),
                             &backend_type,
                             config_dir,
@@ -200,14 +199,14 @@ fn listen(
                         result.set_outcome(OpOutcome::Skipped);
                         result.set_value(val);
                         result.set_result(ResultType::OK);
-                        let _ = respond_to_client(&result, &mut responder);
+                        let _ = respond_to_client(&result, &responder);
                     }
                     Ok((OpOutcome::SkipRepeat, val)) => {
                         debug!("Disk skipped, safe to remove already ran");
                         result.set_outcome(OpOutcome::SkipRepeat);
                         result.set_value(val);
                         result.set_result(ResultType::OK);
-                        let _ = respond_to_client(&result, &mut responder);
+                        let _ = respond_to_client(&result, &responder);
                     }
                     Ok((_, false)) => {
                         debug!("Disk is not safe to remove");
@@ -216,7 +215,7 @@ fn listen(
                         result.set_outcome(OpOutcome::Success);
                         result.set_result(ResultType::ERR);
                         result.set_error_msg("Not safe to remove disk".to_string());
-                        let _ = respond_to_client(&result, &mut responder);
+                        let _ = respond_to_client(&result, &responder);
                     }
                     Err(e) => {
                         error!("safe to remove failed: {:?}", e);
@@ -224,7 +223,7 @@ fn listen(
                         result.set_value(false);
                         result.set_result(ResultType::ERR);
                         result.set_error_msg(e.to_string());
-                        let _ = respond_to_client(&result, &mut responder);
+                        let _ = respond_to_client(&result, &responder);
                     }
                 };
             }
@@ -234,7 +233,7 @@ fn listen(
                     continue;
                 }
                 match safe_to_remove_disk(
-                    &mut responder,
+                    &responder,
                     operation.get_disk(),
                     &backend_type,
                     config_dir,
@@ -248,7 +247,7 @@ fn listen(
                 };
             }
             Op::GetCreatedTickets => {
-                match get_jira_tickets(&mut responder, config_dir) {
+                match get_jira_tickets(&responder, config_dir) {
                     Ok(_) => {
                         info!("Fetching jira tickets finished");
                     }
@@ -313,7 +312,7 @@ fn add_disk(
     //Send back OpOutcomeResult
     match backend.add_disk(&Path::new(d), id, false) {
         Ok(outcome) => {
-            result.set_outcome(OpOutcome::from(outcome));
+            result.set_outcome(outcome);
             result.set_result(ResultType::OK);
         }
         Err(e) => {
@@ -409,7 +408,7 @@ fn remove_disk(s: &Socket, d: &str, backend: &BackendType, config_dir: &Path) ->
     };
     match backend.remove_disk(&Path::new(d), false) {
         Ok(outcome) => {
-            result.set_outcome(OpOutcome::from(outcome));
+            result.set_outcome(outcome);
             result.set_result(ResultType::OK);
         }
         Err(e) => {
@@ -427,7 +426,7 @@ fn safe_to_remove(
     config_dir: &Path,
 ) -> BynarResult<(OpOutcome, bool)> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
-    let (safe) = backend.safe_to_remove(d, false)?;
+    let safe = backend.safe_to_remove(d, false)?;
 
     Ok(safe)
 }
@@ -445,7 +444,7 @@ fn safe_to_remove_disk(
             debug!("Safe to remove: {}", val);
             result.set_result(ResultType::OK);
             result.set_value(val);
-            result.set_outcome(OpOutcome::from(outcome));
+            result.set_outcome(outcome);
         }
         Err(e) => {
             debug!("Safe to remove err: {}", e);

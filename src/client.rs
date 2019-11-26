@@ -70,7 +70,7 @@ fn handle_list_disks(s: &Socket) {
 
 fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
-    let _tickets = helpers::get_jira_tickets(s)?;
+    helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
 }
@@ -224,7 +224,7 @@ fn main() {
     info!("Starting up");
     let server_pubkey = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
 
-    let mut s = match helpers::connect(host, port, &server_pubkey) {
+    let s = match helpers::connect(host, port, &server_pubkey) {
         Ok(s) => s,
         Err(e) => {
             error!("Error connecting to socket: {:?}", e);
@@ -232,16 +232,19 @@ fn main() {
         }
     };
     if let Some(ref matches) = matches.subcommand_matches("add") {
-        handle_add_disk(&mut s, matches);
+        handle_add_disk(&s, matches);
     }
     if matches.subcommand_matches("list").is_some() {
-        handle_list_disks(&mut s);
+        handle_list_disks(&s);
     }
     if let Some(ref matches) = matches.subcommand_matches("remove") {
-        handle_remove_disk(&mut s, matches);
+        handle_remove_disk(&s, matches);
     }
     if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
-        handle_jira_tickets(&mut s);
+        match handle_jira_tickets(&s) {
+            Ok(()) => {}
+            Err(e) => println!("Get JIRA tickets failed {}", e),
+        };
     }
     if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
         handle_set_maintenance(&mut s);

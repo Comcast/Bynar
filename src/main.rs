@@ -4,8 +4,6 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
-use serde_derive::*;
-
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
@@ -25,7 +23,6 @@ use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 
