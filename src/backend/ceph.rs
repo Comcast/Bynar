@@ -875,6 +875,7 @@ impl Backend for CephBackend {
     }
 }
 
+// Check if a device path is already in the cluster 
 fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
     debug!("Check if device is in cluster");
     let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
@@ -905,6 +906,7 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<
     Ok(false)
 }
 
+// Check if an osd_id is already in the cluster
 fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool> {
     let osd_meta = osd_metadata(cluster_handle)?;
     for osd in osd_meta {

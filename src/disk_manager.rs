@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use api::service::{
-    Disk, DiskType, Disks, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, OpResult,
+    Disk, DiskType, Disks, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, OpResult, Operation,
     Partition, PartitionInfo, ResultType,
 };
 mod backend;
@@ -91,6 +91,30 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
     Ok(())
 }
 
+
+// check if operation does not have disk.  If it doesn't, return true, else false
+fn op_no_disk(responder: &Socket, op: &Operation) -> bool {
+    if !op.has_disk() {
+        match op.get_Op_type() {
+            Op::Add => error!("Add operation must include disk field.  Ignoring request"),
+            Op::AddPartition => error!("Add Partition operation must include disk field.  Ignoring request"),
+            Op::Remove => error!("Remove operation must include disk field.  Ignoring request"),
+            Op::SafeToRemove => error!("Safe to remove operation must include disk field.  Ignoring request"),
+            _ => return false
+        }
+        // We still have to respond with an error message
+        let mut result = OpOutcomeResult::new();
+        result.set_result(ResultType::ERR);
+        result.set_error_msg(
+            "missing operation field in protocol. Ignoring request".to_string(),
+        );
+
+        let _ = respond_to_client(&result, &responder);
+        return true
+    }
+    false
+}
+
 /*
 Server that manages disks
 */
@@ -115,7 +139,7 @@ fn listen(
         let msg = responder.recv_bytes(0)?;
         debug!("Got msg len: {}", msg.len());
         trace!("Parsing msg {:?} as hex", msg);
-        let operation = match parse_from_bytes::<api::service::Operation>(&msg) {
+        let operation = match parse_from_bytes::<Operation>(&msg) {
             Ok(bytes) => bytes,
             Err(e) => {
                 error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
@@ -124,6 +148,9 @@ fn listen(
         };
 
         debug!("Operation requested: {:?}", operation.get_Op_type());
+        if op_no_disk(&responder, &operation) {
+            continue;
+        }
         match operation.get_Op_type() {
             Op::Add => {
                 let id = if operation.has_osd_id() {
@@ -131,18 +158,6 @@ fn listen(
                 } else {
                     None
                 };
-                if !operation.has_disk() {
-                    error!("Add operation must include disk field.  Ignoring request");
-                    // We still have to respond with an error message
-                    let mut result = OpResult::new();
-                    result.set_result(ResultType::ERR);
-                    result.set_error_msg(
-                        "missing operation field in protocol. Ignoring request".to_string(),
-                    );
-
-                    let _ = respond_to_client(&result, &responder);
-                    continue;
-                }
                 match add_disk(
                     &responder,
                     operation.get_disk(),
@@ -172,10 +187,6 @@ fn listen(
                 };
             }
             Op::Remove => {
-                if !operation.has_disk() {
-                    error!("Remove operation must include disk field.  Ignoring request");
-                    continue;
-                }
                 let mut result = OpOutcomeResult::new();
                 match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
                     Ok((OpOutcome::Success, true)) => {
@@ -227,10 +238,6 @@ fn listen(
                 };
             }
             Op::SafeToRemove => {
-                if !operation.has_disk() {
-                    error!("SafeToRemove operation must include disk field.  Ignoring request");
-                    continue;
-                }
                 match safe_to_remove_disk(
                     &responder,
                     operation.get_disk(),

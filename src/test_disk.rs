@@ -1426,7 +1426,7 @@ pub fn check_all_disks(
                 }
                 false
             })
-            .and_then(|r| Some(r.clone()));
+            .cloned();
         debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
         debug!("thread {} device: {:?}", process::id(), device);
         let mut s = StateMachine::new(device, scsi_info, false);
