@@ -1,4 +1,3 @@
-
 #[macro_export]
 macro_rules! evaluate {
     ($e: expr, $i: ident, $err: expr, $e_ident: ident) => {

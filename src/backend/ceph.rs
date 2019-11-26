@@ -24,7 +24,7 @@ use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
 use nix::{
-    ioctl_none, request_code_none,
+    ioctl_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
@@ -430,7 +430,7 @@ impl CephBackend {
             &info,
             journal_device,
         )?;
-        Ok((lv_dev_name.to_path_buf(), vg.get_size()))
+        Ok((lv_dev_name, vg.get_size()))
     }
 
     // Add the lvm tags that ceph requires to identify the osd
@@ -777,7 +777,10 @@ impl Backend for CephBackend {
         }
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
-            debug!("Device {} is already in the cluster.  Skipping", device.display());
+            debug!(
+                "Device {} is already in the cluster.  Skipping",
+                device.display()
+            );
             return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
@@ -798,7 +801,10 @@ impl Backend for CephBackend {
         }
         // check if the disk is already out of the cluster
         if !is_device_in_cluster(&self.cluster_handle, device)? {
-            debug!("Device {} is already out of the cluster.  Skipping", device.display());
+            debug!(
+                "Device {} is already out of the cluster.  Skipping",
+                device.display()
+            );
             return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
@@ -809,7 +815,7 @@ impl Backend for CephBackend {
                 }
                 Err(e) => {
                     self.unset_noscrub(simulate)?;
-                    return Err(BynarError::from(e));
+                    return Err(e);
                 }
             };
         } else {
@@ -819,7 +825,7 @@ impl Backend for CephBackend {
                 }
                 Err(e) => {
                     self.unset_noscrub(simulate)?;
-                    return Err(BynarError::from(e));
+                    return Err(e);
                 }
             };
         }
@@ -853,7 +859,7 @@ impl Backend for CephBackend {
                 );
                 match get_osd_id_from_path(&mount_point) {
                     Ok(osd_id) => osd_id,
-                    Err(e) => {
+                    Err(_) => {
                         //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
                         error!("Unable to get OSD id, unsafe to remove");
                         return Err(BynarError::from("Unable to get OSD id from OSD disk"));
@@ -918,7 +924,7 @@ fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
             debug!("file name: {:?}", name);
             let name_string = name.to_string_lossy().into_owned();
             let parts: Vec<&str> = name_string.split('-').collect();
-            if (parts.len() < 2) {
+            if parts.len() < 2 {
                 return Err(BynarError::new(format!(
                     "Unable to get osd id from {}",
                     path.display()
@@ -952,8 +958,8 @@ fn save_keyring(
     gid: Option<u32>,
     simulate: bool,
 ) -> BynarResult<()> {
-    let uid = uid.and_then(|u| Some(Uid::from_raw(u)));
-    let gid = gid.and_then(|g| Some(Gid::from_raw(g)));
+    let uid = uid.map(Uid::from_raw);
+    let gid = gid.map(Gid::from_raw);
     let base_dir = Path::new("/var/lib/ceph/osd").join(&format!("ceph-{}", osd_id));
     if !Path::new(&base_dir).exists() {
         return Err(BynarError::new(format!(
@@ -1450,16 +1456,15 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
 }
 
 /// check if a device is in the list of SystemDisks
-fn is_system_disk(system_disks: &Vec<SystemDisk>, device: &Path) -> bool {
+fn is_system_disk(system_disks: &[SystemDisk], device: &Path) -> bool {
     debug!("Checking config boot disk list for {}", device.display());
-    if let disks = system_disks {
-        for bdisk in disks {
-            if bdisk.device == device {
-                return true;
-            }
+    for bdisk in system_disks {
+        if bdisk.device == device {
+            return true;
         }
     }
-    return false;
+
+    false
 }
 
 /// check if a device is in the list of Journal Disks
@@ -1472,7 +1477,7 @@ fn is_journal(journal_devices: &Option<Vec<JournalDevice>>, device: &Path) -> bo
             }
         }
     }
-    return false;
+    false
 }
 
 // This macro from the nix crate crates an ioctl to call the linux kernel
