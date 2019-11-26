@@ -13,11 +13,11 @@ mod util;
 
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
-use crate::test_disk::State;
+use crate::test_disk::{State, StateMachine};
 use api::service::OpOutcome;
 use clap::{crate_authors, crate_version, App, Arg};
 use helpers::{error::*, host_information::Host, ConfigSettings};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, trace};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
@@ -122,6 +122,25 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     }
 }
 
+// add the disk in the state machine's information to the description
+fn add_disk_to_description(description: &mut String, dev_path: &Path, state_machine: &StateMachine) {
+    description.push_str(&format!("\nDisk path: {}", dev_path.display()));
+    if let Some(serial) = &state_machine.block_device.device.serial_number {
+        description.push_str(&format!("\nDisk serial: {}", serial));
+    }
+    description.push_str(&format!(
+        "\nSCSI host: {}, channel: {} id: {} lun: {}",
+        state_machine.block_device.scsi_info.host,
+        state_machine.block_device.scsi_info.channel,
+        state_machine.block_device.scsi_info.id,
+        state_machine.block_device.scsi_info.lun
+    ));
+    description.push_str(&format!(
+        "\nDisk vendor: {:?}",
+        state_machine.block_device.scsi_info.vendor
+    ));
+}
+
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
@@ -154,21 +173,8 @@ fn check_for_failed_disks(
                 dev_path.push(&dev_name);
 
                 if state_machine.block_device.state == State::WaitingForReplacement {
-                    description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = state_machine.block_device.device.serial_number {
-                        description.push_str(&format!("\nDisk serial: {}", serial));
-                    }
-                    description.push_str(&format!(
-                        "\nSCSI host: {}, channel: {} id: {} lun: {}",
-                        state_machine.block_device.scsi_info.host,
-                        state_machine.block_device.scsi_info.channel,
-                        state_machine.block_device.scsi_info.id,
-                        state_machine.block_device.scsi_info.lun
-                    ));
-                    description.push_str(&format!(
-                        "\nDisk vendor: {:?}",
-                        state_machine.block_device.scsi_info.vendor
-                    ));
+                    add_disk_to_description(&mut description, &dev_path, &state_machine);
+                    trace!("Description: {}", description);
                     info!("Connecting to database to check if disk is in progress");
                     let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,
