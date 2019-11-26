@@ -467,17 +467,17 @@ impl CephBackend {
                     let uuid = match blkid.get_tag_value("PARTUUID", &devname) {
                         Ok(ref s) if s == "" => {
                             // Try getting the UUID instead
-                            match blkid.get_tag_value("UUID", &devname){
+                            match blkid.get_tag_value("UUID", &devname) {
                                 Ok(ref s) if s == "" => {
                                     // Try getting PTUUID instead...
                                     blkid.get_tag_value("PTUUID", &devname)?
                                 }
                                 Ok(s) => s,
-                                Err(e) => return Err(BynarError::from(e))
+                                Err(e) => return Err(BynarError::from(e)),
                             }
                         }
                         Ok(s) => s,
-                        Err(e) => return Err(BynarError::from(e))
+                        Err(e) => return Err(BynarError::from(e)),
                     };
                     if uuid == "" {
                         // If uuid is STILL empty, Error
@@ -795,7 +795,10 @@ impl Backend for CephBackend {
         }
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
-            debug!("Device {} is already in the cluster.  Skipping", device.display());
+            debug!(
+                "Device {} is already in the cluster.  Skipping",
+                device.display()
+            );
             return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
@@ -816,7 +819,10 @@ impl Backend for CephBackend {
         }
         // check if the disk is already out of the cluster
         if !is_device_in_cluster(&self.cluster_handle, device)? {
-            debug!("Device {} is already out of the cluster.  Skipping", device.display());
+            debug!(
+                "Device {} is already out of the cluster.  Skipping",
+                device.display()
+            );
             return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
@@ -1073,11 +1079,28 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         trace!("Read the device symlink");
         let dev = journal_path.read_link()?;
         let blkid = BlkId::new(&dev)?;
-        trace!("Probe the journal device {}", dev.display());
-        blkid.do_probe()?;
+        let uuid = match blkid.get_tag_value("PARTUUID", &dev) {
+            Ok(ref s) if s == "" => {
+                // Try getting the UUID instead
+                match blkid.get_tag_value("UUID", &dev) {
+                    Ok(ref s) if s == "" => {
+                        // Try getting PTUUID instead...
+                        blkid.get_tag_value("PTUUID", &dev)?
+                    }
+                    Ok(s) => s,
+                    Err(e) => return Err(BynarError::from(e)),
+                }
+            }
+            Ok(s) => s,
+            Err(e) => return Err(BynarError::from(e)),
+        };
+        if uuid == "" {
+            // If uuid is STILL empty, Error
+            return Err(BynarError::from("Unable to get the partition UUID"));
+        }
         // Get the partition uuid from the device
         trace!("Get the partition uuid");
-        let dev_partition_uuid = uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?;
+        let dev_partition_uuid = uuid::Uuid::from_str(&uuid)?;
         debug!("Journal partition uuid: {}", dev_partition_uuid);
         if partition_uuid == &dev_partition_uuid {
             return Ok(true);
