@@ -1232,7 +1232,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
             }
 
             BlockDevice {
-                device: d.clone(),
+                device: d,
                 dev_path,
                 // None means disk is not in the database
                 device_database_id: None,
@@ -1257,11 +1257,11 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
         // Get rid of ram devices
         .filter(|b| !(b.device.media_type == MediaType::Ram))
         // Get rid of root disk
-        .filter(|b| !(b.mount_point == Some(Path::new("/").to_path_buf())))
+        .filter(|b| (b.mount_point != Some(Path::new("/").to_path_buf())))
         // Get rid of /boot
-        .filter(|b| !(b.mount_point == Some(Path::new("/boot").to_path_buf())))
+        .filter(|b| (b.mount_point != Some(Path::new("/boot").to_path_buf())))
         // Get rid of /boot/efi
-        .filter(|b| !(b.mount_point == Some(Path::new("/boot/efi").to_path_buf())))
+        .filter(|b| (b.mount_point != Some(Path::new("/boot/efi").to_path_buf())))
         .filter(|b| {
             for p in b.partitions.iter().enumerate() {
                 let partition_path = Path::new("/dev").join(format!(
@@ -1426,7 +1426,7 @@ pub fn check_all_disks(
                 }
                 false
             })
-            .and_then(|r| Some(r.clone()));
+            .cloned();
         debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
         debug!("thread {} device: {:?}", process::id(), device);
         let mut s = StateMachine::new(device, scsi_info, false);
@@ -1784,7 +1784,7 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
     match mount_device(&device, &mnt_dir.path()) {
         Ok(_) => {
             unmount_device(&mnt_dir.path())?;
-            return Ok(false);
+            Ok(false)
         }
         Err(e) => {
             debug!(
@@ -1794,12 +1794,9 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
                 e
             );
             //If the partition is EMPTY, it should be mountable, which means if it ISN'T mountable its probably corrupt (and not blank)
-            return Ok(false);
+            Ok(false)
         }
     }
-
-    // Best guess is it's blank
-    Ok(true)
 }
 
 fn is_raid_backed(scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>) -> (bool, Vendor) {
