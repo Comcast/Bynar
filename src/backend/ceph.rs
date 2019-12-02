@@ -184,7 +184,6 @@ impl CephBackend {
         debug!("Select a Journal");
         // Create the journal device if requested
         let journal = self.select_journal()?;
-
         // Create a new osd id
         let new_osd_id = osd_create(&self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
@@ -463,9 +462,28 @@ impl CephBackend {
                 Some(uuid) => uuid,
                 None => {
                     debug!("Discovering {} partition uuid", journal_dev);
-                    let blkid = BlkId::new(&Path::new(&format!("{}", journal_dev)))?;
-                    blkid.do_probe()?;
-                    uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?
+                    let devname = journal_dev.device.as_path();
+                    let blkid = BlkId::new(&devname)?;
+                    let uuid = match blkid.get_tag_value("PARTUUID", &devname) {
+                        Ok(ref s) if s == "" => {
+                            // Try getting the UUID instead
+                            match blkid.get_tag_value("UUID", &devname) {
+                                Ok(ref s) if s == "" => {
+                                    // Try getting PTUUID instead...
+                                    blkid.get_tag_value("PTUUID", &devname)?
+                                }
+                                Ok(s) => s,
+                                Err(e) => return Err(BynarError::from(e)),
+                            }
+                        }
+                        Ok(s) => s,
+                        Err(e) => return Err(BynarError::from(e)),
+                    };
+                    if uuid == "" {
+                        // If uuid is STILL empty, Error
+                        return Err(BynarError::from("Unable to get the partition UUID"));
+                    }
+                    uuid::Uuid::from_str(&uuid)?
                 }
             };
             // Get the partition uuid from the device
@@ -777,7 +795,10 @@ impl Backend for CephBackend {
         }
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
-            debug!("Device {} is already in the cluster.  Skipping", device.display());
+            debug!(
+                "Device {} is already in the cluster.  Skipping",
+                device.display()
+            );
             return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
@@ -798,7 +819,10 @@ impl Backend for CephBackend {
         }
         // check if the disk is already out of the cluster
         if !is_device_in_cluster(&self.cluster_handle, device)? {
-            debug!("Device {} is already out of the cluster.  Skipping", device.display());
+            debug!(
+                "Device {} is already out of the cluster.  Skipping",
+                device.display()
+            );
             return Ok(OpOutcome::SkipRepeat);
         }
         if self.version >= CephVersion::Luminous {
@@ -1041,6 +1065,7 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         };
         debug!("Journal path: {}", journal_path.display());
         let meta = symlink_metadata(&journal_path)?;
+        trace!("Got the metadata");
         if !meta.file_type().is_symlink() {
             // Whoops.  Symlink pointer missing.  Can't proceed
             // TODO: Is this always true?
@@ -1051,11 +1076,31 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         }
 
         // Resolve the device the symlink points to
+        trace!("Read the device symlink");
         let dev = journal_path.read_link()?;
         let blkid = BlkId::new(&dev)?;
-        blkid.do_probe()?;
+        let uuid = match blkid.get_tag_value("PARTUUID", &dev) {
+            Ok(ref s) if s == "" => {
+                // Try getting the UUID instead
+                match blkid.get_tag_value("UUID", &dev) {
+                    Ok(ref s) if s == "" => {
+                        // Try getting PTUUID instead...
+                        blkid.get_tag_value("PTUUID", &dev)?
+                    }
+                    Ok(s) => s,
+                    Err(e) => return Err(BynarError::from(e)),
+                }
+            }
+            Ok(s) => s,
+            Err(e) => return Err(BynarError::from(e)),
+        };
+        if uuid == "" {
+            // If uuid is STILL empty, Error
+            return Err(BynarError::from("Unable to get the partition UUID"));
+        }
         // Get the partition uuid from the device
-        let dev_partition_uuid = uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?;
+        trace!("Get the partition uuid");
+        let dev_partition_uuid = uuid::Uuid::from_str(&uuid)?;
         debug!("Journal partition uuid: {}", dev_partition_uuid);
         if partition_uuid == &dev_partition_uuid {
             return Ok(true);
@@ -1334,6 +1379,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                         });
                     } else {
                         // Create a new partition because the old one is in use
+                        debug!("Create a new partition");
                         let partition_info =
                             create_journal("ceph_journal", journal_size, &journal)?;
                         let mut j = JournalDevice {
