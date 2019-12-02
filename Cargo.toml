@@ -40,7 +40,7 @@ rand = "~0.7"
 
 [dependencies]
 api = { path = "api" }
-blkid = {git = "https://github.com/mzhong1/blkid.git"}#"~0.2"
+blkid = {git = "https://github.com/cholcombe973/blkid.git"}#"~0.2"
 block-utils = {git = "https://github.com/cholcombe973/block-utils.git"}#"~0.6"
 bytes = "*"
 ceph = {git = "https://github.com/mzhong1/ceph-rust"}#"~3.0"
