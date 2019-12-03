@@ -10,29 +10,37 @@ use std::process::Command;
 use std::str::FromStr;
 
 use crate::backend::Backend;
+use api::service::OpOutcome;
 
 use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
 use ceph::cmd::*;
 use ceph::CephVersion;
-use ceph_safe_disk::diag::{DiagMap, Format, Status};
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
+use hostname::get_hostname;
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
 use nix::{
-    convert_ioctl_res, ioc, ioctl_none, request_code_none,
+    ioctl_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
 use pwd::Passwd;
 use serde_derive::*;
+use serde_json::*;
 use tempdir::TempDir;
 
 /// Ceph cluster
 pub struct CephBackend {
+    /*
+        Note: RADOS (Reliable Autonomic Distributed Object Store)
+        Open source obj storage service
+        -Usually has storage nodes? (commodity servers?)
+        Probably either storage or backed for Openstack
+    */
     cluster_handle: Rados,
     config: CephConfig,
     version: CephVersion,
@@ -93,12 +101,23 @@ fn test_journal_sorting() {
     assert_eq!(journal_devices, vec![b, a]);
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+/// A disk or partition that should not be touched by ceph
+struct SystemDisk {
+    device: PathBuf,
+}
+
 #[derive(Deserialize, Debug)]
 struct CephConfig {
     /// The location of the ceph.conf file
     config_file: String,
     /// The cephx user to connect to the Ceph service with
     user_id: String,
+    /// The /dev/xxx devices that have one of the /, /boot, or /boot/efi partitions
+    /// This includes the partitions that are /, /boot, or /boot/efi
+    /// Or in general any disk that should not be touched by ceph
+    /// Bynar will need to skip evaluation on those disks and partitions
+    system_disks: Vec<SystemDisk>,
     /// The /dev/xxx devices to use for journal partitions.
     /// Bynar will create new partitions on these devices as needed
     /// if no journal_partition_id is given
@@ -162,9 +181,9 @@ impl CephBackend {
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
             */
+        debug!("Select a Journal");
         // Create the journal device if requested
         let journal = self.select_journal()?;
-
         // Create a new osd id
         let new_osd_id = osd_create(&self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
@@ -410,7 +429,7 @@ impl CephBackend {
             &info,
             journal_device,
         )?;
-        Ok((lv_dev_name.to_path_buf(), vg.get_size()))
+        Ok((lv_dev_name, vg.get_size()))
     }
 
     // Add the lvm tags that ceph requires to identify the osd
@@ -429,7 +448,8 @@ impl CephBackend {
             format!("ceph.block_device={}", lv_dev_name.display()),
             format!("ceph.osd_id={}", new_osd_id),
             format!("ceph.osd_fsid={}", osd_fsid),
-            // TODO: Find out where to find this.
+            // TODO: Find out where to find this. NOTE: can be found in ceph.conf file under cluster
+            // defaults to ceph.  EX: /etc/ceph/@clustername.keyring
             format!("ceph.cluster_name={}", "ceph"),
             format!("ceph.cluster_fsid={}", self.cluster_handle.rados_fsid()?),
             format!("ceph.encrypted={}", "0"),
@@ -442,9 +462,28 @@ impl CephBackend {
                 Some(uuid) => uuid,
                 None => {
                     debug!("Discovering {} partition uuid", journal_dev);
-                    let blkid = BlkId::new(&Path::new(&format!("{}", journal_dev)))?;
-                    blkid.do_probe()?;
-                    uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?
+                    let devname = journal_dev.device.as_path();
+                    let blkid = BlkId::new(&devname)?;
+                    let uuid = match blkid.get_tag_value("PARTUUID", &devname) {
+                        Ok(ref s) if s == "" => {
+                            // Try getting the UUID instead
+                            match blkid.get_tag_value("UUID", &devname) {
+                                Ok(ref s) if s == "" => {
+                                    // Try getting PTUUID instead...
+                                    blkid.get_tag_value("PTUUID", &devname)?
+                                }
+                                Ok(s) => s,
+                                Err(e) => return Err(BynarError::from(e)),
+                            }
+                        }
+                        Ok(s) => s,
+                        Err(e) => return Err(BynarError::from(e)),
+                    };
+                    if uuid == "" {
+                        // If uuid is STILL empty, Error
+                        return Err(BynarError::from("Unable to get the partition UUID"));
+                    }
+                    uuid::Uuid::from_str(&uuid)?
                 }
             };
             // Get the partition uuid from the device
@@ -472,6 +511,12 @@ impl CephBackend {
         for t in tags {
             lv.add_tag(&t)?;
         }
+        Ok(())
+    }
+
+    fn unset_noscrub(&self, simulate: bool) -> BynarResult<()> {
+        osd_unset(&self.cluster_handle, &OsdOption::NoScrub, simulate)?;
+        osd_unset(&self.cluster_handle, &OsdOption::NoDeepScrub, simulate)?;
         Ok(())
     }
 
@@ -511,14 +556,14 @@ impl CephBackend {
             debug!("Found tags for logical volume: {:?}", tags);
             let id_tag = tags.iter().find(|t| t.starts_with("ceph.osd_id"));
             if let Some(tag) = id_tag {
-                let parts: Vec<String> = tag.split('=').map(|s| s.to_string()).collect();
+                let parts: Vec<String> = tag.split('=').map(ToString::to_string).collect();
                 if let Some(s) = parts.get(1) {
                     osd_id = Some(u64::from_str(s)?);
                 }
             }
             let fsid_tag = tags.iter().find(|t| t.starts_with("ceph.osd_fsid"));
             if let Some(tag) = fsid_tag {
-                let parts: Vec<String> = tag.split('=').map(|s| s.to_string()).collect();
+                let parts: Vec<String> = tag.split('=').map(ToString::to_string).collect();
                 if let Some(s) = parts.get(1) {
                     osd_fsid = Some(uuid::Uuid::parse_str(s)?);
                 }
@@ -531,13 +576,39 @@ impl CephBackend {
             )));
         }
         let osd_id = osd_id.unwrap();
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(
+            &self.cluster_handle,
+            &OsdOption::NoDeepScrub,
+            false,
+            simulate,
+        )?;
+        debug!("Crush reweight to 0");
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            if simulate {
+                break;
+            }
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "name":  format!("osd.{}", osd_id),
+            });
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
+                break;
+            }
+        }
         debug!("Setting osd {} out", osd_id);
         osd_out(&self.cluster_handle, osd_id, simulate)?;
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
         auth_del(&self.cluster_handle, osd_id, simulate)?;
-        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {}", osd_id);
         osd_rm(&self.cluster_handle, osd_id, simulate)?;
 
@@ -596,8 +667,35 @@ impl CephBackend {
                 get_osd_id_from_path(&mount_point)?
             }
         };
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(
+            &self.cluster_handle,
+            &OsdOption::NoDeepScrub,
+            false,
+            simulate,
+        )?;
+        debug!("Crush reweight to 0");
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            if simulate {
+                break;
+            }
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "name":  format!("osd.{}", osd_id),
+            });
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
+                break;
+            }
+        }
         debug!("Setting osd {} out", osd_id);
         osd_out(&self.cluster_handle, osd_id, simulate)?;
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
         debug!("Removing osd {} from crush", osd_id);
         osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
         debug!("Deleting osd {} auth key", osd_id);
@@ -659,6 +757,7 @@ impl CephBackend {
         journal_devices.sort_by_key(|j| j.num_partitions);
         // Clear any space that we can
         //remove_unused_journals(&journal_devices)?;
+        debug!("Journal Devices to select over {:?}", journal_devices);
         let journal: Option<&JournalDevice> = journal_devices
             .iter()
             // Remove any devices without enough free space
@@ -676,6 +775,7 @@ impl CephBackend {
             // Take the first one
             .take(1)
             .next();
+        debug!("Selected Journal {:?}", journal);
         match journal {
             Some(ref j) => Ok(Some(evaluate_journal(j, journal_size_mb)?)),
             None => Ok(None),
@@ -684,35 +784,155 @@ impl CephBackend {
 }
 
 impl Backend for CephBackend {
-    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+    fn add_disk(&self, device: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
         debug!("ceph version: {:?}", self.version,);
+        // check if the disk is a system disk or journal disk first and skip evaluation if so.
+        if is_system_disk(&self.config.system_disks, device)
+            || is_journal(&self.config.journal_devices, device)
+        {
+            debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok(OpOutcome::Skipped);
+        }
+        // check if the disk is already in the cluster
+        if is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!(
+                "Device {} is already in the cluster.  Skipping",
+                device.display()
+            );
+            return Ok(OpOutcome::SkipRepeat);
+        }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
             self.add_filestore_osd(device, id, simulate)?;
         }
-        Ok(())
+        Ok(OpOutcome::Success)
     }
 
-    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<()> {
+    fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<OpOutcome> {
+        // check if the disk is a system disk or journal disk first and skip evaluation if so.
+        if is_system_disk(&self.config.system_disks, device)
+            || is_journal(&self.config.journal_devices, device)
+        {
+            debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok(OpOutcome::Skipped);
+        }
+        // check if the disk is already out of the cluster
+        if !is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!(
+                "Device {} is already out of the cluster.  Skipping",
+                device.display()
+            );
+            return Ok(OpOutcome::SkipRepeat);
+        }
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
-            self.remove_bluestore_osd(device, simulate)?;
+            match self.remove_bluestore_osd(device, simulate) {
+                Ok(_) => {
+                    self.unset_noscrub(simulate)?;
+                }
+                Err(e) => {
+                    self.unset_noscrub(simulate)?;
+                    return Err(e);
+                }
+            };
         } else {
-            self.remove_filestore_osd(device, simulate)?;
+            match self.remove_filestore_osd(device, simulate) {
+                Ok(_) => {
+                    self.unset_noscrub(simulate)?;
+                }
+                Err(e) => {
+                    self.unset_noscrub(simulate)?;
+                    return Err(e);
+                }
+            };
         }
-        Ok(())
+        Ok(OpOutcome::Success)
     }
 
-    fn safe_to_remove(&self, _device: &Path, _simulate: bool) -> BynarResult<bool> {
-        let diag_map = DiagMap::new().map_err(|e| BynarError::new(e.to_string()))?;
-        debug!("Checking if a disk is safe to remove from ceph");
-        match diag_map.exhaustive_diag(Format::Json) {
-            Status::Safe => Ok(true),
-            Status::NonSafe => Ok(false),
-            Status::Unknown => Ok(false),
+    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<(OpOutcome, bool)> {
+        // check if the disk is a system disk or journal disk first and skip evaluation if so.
+        if is_system_disk(&self.config.system_disks, device)
+            || is_journal(&self.config.journal_devices, device)
+        {
+            debug!("Device {} is not an OSD.  Skipping", device.display());
+            return Ok((OpOutcome::Skipped, false));
+        }
+        //Get the mountpoint
+        let mount_point = match block_utils::get_mountpoint(&device)? {
+            Some(osd_path) => osd_path,
+            None => {
+                let temp_dir = TempDir::new("osd")?;
+                temp_dir.into_path()
+            }
+        };
+        debug!("Device mounted at: {:?}", mount_point);
+        // get the osd id
+        let osd_id = match get_osd_id(&mount_point, simulate) {
+            Ok(osd_id) => osd_id,
+            Err(e) => {
+                error!(
+                    "Failed to discover osd id: {:?}.  Falling back on path name",
+                    e
+                );
+                match get_osd_id_from_path(&mount_point) {
+                    Ok(osd_id) => osd_id,
+                    Err(_) => {
+                        //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
+                        error!("Unable to get OSD id, unsafe to remove");
+                        return Err(BynarError::from("Unable to get OSD id from OSD disk"));
+                    }
+                }
+            }
+        };
+        // create and send the command to check if the osd is safe to remove
+        Ok((
+            OpOutcome::Success,
+            osd_safe_to_destroy(&self.cluster_handle, osd_id),
+        ))
+    }
+}
+
+// Check if a device path is already in the cluster 
+fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
+    debug!("Check if device is in cluster");
+    let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
+    trace!("Hostname is {:?}", host);
+    let path = dev_path.to_string_lossy();
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        match osd.objectstore_meta {
+            ObjectStoreMeta::Bluestore {
+                bluestore_bdev_partition_path,
+                ..
+            } => {
+                if bluestore_bdev_partition_path == path && osd.hostname == host {
+                    return Ok(true);
+                }
+            }
+
+            ObjectStoreMeta::Filestore {
+                backend_filestore_partition_path,
+                ..
+            } => {
+                if backend_filestore_partition_path == path && osd.hostname == host {
+                    return Ok(true);
+                }
+            }
         }
     }
+    Ok(false)
+}
+
+// Check if an osd_id is already in the cluster
+fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool> {
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        if osd_id == osd.id {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // A fallback function to get the osd id from the mount path.  This isn't
@@ -721,8 +941,15 @@ impl Backend for CephBackend {
 fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
     match path.file_name() {
         Some(name) => {
+            debug!("file name: {:?}", name);
             let name_string = name.to_string_lossy().into_owned();
             let parts: Vec<&str> = name_string.split('-').collect();
+            if parts.len() < 2 {
+                return Err(BynarError::new(format!(
+                    "Unable to get osd id from {}",
+                    path.display()
+                )));
+            }
             let id = u64::from_str(parts[1])?;
             Ok(id)
         }
@@ -751,8 +978,8 @@ fn save_keyring(
     gid: Option<u32>,
     simulate: bool,
 ) -> BynarResult<()> {
-    let uid = uid.and_then(|u| Some(Uid::from_raw(u)));
-    let gid = gid.and_then(|g| Some(Gid::from_raw(g)));
+    let uid = uid.map(Uid::from_raw);
+    let gid = gid.map(Gid::from_raw);
     let base_dir = Path::new("/var/lib/ceph/osd").join(&format!("ceph-{}", osd_id));
     if !Path::new(&base_dir).exists() {
         return Err(BynarError::new(format!(
@@ -840,6 +1067,7 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         };
         debug!("Journal path: {}", journal_path.display());
         let meta = symlink_metadata(&journal_path)?;
+        trace!("Got the metadata");
         if !meta.file_type().is_symlink() {
             // Whoops.  Symlink pointer missing.  Can't proceed
             // TODO: Is this always true?
@@ -850,11 +1078,31 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         }
 
         // Resolve the device the symlink points to
+        trace!("Read the device symlink");
         let dev = journal_path.read_link()?;
         let blkid = BlkId::new(&dev)?;
-        blkid.do_probe()?;
+        let uuid = match blkid.get_tag_value("PARTUUID", &dev) {
+            Ok(ref s) if s == "" => {
+                // Try getting the UUID instead
+                match blkid.get_tag_value("UUID", &dev) {
+                    Ok(ref s) if s == "" => {
+                        // Try getting PTUUID instead...
+                        blkid.get_tag_value("PTUUID", &dev)?
+                    }
+                    Ok(s) => s,
+                    Err(e) => return Err(BynarError::from(e)),
+                }
+            }
+            Ok(s) => s,
+            Err(e) => return Err(BynarError::from(e)),
+        };
+        if uuid == "" {
+            // If uuid is STILL empty, Error
+            return Err(BynarError::from("Unable to get the partition UUID"));
+        }
         // Get the partition uuid from the device
-        let dev_partition_uuid = uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?;
+        trace!("Get the partition uuid");
+        let dev_partition_uuid = uuid::Uuid::from_str(&uuid)?;
         debug!("Journal partition uuid: {}", dev_partition_uuid);
         if partition_uuid == &dev_partition_uuid {
             return Ok(true);
@@ -1114,6 +1362,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
     match (&journal.device, journal.partition_id) {
         (journal, Some(part_id)) => {
             // Got both a journal device and a partition id
+            debug!("Have journal and partition ID to use");
             // Check if it exists and whether it's in use by another osd
             let cfg = gpt::GptConfig::new().writable(false).initialized(true);
             let disk = cfg.open(&journal)?;
@@ -1132,6 +1381,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                         });
                     } else {
                         // Create a new partition because the old one is in use
+                        debug!("Create a new partition");
                         let partition_info =
                             create_journal("ceph_journal", journal_size, &journal)?;
                         let mut j = JournalDevice {
@@ -1140,6 +1390,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                             partition_uuid: Some(partition_info.1),
                             num_partitions: None,
                         };
+                        debug!("Created new Journal Device {:?}", j);
                         j.update_num_partitions()?;
                         return Ok(j);
                     }
@@ -1162,6 +1413,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                 partition_uuid: Some(partition_info.1),
                 num_partitions: None,
             };
+            debug!("Created new Journal Device {:?}", j);
             j.update_num_partitions()?;
             Ok(j)
         }
@@ -1245,11 +1497,37 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
     }
 }
 
+/// check if a device is in the list of SystemDisks
+fn is_system_disk(system_disks: &[SystemDisk], device: &Path) -> bool {
+    debug!("Checking config boot disk list for {}", device.display());
+    for bdisk in system_disks {
+        if bdisk.device == device {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// check if a device is in the list of Journal Disks
+fn is_journal(journal_devices: &Option<Vec<JournalDevice>>, device: &Path) -> bool {
+    debug!("Checking config journal list for {}", device.display());
+    if let Some(devices) = journal_devices {
+        for journal in devices {
+            if journal.device == device {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 // This macro from the nix crate crates an ioctl to call the linux kernel
 // and ask it to update its internal partition cache. Without this the
 // partitions don't show up after being created on the disks which then
 // breaks parts of bynar later.
-ioctl_none! {
+ioctl_none!(blkrrpart, 0x12, 95);
+/*{
     /// Linux BLKRRPART ioctl to update partition tables.  Defined in linux/fs.h
     blkrrpart, 0x12, 95
-}
+}*/

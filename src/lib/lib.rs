@@ -5,13 +5,15 @@ use std::fs::read_to_string;
 use std::path::Path;
 
 use crate::error::{BynarError, BynarResult};
-use api::service::{Disk, Op, OpBoolResult, Operation, ResultType,OpJiraTicketsResult,JiraInfo};
+use api::service::{
+    Disk, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, Operation, ResultType,
+};
 use hashicorp_vault::client::VaultClient;
-use log::{debug, error,trace};
+use log::{debug, error};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use serde::de::DeserializeOwned;
-use zmq::{Message, Socket};
+use zmq::Socket;
 
 pub mod error;
 pub mod host_information;
@@ -63,7 +65,7 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     let context = zmq::Context::new();
     let requester = context.socket(zmq::REQ)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
-
+    debug!("Created new keypair");
     requester.set_curve_serverkey(server_publickey)?;
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
@@ -83,11 +85,11 @@ pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResu
 }
 
 pub fn add_disk_request(
-    s: &mut Socket,
+    s: &Socket,
     path: &Path,
     id: Option<u64>,
     simulate: bool,
-) -> BynarResult<()> {
+) -> BynarResult<OpOutcome> {
     let mut o = Operation::new();
     debug!("Creating add disk operation request");
     o.set_Op_type(Op::Add);
@@ -98,19 +100,15 @@ pub fn add_disk_request(
     }
 
     let encoded = o.write_to_bytes().unwrap();
-    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let add_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", add_response.len());
-    let op_result = parse_from_bytes::<api::service::OpResult>(&add_response)?;
+    let op_result = parse_from_bytes::<api::service::OpOutcomeResult>(&add_response)?;
     match op_result.get_result() {
-        ResultType::OK => {
-            debug!("Add disk successful");
-            Ok(())
-        }
+        ResultType::OK => Ok(op_result.get_outcome()),
         ResultType::ERR => {
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
@@ -145,7 +143,7 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 }
 */
 
-pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
+pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
     o.set_Op_type(Op::List);
@@ -154,9 +152,8 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     let encoded = o.write_to_bytes()?;
     debug!("{:?}", encoded);
 
-    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let disks_response = s.recv_bytes(0)?;
@@ -171,55 +168,56 @@ pub fn list_disks_request(s: &mut Socket) -> BynarResult<Vec<Disk>> {
     Ok(d)
 }
 
-pub fn safe_to_remove_request(s: &mut Socket, path: &Path) -> BynarResult<bool> {
+pub fn safe_to_remove_request(s: &Socket, path: &Path) -> BynarResult<(OpOutcome, bool)> {
     let mut o = Operation::new();
     debug!("Creating safe to remove operation request");
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let safe_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", safe_response.len());
-    let op_result = parse_from_bytes::<OpBoolResult>(&safe_response)?;
+    let op_result = parse_from_bytes::<OpOutcomeResult>(&safe_response)?;
     match op_result.get_result() {
-        ResultType::OK => Ok(op_result.get_value()),
+        ResultType::OK => Ok((op_result.get_outcome(), op_result.get_value())),
         ResultType::ERR => Err(BynarError::from(op_result.get_error_msg())),
     }
 }
 
 pub fn remove_disk_request(
-    s: &mut Socket,
+    s: &Socket,
     path: &Path,
     id: Option<u64>,
     simulate: bool,
-) -> BynarResult<()> {
+) -> BynarResult<OpOutcome> {
     let mut o = Operation::new();
     debug!("Creating remove operation request");
     o.set_Op_type(Op::Remove);
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
-    if id.is_some() {
-        o.set_osd_id(id.unwrap());
+    if let Some(osd_id) = id {
+        o.set_osd_id(osd_id);
     }
 
     let encoded = o.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message");
-    s.send_msg(msg, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", remove_response.len());
-    let op_result = parse_from_bytes::<api::service::OpResult>(&remove_response)?;
-    match op_result.get_result() {
-        ResultType::OK => {
-            debug!("Add disk successful");
-            Ok(())
+    let op_result = match parse_from_bytes::<api::service::OpOutcomeResult>(&remove_response) {
+        Err(e) => {
+            error!("Unable to Parse Message {:?}", e);
+            return Err(BynarError::from(e));
         }
+        Ok(o) => o,
+    };
+    match op_result.get_result() {
+        ResultType::OK => Ok(op_result.get_outcome()),
         ResultType::ERR => {
             if op_result.has_error_msg() {
                 let msg = op_result.get_error_msg();
@@ -270,28 +268,27 @@ pub struct DBConfig {
     pub dbname: String,
 }
 
-pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+pub fn get_jira_tickets(s: &Socket) -> BynarResult<()> {
     let mut o = Operation::new();
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
-    let msg = Message::from_slice(&encoded)?;
     debug!("Sending message in get_jira_tickets");
-    s.send_msg(msg, 0)?;
+    s.send(&encoded, 0)?;
 
     debug!("Waiting for response: get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", tickets_response.len());
-   
+
     let op_jira_result = parse_from_bytes::<OpJiraTicketsResult>(&tickets_response)?;
     match op_jira_result.get_result() {
         ResultType::OK => {
             debug!("got tickets successfully");
-             let proto_jira = op_jira_result.get_tickets();
-             let mut jira: Vec<JiraInfo> = Vec::new();
+            let proto_jira = op_jira_result.get_tickets();
+            let mut _jira: Vec<JiraInfo> = Vec::new();
             for JiraInfo in proto_jira {
-               debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
-               debug!("get_server_name: {}", JiraInfo.get_server_name());
+                debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+                debug!("get_server_name: {}", JiraInfo.get_server_name());
             }
             Ok(())
         }
@@ -302,11 +299,12 @@ pub fn get_jira_tickets(s: &mut Socket) -> BynarResult<()>{
                 Err(BynarError::from(op_jira_result.get_error_msg()))
             } else {
                 error!("Get jira tickets failed but error_msg not set");
-                Err(BynarError::from("Get jira tickets failed but error_msg not set"))
+                Err(BynarError::from(
+                    "Get jira tickets failed but error_msg not set",
+                ))
             }
         }
     }
-   
 }
 
 pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{

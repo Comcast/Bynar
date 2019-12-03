@@ -102,6 +102,11 @@ where to look for ceph configuration, user details etc.
 {
   "config_file": "/etc/ceph/ceph.conf",
   "user_id": "admin",
+  "system_disks": [
+    {
+      "device": "/dev/sdc"
+    }
+  ],
   "journal_devices": [
 		{
 			"device": "/dev/sda"
@@ -113,6 +118,11 @@ where to look for ceph configuration, user details etc.
 	]
 }
 ```
+System Disks must be specified for ceph to filter out.  This is a list of all disks that Ceph should not run on.  A disk with the root or boot partition, as well
+as the device path of the root and boot (/boot, /boot/efi) partitions must be provided for Bynar to filter 
+out.  Bynar needs to be able to distinguish the disks so it does not try to wipe a boot partition.  If not
+provided ceph will attempt to add/remove the disk/partition as an OSD.  
+
 Journal devices can optionally be specified for ceph to use.  Bynar will attempt
 to balance the number of partitions across the devices given.  If an explict 
 `partition_id` is also given Bynar will make use of that.  If no `partition_id`
@@ -160,10 +170,11 @@ sudo apt install <package_name>
 16. liblvm2app2.2
 17. gcc
 18. clang
+19. smartmontools
 
 CLI command to install all the dependencies:
 ```
-sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang
+sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang smartmontools
 ```
 
 

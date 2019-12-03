@@ -17,7 +17,7 @@ use crate::in_progress::{
 use blkid::BlkId;
 use block_utils::{
     format_block_device, get_device_info, mount_device, unmount_device, Device, DeviceState,
-    Filesystem, FilesystemType, MediaType, ScsiDeviceType, ScsiInfo, Vendor,
+    DeviceType, Filesystem, FilesystemType, MediaType, ScsiDeviceType, ScsiInfo, Vendor,
 };
 use gpt::{disk, header::read_header, partition::read_partitions, partition::Partition};
 use helpers::{error::*, host_information::Host};
@@ -361,10 +361,35 @@ impl Transition for AttemptRepair {
         debug!("thread {} running AttemptRepair transition", process::id());
         // Disk filesystem is corrupted.  Attempt repairs.
         if !simulate {
+            // keep ref to mountpoint.  check if filesystem unmounted (if not unmount first)
+            // After running repair remount filesystem if unmounted
+            if let Some(ref mnt) = device.mount_point {
+                debug!("Attempt to unmount filesystem for repair");
+                if let Err(e) = unmount_device(&mnt) {
+                    error!("unmount {} failed: {}", mnt.display(), e);
+                };
+            }
             match repair_filesystem(&device.device.fs_type, &device.dev_path) {
-                Ok(_) => to_state,
+                Ok(_) => {
+                    // This requires root perms.  If the filesystem was previously mounted remount the filesystem
+                    if let Some(ref mnt) = device.mount_point {
+                        if let Err(e) = mount_device(&device.device, &mnt) {
+                            error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                        }
+                    }
+                    to_state
+                }
                 Err(e) => {
                     error!("repair_filesystem failed on {:?}: {}", device, e);
+                    // This requires root perms.  If the filesystem was previously mounted remount the filesystem
+                    if let Some(ref mnt) = device.mount_point {
+                        if !is_device_mounted(&device.dev_path) {
+                            // attempted to remount the filesystem
+                            if let Err(e) = mount_device(&device.device, &mnt) {
+                                error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                            }
+                        }
+                    }
                     State::Fail
                 }
             }
@@ -386,17 +411,42 @@ impl Transition for CheckForCorruption {
             process::id()
         );
         if !simulate {
+            // keep ref to mountpoint.  check if filesystem unmounted (if not unmount first)
+            // After running check remount filesystem if unmounted
+            if let Some(ref mnt) = device.mount_point {
+                debug!("Attempt to unmount filesystem for checking");
+                if let Err(e) = unmount_device(&mnt) {
+                    error!("unmount {} failed: {}", mnt.display(), e);
+                };
+            }
             match check_filesystem(&device.device.fs_type, &device.dev_path) {
-                Ok(fsck) => match fsck {
-                    // Writes are failing but fsck is ok?
-                    // What else could be wrong?  The filesystem could be read only
-                    // or ??
-                    Fsck::Ok => State::Fail,
-                    // The filesystem is corrupted.  Proceed to repair
-                    Fsck::Corrupt => to_state,
-                },
+                Ok(fsck) => {
+                    // This requires root perms.  If the filesystem was previously mounted remount the filesystem
+                    if let Some(ref mnt) = device.mount_point {
+                        if let Err(e) = mount_device(&device.device, &mnt) {
+                            error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                        }
+                    }
+                    match fsck {
+                        // Writes are failing but fsck is ok?
+                        // What else could be wrong?  The filesystem could be read only
+                        // or ??
+                        Fsck::Ok => State::Fail,
+                        // The filesystem is corrupted.  Proceed to repair
+                        Fsck::Corrupt => to_state,
+                    }
+                }
                 Err(e) => {
                     error!("check_filesystem failed on {:?}: {}", device, e);
+                    // This requires root perms.  If the filesystem was previously mounted remount the filesystem
+                    if let Some(ref mnt) = device.mount_point {
+                        if !is_device_mounted(&device.dev_path) {
+                            // attempted to remount the filesystem
+                            if let Err(e) = mount_device(&device.device, &mnt) {
+                                error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                            }
+                        }
+                    }
                     State::Fail
                 }
             }
@@ -465,8 +515,12 @@ impl Transition for Eval {
         }
         debug!("thread {} device: {:?}", process::id(), device);
         if device.device.fs_type == FilesystemType::Lvm {
+            debug!("Checking LVM");
             match check_lvm(&device.dev_path) {
-                Ok(_) => return to_state,
+                Ok(_) => {
+                    debug!("Return state {:?}", to_state);
+                    return to_state;
+                }
                 Err(e) => {
                     error!("check_lvm failed: {:?}", e);
                     return State::Fail;
@@ -475,6 +529,7 @@ impl Transition for Eval {
         }
 
         if device.mount_point.is_none() {
+            debug!("Try mounting in EVAL");
             debug!(
                 "thread {} Mounting device: {}",
                 process::id(),
@@ -502,15 +557,32 @@ impl Transition for Eval {
         match check_writable(&mnt) {
             // Mount point is writeable, smart passed.  Good to go
             Ok(_) => {
-                // clean up the mount we used
-                if let Err(e) = unmount_device(&mnt) {
-                    error!("unmount {} failed: {}", mnt.display(), e);
-                };
+                // clean up the mount we used.  First check if it is a /tmp mount
+                if mnt.starts_with("/tmp") {
+                    debug!("Clean up temporary mount");
+                    if let Err(e) = unmount_device(&device.dev_path) {
+                        error!("unmount {} failed: {}", device.dev_path.display(), e);
+                    };
+
+                    let mountpoint = block_utils::get_mountpoint(&device.dev_path)
+                        .expect("Failed to get mountpoint");
+                    debug!("Mountpoint after cleaning: {:?}", mountpoint);
+                }
                 device.mount_point = None;
                 to_state
             }
             Err(e) => {
                 //Should proceed to error checking now
+                if mnt.starts_with("/tmp") {
+                    debug!("Clean up temporary mount");
+                    if let Err(e) = unmount_device(&device.dev_path) {
+                        error!("unmount {} failed: {}", device.dev_path.display(), e);
+                    };
+
+                    let mountpoint = block_utils::get_mountpoint(&device.dev_path)
+                        .expect("Failed to get mountpoint");
+                    debug!("Mountpoint after cleaning: {:?}", mountpoint);
+                }
                 error!("Error writing to disk: {:?}", e);
                 State::WriteFailed
             }
@@ -606,11 +678,22 @@ impl Transition for Reformat {
                     Uuid::parse_str(&drive_uuid)
                         .unwrap_or_else(|_| panic!("Invalid drive_uuid: {}", drive_uuid)),
                 );
-
+                //We need to remount the block device now
+                if let Some(ref mnt) = device.mount_point {
+                    if let Err(e) = mount_device(&device.device, &mnt) {
+                        error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                    }
+                }
                 to_state
             }
             Err(e) => {
                 error!("Reformat failed: {}", e);
+                //We need to remount the block device now
+                if let Some(ref mnt) = device.mount_point {
+                    if let Err(e) = mount_device(&device.device, &mnt) {
+                        error!("Remounting {} failed: {}", device.dev_path.display(), e);
+                    }
+                }
                 State::Fail
             }
         }
@@ -685,7 +768,19 @@ impl Transition for Scan {
         let raid_backed = is_raid_backed(&scsi_info);
         match (raid_backed.0, raid_backed.1) {
             (false, _) => match run_smart_checks(&Path::new(&device.dev_path)) {
-                Ok(_) => to_state,
+                Ok(stat) => {
+                    // If the device is a Disk, then end the state machine here.
+                    if device.device.device_type == DeviceType::Disk {
+                        if stat {
+                            debug!("Disk is healthy");
+                            return State::Good;
+                        } else {
+                            debug!("Disk Health Scan Failed");
+                            return State::Fail;
+                        }
+                    }
+                    to_state
+                }
                 Err(e) => {
                     error!("Smart test failed: {:?}", e);
                     State::Fail
@@ -702,6 +797,11 @@ impl Transition for Scan {
                     Some(state) => {
                         debug!("thread {} scsi device state: {}", process::id(), state);
                         if *state == DeviceState::Running {
+                            // If the device is a Disk, then end the state machine here.
+                            if device.device.device_type == DeviceType::Disk {
+                                debug!("Disk is Healthy");
+                                return State::Good;
+                            }
                             to_state
                         } else {
                             State::Fail
@@ -778,6 +878,10 @@ impl StateMachine {
             self.block_device.dev_path.display(),
             self.block_device.state
         );
+        if self.block_device.state == State::Good {
+            debug!("Starting state is Good, replacing with Unscanned");
+            self.block_device.state = State::Unscanned;
+        }
         'outer: loop {
             // Gather all the possible edges from this current State
             let edges: Vec<(State, State, &TransitionFn)> =
@@ -959,7 +1063,7 @@ impl StateMachine {
             "MarkForReplacement",
         );
 
-        self.add_transition(State::Repaired, State::Good, NoOp::transition, "NoOp");
+        self.add_transition(State::Repaired, State::Unscanned, NoOp::transition, "NoOp");
         self.add_transition(
             State::WaitingForReplacement,
             State::Replaced,
@@ -1128,7 +1232,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
             }
 
             BlockDevice {
-                device: d.clone(),
+                device: d,
                 dev_path,
                 // None means disk is not in the database
                 device_database_id: None,
@@ -1153,6 +1257,11 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
         // Get rid of ram devices
         .filter(|b| !(b.device.media_type == MediaType::Ram))
         // Get rid of root disk
+        .filter(|b| (b.mount_point != Some(Path::new("/").to_path_buf())))
+        // Get rid of /boot
+        .filter(|b| (b.mount_point != Some(Path::new("/boot").to_path_buf())))
+        // Get rid of /boot/efi
+        .filter(|b| (b.mount_point != Some(Path::new("/boot/efi").to_path_buf())))
         .filter(|b| {
             for p in b.partitions.iter().enumerate() {
                 let partition_path = Path::new("/dev").join(format!(
@@ -1168,11 +1277,20 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                         debug!("Found root disk. Skipping");
                         return false;
                     }
+                    if mount == Path::new("/boot") {
+                        debug!("Found /boot partition.  Skipping");
+                        return false;
+                    }
+                    if mount == Path::new("/boot/efi") {
+                        debug!("Found /boot/efi partition. Skipping");
+                        return false;
+                    }
                 }
             }
             true
         })
         .collect();
+    debug!("Filtered disks {:?}", filtered_devices);
     Ok(filtered_devices)
 }
 
@@ -1219,6 +1337,7 @@ fn add_previous_devices(
                             .to_string_lossy()
                             .into_owned(),
                         media_type: block_utils::MediaType::Unknown,
+                        device_type: block_utils::DeviceType::Unknown,
                         capacity: 0,
                         fs_type: block_utils::FilesystemType::Unknown,
                         serial_number: None,
@@ -1307,7 +1426,7 @@ pub fn check_all_disks(
                 }
                 false
             })
-            .and_then(|r| Some(r.clone()));
+            .cloned();
         debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
         debug!("thread {} device: {:?}", process::id(), device);
         let mut s = StateMachine::new(device, scsi_info, false);
@@ -1495,11 +1614,60 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
     }
 }
 
+// Run the smartctl checks against the disk if libata fails
+#[cfg_attr(test, mockable)]
+fn run_smartctl_check(device: &Path) -> BynarResult<bool> {
+    // Enable Smart Scan
+    let out = Command::new("smartctl")
+        .args(&["-s", "on", &device.to_string_lossy()])
+        .output()?;
+    let status = match out.status.code() {
+        Some(code) => match code {
+            // no errors, smart enabled
+            0 => {
+                let out = Command::new("smartctl")
+                    .args(&["-H", &device.to_string_lossy()])
+                    .output()?; //Run overall health scan
+                match out.status.code() {
+                    Some(code) => match code {
+                        // no errors, health scan successful
+                        0 => true,
+                        _ => false,
+                    },
+                    //Process terminated by signal
+                    None => return Err(BynarError::from("smartctl terminated by signal")),
+                }
+            }
+            // could not enable smart checks
+            _ => return Err(BynarError::from("smartctl could not enable smart checks")),
+        },
+        //Process terminated by signal
+        None => return Err(BynarError::from("smartctl terminated by signal")),
+    };
+    Ok(status)
+}
+
 // Run smart checks against the disk
 #[cfg_attr(test, mockable)]
 fn run_smart_checks(device: &Path) -> BynarResult<bool> {
-    let mut smart = libatasmart::Disk::new(device)?;
-    let status = smart.get_smart_status()?;
+    let status: bool = match libatasmart::Disk::new(device) {
+        Ok(mut smart) => {
+            match smart.get_smart_status() {
+                Ok(stat) => stat,
+                Err(e) => {
+                    error!("Error {:?} Run SmartMonTools", e);
+                    // If ata smart fails, run smartmontools
+                    return run_smartctl_check(device);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Error {:?} Run SmartMonTools", e);
+            // If ata smart fails, run smartmontools
+            return run_smartctl_check(device);
+        }
+    };
+
     Ok(status)
 }
 
@@ -1614,7 +1782,10 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
     );
     let mnt_dir = TempDir::new("bynar")?;
     match mount_device(&device, &mnt_dir.path()) {
-        Ok(_) => return Ok(false),
+        Ok(_) => {
+            unmount_device(&mnt_dir.path())?;
+            Ok(false)
+        }
         Err(e) => {
             debug!(
                 "thread {} Mounting {} failed: {}",
@@ -1622,11 +1793,10 @@ fn is_disk_blank(dev: &Path) -> BynarResult<bool> {
                 dev.display(),
                 e
             );
+            //If the partition is EMPTY, it should be mountable, which means if it ISN'T mountable its probably corrupt (and not blank)
+            Ok(false)
         }
     }
-
-    // Best guess is it's blank
-    Ok(true)
 }
 
 fn is_raid_backed(scsi_info: &Option<(ScsiInfo, Option<ScsiInfo>)>) -> (bool, Vendor) {

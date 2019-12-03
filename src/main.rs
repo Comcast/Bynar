@@ -4,8 +4,6 @@
 /// 2. Report dead disk to JIRA for repairs
 /// 3. Test for resolution
 /// 4. Put disk back into cluster
-use serde_derive::*;
-
 mod create_support_ticket;
 mod in_progress;
 mod test_disk;
@@ -15,10 +13,11 @@ mod util;
 
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
-use crate::test_disk::State;
+use crate::test_disk::{State, StateMachine};
+use api::service::OpOutcome;
 use clap::{crate_authors, crate_version, App, Arg};
 use helpers::{error::*, host_information::Host, ConfigSettings};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, trace};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
@@ -123,6 +122,25 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
     }
 }
 
+// add the disk in the state machine's information to the description
+fn add_disk_to_description(description: &mut String, dev_path: &Path, state_machine: &StateMachine) {
+    description.push_str(&format!("\nDisk path: {}", dev_path.display()));
+    if let Some(serial) = &state_machine.block_device.device.serial_number {
+        description.push_str(&format!("\nDisk serial: {}", serial));
+    }
+    description.push_str(&format!(
+        "\nSCSI host: {}, channel: {} id: {} lun: {}",
+        state_machine.block_device.scsi_info.host,
+        state_machine.block_device.scsi_info.channel,
+        state_machine.block_device.scsi_info.id,
+        state_machine.block_device.scsi_info.lun
+    ));
+    description.push_str(&format!(
+        "\nDisk vendor: {:?}",
+        state_machine.block_device.scsi_info.vendor
+    ));
+}
+
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
@@ -155,21 +173,8 @@ fn check_for_failed_disks(
                 dev_path.push(&dev_name);
 
                 if state_machine.block_device.state == State::WaitingForReplacement {
-                    description.push_str(&format!("\nDisk path: {}", dev_path.display()));
-                    if let Some(serial) = state_machine.block_device.device.serial_number {
-                        description.push_str(&format!("\nDisk serial: {}", serial));
-                    }
-                    description.push_str(&format!(
-                        "\nSCSI host: {}, channel: {} id: {} lun: {}",
-                        state_machine.block_device.scsi_info.host,
-                        state_machine.block_device.scsi_info.channel,
-                        state_machine.block_device.scsi_info.id,
-                        state_machine.block_device.scsi_info.lun
-                    ));
-                    description.push_str(&format!(
-                        "\nDisk vendor: {:?}",
-                        state_machine.block_device.scsi_info.vendor
-                    ));
+                    add_disk_to_description(&mut description, &dev_path, &state_machine);
+                    trace!("Description: {}", description);
                     info!("Connecting to database to check if disk is in progress");
                     let in_progress = in_progress::is_hardware_waiting_repair(
                         pool,
@@ -184,16 +189,16 @@ fn check_for_failed_disks(
                         (false, false) => {
                             debug!("Asking disk-manager if it's safe to remove disk");
                             // CALL RPC
-                            let mut socket = helpers::connect(
+                            let socket = helpers::connect(
                                 &config.manager_host,
                                 &config.manager_port.to_string(),
                                 &public_key,
                             )?;
                             match (
-                                helpers::safe_to_remove_request(&mut socket, &dev_path),
+                                helpers::safe_to_remove_request(&socket, &dev_path),
                                 config.slack_webhook.is_some(),
                             ) {
-                                (Ok(true), true) => {
+                                (Ok((OpOutcome::Success, true)), true) => {
                                     debug!("safe to remove: true");
                                     //Ok to remove the disk
                                     let _ = notify_slack(
@@ -206,20 +211,23 @@ fn check_for_failed_disks(
                                     );
 
                                     match helpers::remove_disk_request(
-                                        &mut socket,
-                                        &dev_path,
-                                        None,
-                                        false,
+                                        &socket, &dev_path, None, false,
                                     ) {
-                                        Ok(_) => {
-                                            debug!("Disk removal successful");
-                                        }
+                                        Ok(outcome) => match outcome {
+                                            OpOutcome::Success => debug!("Disk removal successful"),
+                                            OpOutcome::Skipped => {
+                                                debug!("Disk skipped, disk is not removable")
+                                            }
+                                            OpOutcome::SkipRepeat => {
+                                                debug!("Disk already removed, skipping.")
+                                            }
+                                        },
                                         Err(e) => {
                                             error!("Disk removal failed: {}", e);
                                         }
                                     };
                                 }
-                                (Ok(false), true) => {
+                                (Ok((_, false)), true) => {
                                     debug!("safe to remove: false");
                                     let _ = notify_slack(
                                         config,
@@ -401,20 +409,30 @@ fn add_repaired_disks(
             Ok(true) => {
                 //CALL RPC
                 debug!("Connecting to disk-manager");
-                let mut socket = helpers::connect(
+                let socket = helpers::connect(
                     &config.manager_host,
                     &config.manager_port.to_string(),
                     &public_key,
                 )?;
 
                 match helpers::add_disk_request(
-                    &mut socket,
+                    &socket,
                     &Path::new(&ticket.device_path),
                     None,
                     simulate,
                 ) {
-                    Ok(_) => {
-                        debug!("Disk added successfully. Updating database record");
+                    Ok(outcome) => {
+                        match outcome {
+                            OpOutcome::Success => {
+                                debug!("Disk added successfully. Updating database record")
+                            }
+                            // Disk was either boot or something that shouldn't be added via backend
+                            OpOutcome::Skipped => debug!("Disk Skipped.  Updating database record"),
+                            // Disk is already in the cluster
+                            OpOutcome::SkipRepeat => {
+                                debug!("Disk already added.  Skipping.  Updating database record")
+                            }
+                        }
                         match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
                             Ok(_) => debug!("Database updated"),
                             Err(e) => {

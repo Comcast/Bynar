@@ -80,6 +80,7 @@ pub enum BynarError {
     #[error(msg, non_std, no_from)]
     PwdError(PwdBError),
     R2d2Error(R2d2Error),
+    #[error(msg, non_std)]
     RadosError(RadosError),
     ReqwestError(ReqwestError),
     SerdeJsonError(SerdeJsonError),
@@ -93,50 +94,6 @@ impl BynarError {
     /// Create a new BynarError with a String message
     pub fn new(err: String) -> BynarError {
         BynarError::Error(err)
-    }
-
-    /// Convert a BynarError into a String representation.
-    pub fn to_string(&self) -> String {
-        match *self {
-            BynarError::BlkidError(ref err) => err.to_string(),
-            BynarError::BlockUtilsError(ref err) => err.to_string(),
-            BynarError::Error(ref err) => err.to_string(),
-            BynarError::GojiError(ref err) => err.to_string(),
-            BynarError::HardwareError(HardwareError {
-                ref name,
-                ref location,
-                ref location_format,
-                ref error,
-                ref serial_number,
-            }) => {
-                let mut err = format!("Error: {}. {}", error, name);
-                if let Some(serial) = serial_number {
-                    err.push_str(&format!(" with serial {}", serial));
-                }
-                if let Some(lo) = location {
-                    err.push_str(&format!(" at location {} ", lo));
-                }
-                if let Some(lo_fmt) = location_format {
-                    err.push_str(&format!(" with format {} ", lo_fmt));
-                }
-                err
-            }
-            BynarError::IoError(ref err) => err.to_string(),
-            BynarError::LvmError(ref err) => err.to_string(),
-            BynarError::NixError(ref err) => err.to_string(),
-            BynarError::ParseIntError(ref err) => err.to_string(),
-            BynarError::PostgresError(ref err) => err.to_string(),
-            BynarError::ProtobufError(ref err) => err.to_string(),
-            BynarError::PwdError(ref err) => err.to_string(),
-            BynarError::R2d2Error(ref e) => e.to_string(),
-            BynarError::RadosError(ref err) => err.to_string(),
-            BynarError::ReqwestError(ref err) => err.to_string(),
-            BynarError::SerdeJsonError(ref err) => err.to_string(),
-            BynarError::SlackError(ref err) => err.to_string(),
-            BynarError::UuidError(ref err) => err.to_string(),
-            BynarError::VaultError(ref err) => err.to_string(),
-            BynarError::ZmqError(ref err) => err.to_string(),
-        }
     }
 }
 impl From<PwdError> for BynarError {

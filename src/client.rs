@@ -5,35 +5,35 @@ use std::path::Path;
 use std::str::FromStr;
 
 //use disk_manager::disk_manager;
-use api::service::Disk;
+use api::service::{Disk, OpOutcome};
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
-use log::{error, info,trace};
+use log::{error, info, trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::add_disk_request(s, path, id, simulate)?;
-    Ok(())
+fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
+    let outcome = helpers::add_disk_request(s, path, id, simulate)?;
+    Ok(outcome)
 }
 
-fn list_disks(s: &mut Socket) -> BynarResult<Vec<Disk>> {
+fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
     let disks = helpers::list_disks_request(s)?;
     println!("disk list: {:?}", disks);
 
     Ok(disks)
 }
 
-fn remove_disk(s: &mut Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-    helpers::remove_disk_request(s, path, id, simulate)?;
-    Ok(())
+fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
+    let outcome = helpers::remove_disk_request(s, path, id, simulate)?;
+    Ok(outcome)
 }
 
-fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -45,16 +45,18 @@ fn handle_add_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
         None => false,
     };
     match add_disk(s, &p, id, simulate) {
-        Ok(_) => {
-            println!("Adding disk successful");
-        }
+        Ok(outcome) => match outcome {
+            OpOutcome::Success => println!("Adding disk successful"),
+            OpOutcome::Skipped => println!("Disk cannot be added, Skipping"),
+            OpOutcome::SkipRepeat => println!("Disk already added, Skipping"),
+        },
         Err(e) => {
             println!("Adding disk failed: {}", e);
         }
     };
 }
 
-fn handle_list_disks(s: &mut Socket) {
+fn handle_list_disks(s: &Socket) {
     info!("Listing disks");
     match list_disks(s) {
         Ok(disks) => {
@@ -66,13 +68,14 @@ fn handle_list_disks(s: &mut Socket) {
     };
 }
 
-fn handle_jira_tickets(s: &mut Socket) -> BynarResult<()>{
+fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
-    let tickets = helpers::get_jira_tickets(s)?;
+    helpers::get_jira_tickets(s)?;
     trace!("handle_jira_tickets Finished");
     Ok(())
 }
 
+<<<<<<< HEAD
 fn handle_set_maintenance(s: &mut Socket) -> BynarResult<()>{
     trace!("handle_set_maintenance called");
     helpers::set_maintenance(s)?;
@@ -88,6 +91,9 @@ fn handle_unset_maintenance(s: &mut Socket) -> BynarResult<()>{
 }
 
 fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+=======
+fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
+>>>>>>> 5130468d3b8c49b420d9818a2bfb4c886e063677
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -99,9 +105,11 @@ fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
         None => false,
     };
     match remove_disk(s, &p, id, simulate) {
-        Ok(_) => {
-            println!("Removing disk successful");
-        }
+        Ok(outcome) => match outcome {
+            OpOutcome::Success => println!("Removing disk successful"),
+            OpOutcome::Skipped => println!("Disk cannot be removed.  Skipping"),
+            OpOutcome::SkipRepeat => println!("Disk already removed.  Skipping"),
+        },
         Err(e) => {
             println!("Removing disk failed: {}", e);
         }
@@ -234,7 +242,7 @@ fn main() {
     info!("Starting up");
     let server_pubkey = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
 
-    let mut s = match helpers::connect(host, port, &server_pubkey) {
+    let s = match helpers::connect(host, port, &server_pubkey) {
         Ok(s) => s,
         Err(e) => {
             error!("Error connecting to socket: {:?}", e);
@@ -242,16 +250,19 @@ fn main() {
         }
     };
     if let Some(ref matches) = matches.subcommand_matches("add") {
-        handle_add_disk(&mut s, matches);
+        handle_add_disk(&s, matches);
     }
     if matches.subcommand_matches("list").is_some() {
-        handle_list_disks(&mut s);
+        handle_list_disks(&s);
     }
     if let Some(ref matches) = matches.subcommand_matches("remove") {
-        handle_remove_disk(&mut s, matches);
+        handle_remove_disk(&s, matches);
     }
-    if let Some(ref matches) = matches.subcommand_matches("get_jira_tickets") {
-        handle_jira_tickets(&mut s);
+    if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
+        match handle_jira_tickets(&s) {
+            Ok(()) => {}
+            Err(e) => println!("Get JIRA tickets failed {}", e),
+        };
     }
     if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
         handle_set_maintenance(&mut s);
