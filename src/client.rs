@@ -247,9 +247,9 @@ fn main() {
         };
     }
     if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
-        handle_set_maintenance(&mut s);
+        handle_set_maintenance(&s);
     }
     if let Some(ref matches) = matches.subcommand_matches("unset_maintenance") {        
-        handle_unset_maintenance(&mut s);
+        handle_unset_maintenance(&s);
     }
 }

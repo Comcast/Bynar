@@ -264,7 +264,7 @@ fn listen(
                 };
             }
             Op::SetMaintenance => {               
-               match set_maintenance(&mut responder) {
+               match set_maintenance(&responder) {
                     Ok(_) => {
                         info!("Set maintenance operation finished");
                     }
@@ -274,7 +274,7 @@ fn listen(
                 };
             }
             Op::UnsetMaintenance => {               
-               match unset_maintenance(&mut responder) {
+               match unset_maintenance(&responder) {
                     Ok(_) => {
                         info!("Unset maintenance operation finished");
                     }
@@ -515,7 +515,7 @@ pub fn get_jira_tickets(s: &Socket, config_dir: &Path) -> BynarResult<()> {
     let _ = respond_to_client(&result, s);
     Ok(())
 }
-pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{    
+pub fn set_maintenance(s: &Socket) -> BynarResult<()>{    
     let mut result = OpResult::new();
     let file = match  File::create("/var/log/setMaintenance.lock") {
         Ok(file) => {
@@ -532,7 +532,7 @@ pub fn set_maintenance(s: &mut Socket) -> BynarResult<()>{
     
     Ok(())
 }
-pub fn unset_maintenance(s: &mut Socket) -> BynarResult<()>{    
+pub fn unset_maintenance(s: &Socket) -> BynarResult<()>{    
     let mut result = OpResult::new();
     let file = match  fs::remove_file("/var/log/setMaintenance.lock") {
         Ok(file) => {
