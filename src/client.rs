@@ -75,21 +75,21 @@ fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
     Ok(())
 }
 
-fn handle_set_maintenance(s: &mut Socket) -> BynarResult<()>{
+fn handle_set_maintenance(s: &Socket) -> BynarResult<()>{
     trace!("handle_set_maintenance called");
     helpers::set_maintenance(s)?;
     trace!("handle_set_maintenance finished");    
     Ok(())  
 }
 
-fn handle_unset_maintenance(s: &mut Socket) -> BynarResult<()>{
+fn handle_unset_maintenance(s: &Socket) -> BynarResult<()>{
     trace!("handle_unset_maintenance called");
     helpers::unset_maintenance(s)?;
     trace!("handle_unset_maintenance finished");    
     Ok(())  
 }
 
-fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
+fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -261,9 +261,9 @@ fn main() {
         };
     }
     if let Some(ref matches) = matches.subcommand_matches("set_maintenance") {        
-        handle_set_maintenance(&mut s);
+        handle_set_maintenance(&s);
     }
     if let Some(ref matches) = matches.subcommand_matches("unset_maintenance") {        
-        handle_unset_maintenance(&mut s);
+        handle_unset_maintenance(&s);
     }
 }

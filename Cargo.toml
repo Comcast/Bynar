@@ -34,16 +34,9 @@ conf-files = [
 [workspace]
 
 [dev-dependencies]
-<<<<<<< HEAD
-lazy_static = "~1.2"
-mocktopus = {git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
-rand = "~0.5"
-tempdir = "0.3.4"
-=======
 lazy_static = "~1.4"
 mocktopus = "~0.7.0" #{git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
 rand = "~0.7"
->>>>>>> 5130468d3b8c49b420d9818a2bfb4c886e063677
 
 [dependencies]
 api = { path = "api" }
@@ -91,7 +84,7 @@ uname = "~0.1"
 uuid = { version="~0.7", features = ["serde", "v4"]}
 zmq = {version="~0.8"}
 boxfnonce = "0.1.1"
-daemonize = "0.4.1"
+daemonize = "~0.4.1"
 
 [lib]
 name = "helpers"
