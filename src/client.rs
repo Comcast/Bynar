@@ -75,7 +75,6 @@ fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
     Ok(())
 }
 
-<<<<<<< HEAD
 fn handle_set_maintenance(s: &mut Socket) -> BynarResult<()>{
     trace!("handle_set_maintenance called");
     helpers::set_maintenance(s)?;
@@ -91,9 +90,6 @@ fn handle_unset_maintenance(s: &mut Socket) -> BynarResult<()>{
 }
 
 fn handle_remove_disk(s: &mut Socket, matches: &ArgMatches<'_>) {
-=======
-fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
->>>>>>> 5130468d3b8c49b420d9818a2bfb4c886e063677
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
