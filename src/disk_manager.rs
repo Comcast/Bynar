@@ -263,27 +263,6 @@ fn listen(
                     }
                 };
             }
-            Op::SetMaintenance => {               
-               match set_maintenance(&responder) {
-                    Ok(_) => {
-                        info!("Set maintenance operation finished");
-                    }
-                    Err(e) => {
-                        error!("Error when setting to maintenance mode: {:?}", e);
-                    }
-                };
-            }
-            Op::UnsetMaintenance => {               
-               match unset_maintenance(&responder) {
-                    Ok(_) => {
-                        info!("Unset maintenance operation finished");
-                    }
-                    Err(e) => {
-                        error!("Error when remove the setting to maintenance mode: {:?}", e);
-                    }
-                };
-                           
-            }
         };
         thread::sleep(Duration::from_millis(10));
     }
@@ -515,40 +494,7 @@ pub fn get_jira_tickets(s: &Socket, config_dir: &Path) -> BynarResult<()> {
     let _ = respond_to_client(&result, s);
     Ok(())
 }
-pub fn set_maintenance(s: &Socket) -> BynarResult<()>{    
-    let mut result = OpResult::new();
-    let file = match  File::create("/var/log/setMaintenance.lock") {
-        Ok(file) => {
-            result.set_result(ResultType::OK);            
-        }
-        Err(e) => {
-            error!("Failed to create lock file {}", e);
-            result.set_result(ResultType::ERR); 
-            result.set_error_msg(e.to_string());           
-        }
-    };
-    
-    let _ = respond_to_client(&result, s);
-    
-    Ok(())
-}
-pub fn unset_maintenance(s: &Socket) -> BynarResult<()>{    
-    let mut result = OpResult::new();
-    let file = match  fs::remove_file("/var/log/setMaintenance.lock") {
-        Ok(file) => {
-            result.set_result(ResultType::OK);            
-        }
-        Err(e) => {
-            error!("Failed to create lock file {}", e);
-            result.set_result(ResultType::ERR); 
-            result.set_error_msg(e.to_string());           
-        }
-    };
-    
-    let _ = respond_to_client(&result, s);
-    
-    Ok(())
-}
+
 fn main() {
     let matches = App::new("Disk Manager")
         .version(crate_version!())
