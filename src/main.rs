@@ -25,12 +25,8 @@ use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
 
-
-/***** CODE FOR DEMONIZATION: main.rs declaration  ***************/
-extern crate daemonize;
 use std::process;
 use daemonize::Daemonize;
-/***** CODE FOR DEMONIZATION: main.rs declaratio ends here */
 
 /*#[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -464,23 +460,19 @@ fn add_repaired_disks(
 // 5. Record the replacement in the in_progress sqlite database
 
 fn main() {
-
-    /******* CODE FOR DEMONIZATION IN main.rs main function*******/
-    
     let stdout = File::create("/var/log/bynar_daemon.out").unwrap();
     let stderr = File::create("/var/log/bynar_daemon.err").unwrap();    
 
     println!("I'm Parent and My pid is {}", process::id());
 
-     let daemonize = Daemonize::new()
+     let daemon = Daemonize::new()
          .pid_file("/var/log/bynar_daemon.pid") // Every method except `new` and `start`
          .chown_pid_file(true)      // is optional, see `Daemonize` documentation
          .working_directory("/") // for default behaviour.
          .user("root")
          .group("daemon") // Group name
          .group(2)        // or group id.
-         .umask(0o777)    // Set umask, `0o027` by default.  
-        // .umask(027)    // Set umask, `0o027` by default.        
+         .umask(0o027)    // Set umask, `0o027` by default.         
          .stdout(stdout)  // Redirect stdout to `/tmp/daemon.out`.
          .stderr(stderr)  // Redirect stderr to `/tmp/daemon.err`.
          .exit_action(|| println!("Executed before master process exits"))
@@ -492,9 +484,6 @@ fn main() {
          Err(e) => eprintln!("Error, {}", e),
      }
      println!("I'm child process and My pid is {}", process::id());
-     
-         
-    /******* DEMONIZATION CODE ENDS HERE FOR main.rs main function *******/
 
     
     let matches = App::new("Dead Disk Detector")
@@ -575,12 +564,6 @@ fn main() {
         return;
     }
     let config: ConfigSettings = config.expect("Failed to load config");
-
-    let f: bool =  Path::new("/var/log/setMaintenance.lock").is_file();
-    if f {
-        info!("Lock file found... quitting");
-        return;
-    }
     
     let db_pool = match create_db_connection_pool(&config.database) {
         Err(e) => {
