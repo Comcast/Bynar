@@ -16,6 +16,7 @@ use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
 use api::service::OpOutcome;
 use clap::{crate_authors, crate_version, App, Arg};
+use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
 use libc::c_int;
 use log::{debug, error, info, trace, warn};
@@ -27,9 +28,8 @@ use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
-
-use daemonize::Daemonize;
 use std::process;
+use std::time::{Duration, Instant};
 
 /*#[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -467,38 +467,6 @@ fn add_repaired_disks(
 // 5. Record the replacement in the in_progress sqlite database
 
 fn main() {
-    let signals = Signals::new(&[
-        signal_hook::SIGHUP,
-        signal_hook::SIGTERM,
-        signal_hook::SIGINT,
-        signal_hook::SIGCHLD,
-    ])
-    .expect("Unable to create iterator signal handler");
-
-    let stdout = File::create("/var/log/bynar_daemon.out")
-        .expect("/var/log/bynar_daemon.out creation failed");
-    let stderr = File::create("/var/log/bynar_daemon.err")
-        .expect("/var/log/bynar_daemon.err creation failed");
-
-    println!("I'm Parent and My pid is {}", process::id());
-
-    let daemon = Daemonize::new()
-        .pid_file("/var/log/bynar_daemon.pid") // Every method except `new` and `start`
-        .chown_pid_file(true)
-        .working_directory("/")
-        .user("root")
-        .group(2) // 2 is the bin user
-        .umask(0o027) // Set umask, this gives 750 permission
-        .stdout(stdout) // Redirect stdout
-        .stderr(stderr) // Redirect stderr
-        .exit_action(|| println!("This is executed before master process exits"));
-
-    match daemon.start() {
-        Ok(_) => println!("Success, daemonized"),
-        Err(e) => eprintln!("Error, {}", e),
-    }
-    println!("I'm child process and My pid is {}", process::id());
-
     let matches = App::new("Dead Disk Detector")
         .version(crate_version!())
         .author(crate_authors!())
@@ -523,7 +491,21 @@ fn main() {
                 .multiple(true)
                 .help("Sets the level of verbosity"),
         )
+        .arg(
+            Arg::with_name("daemon")
+                .help("Run Bynar as a daemon")
+                .long("daemon")
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("time")
+                .help("Time in seconds between Bynar runs")
+                .long("time")
+                .default_value("5"),
+        )
         .get_matches();
+
+    let daemon = matches.is_present("daemon");
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
@@ -540,6 +522,41 @@ fn main() {
         File::create("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
     ));
     let _ = CombinedLogger::init(loggers);
+    let signals = Signals::new(&[
+        signal_hook::SIGHUP,
+        signal_hook::SIGTERM,
+        signal_hook::SIGINT,
+        signal_hook::SIGCHLD,
+    ])
+    .expect("Unable to create iterator signal handler");
+    //Check if daemon, if so, start the daemon
+    if daemon {
+        let stdout = File::create("/var/log/bynar_daemon.out")
+            .expect("/var/log/bynar_daemon.out creation failed");
+        let stderr = File::create("/var/log/bynar_daemon.err")
+            .expect("/var/log/bynar_daemon.err creation failed");
+
+        trace!("I'm Parent and My pid is {}", process::id());
+
+        let daemon = Daemonize::new()
+            .pid_file("/var/log/bynar_daemon.pid") // Every method except `new` and `start`
+            .chown_pid_file(true)
+            .working_directory("/")
+            .user("root")
+            .group(2) // 2 is the bin user
+            .umask(0o027) // Set umask, this gives 750 permission
+            .stdout(stdout) // Redirect stdout
+            .stderr(stderr) // Redirect stderr
+            .exit_action(|| trace!("This is executed before master process exits"));
+
+        match daemon.start() {
+            Ok(_) => trace!("Success, daemonized"),
+            Err(e) => eprintln!("Error, {}", e),
+        }
+        println!("I'm child process and My pid is {}", process::id());
+    } else {
+        signals.close();
+    }
     info!("Starting up");
 
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
@@ -558,6 +575,7 @@ fn main() {
         }
     }
     let simulate = matches.is_present("simulate");
+    let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
     let h_info = Host::new();
     if h_info.is_err() {
         error!("Failed to gather host information");
@@ -598,38 +616,10 @@ fn main() {
             d
         }
     };
-    let mut loopcount = 0; //just testing signals
+
+    let dur = Duration::from_secs(time);
     'outer: loop {
-        // Check the signals that have arrived since the last loop
-        for signal in signals.pending() {
-            match signal as c_int {
-                signal_hook::SIGHUP => {
-                    //Reload the config file
-                    debug!("Reload Config File");
-                    let config_file = helpers::load_config(config_dir, "bynar.json");
-                    if let Err(e) = config_file {
-                        error!(
-                            "Failed to load config file {}. error: {}",
-                            config_dir.join("bynar.json").display(),
-                            e
-                        );
-                        return;
-                    }
-                    let config: ConfigSettings = config_file.expect("Failed to load config");
-                }
-                signal_hook::SIGINT | signal_hook::SIGCHLD => {
-                    //skip this
-                    debug!("Ignore signal");
-                    continue;
-                }
-                signal_hook::SIGTERM => {
-                    //"gracefully" exit
-                    debug!("Exit Process");
-                    break 'outer;
-                }
-                _ => unreachable!(),
-            }
-        }
+        let now = Instant::now();
         match check_for_failed_disks(
             &config,
             &host_info,
@@ -672,8 +662,42 @@ fn main() {
                 info!("Add repaired disks completed");
             }
         };
-        std::thread::sleep(std::time::Duration::from_secs(60));
-        loopcount += 1;
+        if daemon {
+            while (now.elapsed() < dur) {
+                for signal in signals.pending() {
+                    match signal as c_int {
+                        signal_hook::SIGHUP => {
+                            //Reload the config file
+                            debug!("Reload Config File");
+                            let config_file = helpers::load_config(config_dir, "bynar.json");
+                            if let Err(e) = config_file {
+                                error!(
+                                    "Failed to load config file {}. error: {}",
+                                    config_dir.join("bynar.json").display(),
+                                    e
+                                );
+                                return;
+                            }
+                            let config: ConfigSettings =
+                                config_file.expect("Failed to load config");
+                        }
+                        signal_hook::SIGINT | signal_hook::SIGCHLD => {
+                            //skip this
+                            debug!("Ignore signal");
+                            continue;
+                        }
+                        signal_hook::SIGTERM => {
+                            //"gracefully" exit
+                            debug!("Exit Process");
+                            break 'outer;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        } else {
+            break 'outer;
+        }
     }
     debug!("Bynar exited successfully");
 }
