@@ -1399,8 +1399,13 @@ pub fn check_all_disks(
             Some(i) => i,
         };
         let mut op_info = OperationInfo::new(host_mapping.entry_id, device_db_id);
-        add_or_update_operation(pool, &mut op_info)?;
-
+        match add_or_update_operation(pool, &mut op_info) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Add or Update Operation Error: {:?}", e);
+                return Err(BynarError::from(e));
+            }
+        };
         // store the operation_id in BlockDevice struct
         dev.operation_id = op_info.operation_id;
     }
