@@ -670,7 +670,7 @@ pub fn add_disk_detail(
 fn get_operation_id(
     pool: &Pool<ConnectionManager>,
     op_info: &mut OperationInfo,
-) -> BynarResult<bool> {
+) -> BynarResult<()> {
     let mut stmt = String::new();
 
     let conn = get_connection_from_pool(pool)?;
@@ -684,9 +684,9 @@ fn get_operation_id(
     if let Some(row) = stmt_query.into_iter().next() {
         let oid: i32 = row.get("operation_id");
         op_info.set_operation_id(oid as u32);
-        return Ok(true);
+        return Ok(());
     }
-    Ok(false)
+    Ok(())
 }
 
 // inserts the operation record. If successful insert, the provided input op_info
