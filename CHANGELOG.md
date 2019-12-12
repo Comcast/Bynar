@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.7] - 2019-12-12
+
+### Changed
+
+- [Use the new blkid function get_tag_value which is safer than do_probe][pr#103]
+- [Cargo clippy and fmt fixes][pr#104]
+
+### Added
+
+- [Made Bynar main program into a daemon process when passed the --daemon flag.  Current signals handled are SIGINT, SIGCHLD, SIGHUP, and SIGTERM, the rest remain with default behavior][pr#105]
+
 ## [0.1.6] - 2019-11-22
 
 ### Changed
