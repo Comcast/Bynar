@@ -1,3 +1,16 @@
+/*
+@license
+Copyright 2017 Comcast Cable Communications Management, LLC
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 ///#![cfg_attr(test, feature(test, proc_macro_mod))]
 /// Detect dead disks in a ceph cluster
 /// 1. Detect dead disk
@@ -16,14 +29,20 @@ use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
 use api::service::OpOutcome;
 use clap::{crate_authors, crate_version, App, Arg};
+use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
-use log::{debug, error, info, warn, trace};
+use libc::c_int;
+use log::{debug, error, info, trace, warn};
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
+use signal_hook::iterator::Signals;
+use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
+use std::process;
+use std::time::{Duration, Instant};
 
 /*#[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
@@ -116,7 +135,11 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
 }
 
 // add the disk in the state machine's information to the description
-fn add_disk_to_description(description: &mut String, dev_path: &Path, state_machine: &StateMachine) {
+fn add_disk_to_description(
+    description: &mut String,
+    dev_path: &Path,
+    state_machine: &StateMachine,
+) {
     description.push_str(&format!("\nDisk path: {}", dev_path.display()));
     if let Some(serial) = &state_machine.block_device.device.serial_number {
         description.push_str(&format!("\nDisk serial: {}", serial));
@@ -481,7 +504,21 @@ fn main() {
                 .multiple(true)
                 .help("Sets the level of verbosity"),
         )
+        .arg(
+            Arg::with_name("daemon")
+                .help("Run Bynar as a daemon")
+                .long("daemon")
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("time")
+                .help("Time in seconds between Bynar runs")
+                .long("time")
+                .default_value("5"),
+        )
         .get_matches();
+
+    let daemon = matches.is_present("daemon");
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
@@ -498,6 +535,41 @@ fn main() {
         File::create("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
     ));
     let _ = CombinedLogger::init(loggers);
+    let signals = Signals::new(&[
+        signal_hook::SIGHUP,
+        signal_hook::SIGTERM,
+        signal_hook::SIGINT,
+        signal_hook::SIGCHLD,
+    ])
+    .expect("Unable to create iterator signal handler");
+    //Check if daemon, if so, start the daemon
+    if daemon {
+        let stdout = File::create("/var/log/bynar_daemon.out")
+            .expect("/var/log/bynar_daemon.out creation failed");
+        let stderr = File::create("/var/log/bynar_daemon.err")
+            .expect("/var/log/bynar_daemon.err creation failed");
+
+        trace!("I'm Parent and My pid is {}", process::id());
+
+        let daemon = Daemonize::new()
+            .pid_file("/var/log/bynar_daemon.pid") // Every method except `new` and `start`
+            .chown_pid_file(true)
+            .working_directory("/")
+            .user("root")
+            .group(2) // 2 is the bin user
+            .umask(0o027) // Set umask, this gives 750 permission
+            .stdout(stdout) // Redirect stdout
+            .stderr(stderr) // Redirect stderr
+            .exit_action(|| trace!("This is executed before master process exits"));
+
+        match daemon.start() {
+            Ok(_) => trace!("Success, daemonized"),
+            Err(e) => eprintln!("Error, {}", e),
+        }
+        println!("I'm child process and My pid is {}", process::id());
+    } else {
+        signals.close();
+    }
     info!("Starting up");
 
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
@@ -516,6 +588,7 @@ fn main() {
         }
     }
     let simulate = matches.is_present("simulate");
+    let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
     let h_info = Host::new();
     if h_info.is_err() {
         error!("Failed to gather host information");
@@ -557,46 +630,87 @@ fn main() {
         }
     };
 
-    match check_for_failed_disks(
-        &config,
-        &host_info,
-        &db_pool,
-        &host_details_mapping,
-        simulate,
-    ) {
-        Err(e) => {
-            error!("Check for failed disks failed with error: {}", e);
+    let dur = Duration::from_secs(time);
+    'outer: loop {
+        let now = Instant::now();
+        match check_for_failed_disks(
+            &config,
+            &host_info,
+            &db_pool,
+            &host_details_mapping,
+            simulate,
+        ) {
+            Err(e) => {
+                error!("Check for failed disks failed with error: {}", e);
+            }
+            _ => {
+                info!("Check for failed disks completed");
+            }
+        };
+        match check_for_failed_hardware(
+            &config,
+            &host_info,
+            &db_pool,
+            &host_details_mapping,
+            simulate,
+        ) {
+            Err(e) => {
+                error!("Check for failed hardware failed with error: {}", e);
+            }
+            _ => {
+                info!("Check for failed hardware completed");
+            }
+        };
+        match add_repaired_disks(
+            &config,
+            &host_info,
+            &db_pool,
+            host_details_mapping.storage_detail_id,
+            simulate,
+        ) {
+            Err(e) => {
+                error!("Add repaired disks failed with error: {}", e);
+            }
+            _ => {
+                info!("Add repaired disks completed");
+            }
+        };
+        if daemon {
+            while (now.elapsed() < dur) {
+                for signal in signals.pending() {
+                    match signal as c_int {
+                        signal_hook::SIGHUP => {
+                            //Reload the config file
+                            debug!("Reload Config File");
+                            let config_file = helpers::load_config(config_dir, "bynar.json");
+                            if let Err(e) = config_file {
+                                error!(
+                                    "Failed to load config file {}. error: {}",
+                                    config_dir.join("bynar.json").display(),
+                                    e
+                                );
+                                return;
+                            }
+                            let config: ConfigSettings =
+                                config_file.expect("Failed to load config");
+                        }
+                        signal_hook::SIGINT | signal_hook::SIGCHLD => {
+                            //skip this
+                            debug!("Ignore signal");
+                            continue;
+                        }
+                        signal_hook::SIGTERM => {
+                            //"gracefully" exit
+                            debug!("Exit Process");
+                            break 'outer;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        } else {
+            break 'outer;
         }
-        _ => {
-            info!("Check for failed disks completed");
-        }
-    };
-    match check_for_failed_hardware(
-        &config,
-        &host_info,
-        &db_pool,
-        &host_details_mapping,
-        simulate,
-    ) {
-        Err(e) => {
-            error!("Check for failed hardware failed with error: {}", e);
-        }
-        _ => {
-            info!("Check for failed hardware completed");
-        }
-    };
-    match add_repaired_disks(
-        &config,
-        &host_info,
-        &db_pool,
-        host_details_mapping.storage_detail_id,
-        simulate,
-    ) {
-        Err(e) => {
-            error!("Add repaired disks failed with error: {}", e);
-        }
-        _ => {
-            info!("Add repaired disks completed");
-        }
-    };
+    }
+    debug!("Bynar exited successfully");
 }

@@ -666,6 +666,29 @@ pub fn add_disk_detail(
     }
 }
 
+/// Get the Operation ID associated with an op_info, return true if successful, false otherwise
+fn get_operation_id(
+    pool: &Pool<ConnectionManager>,
+    op_info: &mut OperationInfo,
+) -> BynarResult<()> {
+    let mut stmt = String::new();
+
+    let conn = get_connection_from_pool(pool)?;
+    stmt.push_str(&format!(
+        "SELECT * FROM operations WHERE entry_id = {} AND device_id = {}",
+        op_info.entry_id, op_info.device_id
+    ));
+
+    let stmt_query = conn.query(&stmt, &[])?;
+
+    if let Some(row) = stmt_query.into_iter().next() {
+        let oid: i32 = row.get("operation_id");
+        op_info.set_operation_id(oid as u32);
+        return Ok(());
+    }
+    Ok(())
+}
+
 // inserts the operation record. If successful insert, the provided input op_info
 // is modified. Returns error if insert or update fails.
 pub fn add_or_update_operation(
@@ -675,6 +698,7 @@ pub fn add_or_update_operation(
     let mut stmt = String::new();
 
     let conn = get_connection_from_pool(pool)?;
+    get_operation_id(pool, op_info)?;
     match op_info.operation_id {
         None => {
             // no operation_id, validate new record input

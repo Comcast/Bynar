@@ -18,11 +18,12 @@
     "redfish_port": 443,
     "vault_endpoint": "https://my_vault.com",
     "vault_token": "token_98706420",
+    "lock_file": "/var/log/setMaintenance.lock",
     "database": {
         "username": "postgres",
         "password": "",
         "port": 5432,
         "dbname":"bynar",
-        "endpoint":"some.endpoint"
+        "endpoint":"localhost"
     }
 }

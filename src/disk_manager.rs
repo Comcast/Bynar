@@ -1,5 +1,6 @@
 use serde_derive::*;
 
+use std::fs;
 use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
@@ -8,8 +9,8 @@ use std::thread;
 use std::time::Duration;
 
 use api::service::{
-    Disk, DiskType, Disks, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, OpResult, Operation,
-    Partition, PartitionInfo, ResultType,
+    Disk, DiskType, Disks, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, OpResult,
+    Operation, Partition, PartitionInfo, ResultType,
 };
 mod backend;
 mod in_progress;
@@ -91,26 +92,27 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
     Ok(())
 }
 
-
 // check if operation does not have disk.  If it doesn't, return true, else false
 fn op_no_disk(responder: &Socket, op: &Operation) -> bool {
     if !op.has_disk() {
         match op.get_Op_type() {
             Op::Add => error!("Add operation must include disk field.  Ignoring request"),
-            Op::AddPartition => error!("Add Partition operation must include disk field.  Ignoring request"),
+            Op::AddPartition => {
+                error!("Add Partition operation must include disk field.  Ignoring request")
+            }
             Op::Remove => error!("Remove operation must include disk field.  Ignoring request"),
-            Op::SafeToRemove => error!("Safe to remove operation must include disk field.  Ignoring request"),
-            _ => return false
+            Op::SafeToRemove => {
+                error!("Safe to remove operation must include disk field.  Ignoring request")
+            }
+            _ => return false,
         }
         // We still have to respond with an error message
         let mut result = OpOutcomeResult::new();
         result.set_result(ResultType::ERR);
-        result.set_error_msg(
-            "missing operation field in protocol. Ignoring request".to_string(),
-        );
+        result.set_error_msg("missing operation field in protocol. Ignoring request".to_string());
 
         let _ = respond_to_client(&result, &responder);
-        return true
+        return true;
     }
     false
 }
