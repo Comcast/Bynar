@@ -19,15 +19,20 @@ mod test_disk;
 use crate::backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
+use daemonize::Daemonize;
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
 use helpers::{error::*, ConfigSettings};
 use hostname::get_hostname;
+use libc::c_int;
 use log::{debug, error, info, trace, warn};
 use protobuf::parse_from_bytes;
 use protobuf::Message as ProtobufMsg;
 use protobuf::RepeatedField;
+use signal_hook::iterator::Signals;
+use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
+use std::process;
 use zmq::Socket;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -124,6 +129,8 @@ fn listen(
     backend_type: &backend::BackendType,
     config_dir: &Path,
     listen_address: &str,
+    signals: &Signals,
+    daemon: bool,
     vault: bool,
 ) -> BynarResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
@@ -138,6 +145,37 @@ fn listen(
         .is_ok());
 
     loop {
+        if daemon {
+            for signal in signals.pending() {
+                match signal as c_int {
+                    signal_hook::SIGHUP => {
+                        //Reload the config file
+                        debug!("Reload Config File");
+                        let config_file = helpers::load_config(config_dir, "bynar.json");
+                        if let Err(e) = config_file {
+                            error!(
+                                "Failed to load config file {}. error: {}",
+                                config_dir.join("bynar.json").display(),
+                                e
+                            );
+                            return Ok(());
+                        }
+                        let config: ConfigSettings = config_file.expect("Failed to load config");
+                    }
+                    signal_hook::SIGINT | signal_hook::SIGCHLD => {
+                        //skip this
+                        debug!("Ignore signal");
+                        continue;
+                    }
+                    signal_hook::SIGTERM => {
+                        //"gracefully" exit
+                        debug!("Exit Process");
+                        break;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
         let msg = responder.recv_bytes(0)?;
         debug!("Got msg len: {}", msg.len());
         trace!("Parsing msg {:?} as hex", msg);
@@ -549,14 +587,55 @@ fn main() {
                 .multiple(true)
                 .help("Sets the level of verbosity"),
         )
+        .arg(
+            Arg::with_name("daemon")
+                .help("Run Bynar as a daemon")
+                .long("daemon")
+                .required(false),
+        )
         .get_matches();
+    let daemon = matches.is_present("daemon");
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
     info!("Starting up");
+    let signals = Signals::new(&[
+        signal_hook::SIGHUP,
+        signal_hook::SIGTERM,
+        signal_hook::SIGINT,
+        signal_hook::SIGCHLD,
+    ])
+    .expect("Unable to create iterator signal handler");
+    //Check if daemon, if so, start the daemon
+    if daemon {
+        let stdout = File::create("/var/log/disk_manager_daemon.out")
+            .expect("/var/log/disk_manager_daemon.out creation failed");
+        let stderr = File::create("/var/log/disk_manager_daemon.err")
+            .expect("/var/log/disk_manager_daemon.err creation failed");
 
+        trace!("I'm Parent and My pid is {}", process::id());
+
+        let daemon = Daemonize::new()
+            .pid_file("/var/log/disk_manager_daemon.pid") // Every method except `new` and `start`
+            .chown_pid_file(true)
+            .working_directory("/")
+            .user("root")
+            .group(2) // 2 is the bin user
+            .umask(0o027) // Set umask, this gives 750 permission
+            .stdout(stdout) // Redirect stdout
+            .stderr(stderr) // Redirect stderr
+            .exit_action(|| trace!("This is executed before master process exits"));
+
+        match daemon.start() {
+            Ok(_) => trace!("Success, daemonized"),
+            Err(e) => eprintln!("Error, {}", e),
+        }
+        println!("I'm child process and My pid is {}", process::id());
+    } else {
+        signals.close();
+    }
     //Sanity check
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
@@ -595,6 +674,8 @@ fn main() {
         &backend,
         config_dir,
         matches.value_of("listen").unwrap(),
+        &signals,
+        daemon,
         vault_support,
     ) {
         Ok(_) => {
