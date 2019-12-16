@@ -316,6 +316,7 @@ fn listen(
             }
         }
     }
+    Ok(())
 }
 
 fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResult<()> {
