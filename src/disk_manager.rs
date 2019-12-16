@@ -4,9 +4,10 @@ use std::fs;
 use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
+use std::process;
 use std::str::FromStr;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use api::service::{
     Disk, DiskType, Disks, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, OpResult,
@@ -32,7 +33,6 @@ use protobuf::RepeatedField;
 use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
-use std::process;
 use zmq::Socket;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -145,165 +145,176 @@ fn listen(
         .is_ok());
 
     loop {
-        if daemon {
-            for signal in signals.pending() {
-                match signal as c_int {
-                    signal_hook::SIGHUP => {
-                        //Reload the config file
-                        debug!("Reload Config File");
-                        let config_file = helpers::load_config(config_dir, "bynar.json");
-                        if let Err(e) = config_file {
-                            error!(
-                                "Failed to load config file {}. error: {}",
-                                config_dir.join("bynar.json").display(),
-                                e
-                            );
-                            return Ok(());
+        let now = Instant::now();
+        let events = responder.get_events()? as zmq::PollEvents;
+        // is the socket readable?
+        if (events & zmq::POLLIN) != 0 {
+            let msg = responder.recv_bytes(0)?;
+            debug!("Got msg len: {}", msg.len());
+            trace!("Parsing msg {:?} as hex", msg);
+            let operation = match parse_from_bytes::<Operation>(&msg) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
+                    continue;
+                }
+            };
+
+            debug!("Operation requested: {:?}", operation.get_Op_type());
+            if op_no_disk(&responder, &operation) {
+                continue;
+            }
+            match operation.get_Op_type() {
+                Op::Add => {
+                    let id = if operation.has_osd_id() {
+                        Some(operation.get_osd_id())
+                    } else {
+                        None
+                    };
+                    match add_disk(
+                        &responder,
+                        operation.get_disk(),
+                        &backend_type,
+                        id,
+                        config_dir,
+                    ) {
+                        Ok(_) => {
+                            info!("Add disk finished");
                         }
-                        let config: ConfigSettings = config_file.expect("Failed to load config");
+                        Err(e) => {
+                            error!("Add disk error: {:?}", e);
+                        }
+                    };
+                }
+                Op::AddPartition => {
+                    //
+                }
+                Op::List => {
+                    match list_disks(&responder) {
+                        Ok(_) => {
+                            info!("List disks finished");
+                        }
+                        Err(e) => {
+                            error!("List disks error: {:?}", e);
+                        }
+                    };
+                }
+                Op::Remove => {
+                    let mut result = OpOutcomeResult::new();
+                    match safe_to_remove(
+                        &Path::new(operation.get_disk()),
+                        &backend_type,
+                        config_dir,
+                    ) {
+                        Ok((OpOutcome::Success, true)) => {
+                            match remove_disk(
+                                &responder,
+                                operation.get_disk(),
+                                &backend_type,
+                                config_dir,
+                            ) {
+                                Ok(_) => {
+                                    info!("Remove disk finished");
+                                }
+                                Err(e) => {
+                                    error!("Remove disk error: {:?}", e);
+                                }
+                            };
+                        }
+                        Ok((OpOutcome::Skipped, val)) => {
+                            debug!("Disk skipped");
+                            result.set_outcome(OpOutcome::Skipped);
+                            result.set_value(val);
+                            result.set_result(ResultType::OK);
+                            let _ = respond_to_client(&result, &responder);
+                        }
+                        Ok((OpOutcome::SkipRepeat, val)) => {
+                            debug!("Disk skipped, safe to remove already ran");
+                            result.set_outcome(OpOutcome::SkipRepeat);
+                            result.set_value(val);
+                            result.set_result(ResultType::OK);
+                            let _ = respond_to_client(&result, &responder);
+                        }
+                        Ok((_, false)) => {
+                            debug!("Disk is not safe to remove");
+                            //Response to client
+                            result.set_value(false);
+                            result.set_outcome(OpOutcome::Success);
+                            result.set_result(ResultType::ERR);
+                            result.set_error_msg("Not safe to remove disk".to_string());
+                            let _ = respond_to_client(&result, &responder);
+                        }
+                        Err(e) => {
+                            error!("safe to remove failed: {:?}", e);
+                            // Response to client
+                            result.set_value(false);
+                            result.set_result(ResultType::ERR);
+                            result.set_error_msg(e.to_string());
+                            let _ = respond_to_client(&result, &responder);
+                        }
+                    };
+                }
+                Op::SafeToRemove => {
+                    match safe_to_remove_disk(
+                        &responder,
+                        operation.get_disk(),
+                        &backend_type,
+                        config_dir,
+                    ) {
+                        Ok(_) => {
+                            info!("Safe to remove disk finished");
+                        }
+                        Err(e) => {
+                            error!("Safe to remove error: {:?}", e);
+                        }
+                    };
+                }
+                Op::GetCreatedTickets => {
+                    match get_jira_tickets(&responder, config_dir) {
+                        Ok(_) => {
+                            info!("Fetching jira tickets finished");
+                        }
+                        Err(e) => {
+                            error!("Fetching jira error: {:?}", e);
+                        }
+                    };
+                }
+            };
+        }
+        if daemon {
+            while (now.elapsed() < Duration::from_millis(10)) {
+                for signal in signals.pending() {
+                    match signal as c_int {
+                        signal_hook::SIGHUP => {
+                            //Reload the config file
+                            debug!("Reload Config File");
+                            let config_file = helpers::load_config(config_dir, "bynar.json");
+                            if let Err(e) = config_file {
+                                error!(
+                                    "Failed to load config file {}. error: {}",
+                                    config_dir.join("bynar.json").display(),
+                                    e
+                                );
+                                return Ok(());
+                            }
+                            let config: ConfigSettings =
+                                config_file.expect("Failed to load config");
+                        }
+                        signal_hook::SIGINT | signal_hook::SIGCHLD => {
+                            //skip this
+                            debug!("Ignore signal");
+                            continue;
+                        }
+                        signal_hook::SIGTERM => {
+                            //"gracefully" exit
+                            debug!("Exit Process");
+                            break;
+                        }
+                        _ => unreachable!(),
                     }
-                    signal_hook::SIGINT | signal_hook::SIGCHLD => {
-                        //skip this
-                        debug!("Ignore signal");
-                        continue;
-                    }
-                    signal_hook::SIGTERM => {
-                        //"gracefully" exit
-                        debug!("Exit Process");
-                        break;
-                    }
-                    _ => unreachable!(),
                 }
             }
         }
-        let msg = responder.recv_bytes(0)?;
-        debug!("Got msg len: {}", msg.len());
-        trace!("Parsing msg {:?} as hex", msg);
-        let operation = match parse_from_bytes::<Operation>(&msg) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
-                continue;
-            }
-        };
-
-        debug!("Operation requested: {:?}", operation.get_Op_type());
-        if op_no_disk(&responder, &operation) {
-            continue;
-        }
-        match operation.get_Op_type() {
-            Op::Add => {
-                let id = if operation.has_osd_id() {
-                    Some(operation.get_osd_id())
-                } else {
-                    None
-                };
-                match add_disk(
-                    &responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    id,
-                    config_dir,
-                ) {
-                    Ok(_) => {
-                        info!("Add disk finished");
-                    }
-                    Err(e) => {
-                        error!("Add disk error: {:?}", e);
-                    }
-                };
-            }
-            Op::AddPartition => {
-                //
-            }
-            Op::List => {
-                match list_disks(&responder) {
-                    Ok(_) => {
-                        info!("List disks finished");
-                    }
-                    Err(e) => {
-                        error!("List disks error: {:?}", e);
-                    }
-                };
-            }
-            Op::Remove => {
-                let mut result = OpOutcomeResult::new();
-                match safe_to_remove(&Path::new(operation.get_disk()), &backend_type, config_dir) {
-                    Ok((OpOutcome::Success, true)) => {
-                        match remove_disk(
-                            &responder,
-                            operation.get_disk(),
-                            &backend_type,
-                            config_dir,
-                        ) {
-                            Ok(_) => {
-                                info!("Remove disk finished");
-                            }
-                            Err(e) => {
-                                error!("Remove disk error: {:?}", e);
-                            }
-                        };
-                    }
-                    Ok((OpOutcome::Skipped, val)) => {
-                        debug!("Disk skipped");
-                        result.set_outcome(OpOutcome::Skipped);
-                        result.set_value(val);
-                        result.set_result(ResultType::OK);
-                        let _ = respond_to_client(&result, &responder);
-                    }
-                    Ok((OpOutcome::SkipRepeat, val)) => {
-                        debug!("Disk skipped, safe to remove already ran");
-                        result.set_outcome(OpOutcome::SkipRepeat);
-                        result.set_value(val);
-                        result.set_result(ResultType::OK);
-                        let _ = respond_to_client(&result, &responder);
-                    }
-                    Ok((_, false)) => {
-                        debug!("Disk is not safe to remove");
-                        //Response to client
-                        result.set_value(false);
-                        result.set_outcome(OpOutcome::Success);
-                        result.set_result(ResultType::ERR);
-                        result.set_error_msg("Not safe to remove disk".to_string());
-                        let _ = respond_to_client(&result, &responder);
-                    }
-                    Err(e) => {
-                        error!("safe to remove failed: {:?}", e);
-                        // Response to client
-                        result.set_value(false);
-                        result.set_result(ResultType::ERR);
-                        result.set_error_msg(e.to_string());
-                        let _ = respond_to_client(&result, &responder);
-                    }
-                };
-            }
-            Op::SafeToRemove => {
-                match safe_to_remove_disk(
-                    &responder,
-                    operation.get_disk(),
-                    &backend_type,
-                    config_dir,
-                ) {
-                    Ok(_) => {
-                        info!("Safe to remove disk finished");
-                    }
-                    Err(e) => {
-                        error!("Safe to remove error: {:?}", e);
-                    }
-                };
-            }
-            Op::GetCreatedTickets => {
-                match get_jira_tickets(&responder, config_dir) {
-                    Ok(_) => {
-                        info!("Fetching jira tickets finished");
-                    }
-                    Err(e) => {
-                        error!("Fetching jira error: {:?}", e);
-                    }
-                };
-            }
-        };
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
