@@ -573,10 +573,8 @@ fn main() {
         let outfile = format!("/var/log/{}", config.daemon_output);
         let errfile = format!("/var/log/{}", config.daemon_error);
         let pidfile = format!("/var/log/{}", config.daemon_pid);
-        let stdout = File::create(&outfile)
-            .expect(&format!("{} creation failed", outfile));
-        let stderr = File::create(&errfile)
-            .expect(&format!("{} creation failed", errfile));
+        let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
+        let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
 
         trace!("I'm Parent and My pid is {}", process::id());
 
@@ -601,7 +599,6 @@ fn main() {
     }
     info!("Starting up");
 
-    
     let simulate = matches.is_present("simulate");
     let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
     let h_info = Host::new();
@@ -612,7 +609,6 @@ fn main() {
     }
     let host_info = h_info.expect("Failed to gather host information");
     debug!("Gathered host info: {:?}", host_info);
-    
 
     let db_pool = match create_db_connection_pool(&config.database) {
         Err(e) => {
