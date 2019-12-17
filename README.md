@@ -66,9 +66,9 @@ config/bynar.json.
  "vault_endpoint": "https://my_vault.com",
  "vault_token": "token_98706420",
  "database": {
-     "username": "postgres",
-     "password": "",
-     "port": "1234",
+     "username": "postgres_user",
+     "password": "postgres_passwd",
+     "port": "8888",
      "dbname": "database_name",
      "endpoint": "some.endpoint"
  },
