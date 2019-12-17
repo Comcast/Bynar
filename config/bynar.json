@@ -23,7 +23,10 @@
         "username": "postgres",
         "password": "",
         "port": 5432,
-        "dbname":"bynar",
-        "endpoint":"localhost"
-    }
+        "dbname": "bynar",
+        "endpoint": "localhost"
+    },
+    "daemon_output": "bynar_daemon.out",
+    "daemon_error": "bynar_daemon.err",
+    "daemon_pid": "bynar_daemon.pid"
 }
