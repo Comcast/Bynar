@@ -226,6 +226,15 @@ pub struct ConfigSettings {
     pub jira_priority: String,
     pub jira_project_id: String,
     pub jira_ticket_assignee: String,
+    /// Name of the Daemon Output file
+    #[serde(default = "bynar_daemon.out")]
+    pub daemon_output: String,
+    /// Name of the Daemon Error file
+    #[serde(default = "bynar_daemon.err")]
+    pub daemon_error: String,
+    /// Name of the Daemon pid file
+    #[serde(default = "bynar_daemon.pid")]
+    pub daemon_pid: String,
     pub proxy: Option<String>,
     pub database: DBConfig,
 }
