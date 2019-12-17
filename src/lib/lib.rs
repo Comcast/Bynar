@@ -202,6 +202,19 @@ pub fn remove_disk_request(
     }
 }
 
+// default filename for daemon_output
+fn default_out() -> String {
+    "bynar_daemon.out".to_string()
+}
+// default filename for daemon_err
+fn default_err() -> String {
+    "bynar_daemon.err".to_string()
+}
+//default filename for daemon_pid
+fn default_pid() -> String {
+    "bynar_daemon.pid".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConfigSettings {
     pub manager_host: String,
@@ -227,13 +240,13 @@ pub struct ConfigSettings {
     pub jira_project_id: String,
     pub jira_ticket_assignee: String,
     /// Name of the Daemon Output file
-    #[serde(default = "bynar_daemon.out")]
+    #[serde(default = "default_out")]
     pub daemon_output: String,
     /// Name of the Daemon Error file
-    #[serde(default = "bynar_daemon.err")]
+    #[serde(default = "default_err")]
     pub daemon_error: String,
     /// Name of the Daemon pid file
-    #[serde(default = "bynar_daemon.pid")]
+    #[serde(default = "default_pid")]
     pub daemon_pid: String,
     pub proxy: Option<String>,
     pub database: DBConfig,
