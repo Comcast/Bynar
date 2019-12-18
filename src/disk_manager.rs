@@ -635,6 +635,18 @@ fn main() {
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
+    let log = Path::new(matches.value_of("log").unwrap());
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
+    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
+        //systemd doesn't use a terminal
+        loggers.push(term_logger);
+    }
+    loggers.push(WriteLogger::new(
+        level,
+        Config::default(),
+        File::create(log).expect("log file creation failed"),
+    ));
+    let _ = CombinedLogger::init(loggers);
     //Sanity check
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
@@ -661,7 +673,6 @@ fn main() {
         return;
     }
     let config: DiskManagerConfig = config.expect("Failed to load config");
-    info!("Starting up");
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
         signal_hook::SIGTERM,
@@ -722,24 +733,14 @@ fn main() {
         signals.close();
     }
     
-    let log = Path::new(matches.value_of("log").unwrap());
+    info!("---------------------------------\nStarting up");
     let backend = BackendType::from_str(matches.value_of("backend").unwrap())
         .expect("unable to convert backend option to BackendType");
     let vault_support = {
         bool::from_str(matches.value_of("vault").unwrap())
             .expect("unable to convert vault option to bool")
     };
-    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
-    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
-        //systemd doesn't use a terminal
-        loggers.push(term_logger);
-    }
-    loggers.push(WriteLogger::new(
-        level,
-        Config::default(),
-        File::create(log).expect("log file creation failed"),
-    ));
-    let _ = CombinedLogger::init(loggers);
+    
     match listen(
         &backend,
         config_dir,
