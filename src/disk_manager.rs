@@ -1,10 +1,11 @@
 use serde_derive::*;
 
 use std::fs;
-use std::fs::{create_dir, File};
+use std::fs::{create_dir, File, read_to_string};
 use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
 use std::process;
+use std::process::Command;
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -634,6 +635,32 @@ fn main() {
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
+    //Sanity check
+    let config_dir = Path::new(matches.value_of("configdir").unwrap());
+    if !config_dir.exists() {
+        warn!(
+            "Config directory {} doesn't exist. Creating",
+            config_dir.display()
+        );
+        if let Err(e) = create_dir(config_dir) {
+            error!(
+                "Unable to create directory {}: {}",
+                config_dir.display(),
+                e.to_string()
+            );
+            return;
+        }
+    }
+    let config = helpers::load_config(config_dir, "disk-manager.json");
+    if let Err(e) = config {
+        error!(
+            "Failed to load config file {}. error: {}",
+            config_dir.join("disk-manager.json").display(),
+            e
+        );
+        return;
+    }
+    let config: DiskManagerConfig = config.expect("Failed to load config");
     info!("Starting up");
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
@@ -694,22 +721,7 @@ fn main() {
     } else {
         signals.close();
     }
-    //Sanity check
-    let config_dir = Path::new(matches.value_of("configdir").unwrap());
-    if !config_dir.exists() {
-        warn!(
-            "Config directory {} doesn't exist. Creating",
-            config_dir.display()
-        );
-        if let Err(e) = create_dir(config_dir) {
-            error!(
-                "Unable to create directory {}: {}",
-                config_dir.display(),
-                e.to_string()
-            );
-            return;
-        }
-    }
+    
     let log = Path::new(matches.value_of("log").unwrap());
     let backend = BackendType::from_str(matches.value_of("backend").unwrap())
         .expect("unable to convert backend option to BackendType");

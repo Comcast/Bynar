@@ -620,7 +620,7 @@ fn main() {
         signals.close();
     }
     
-    info!("\n------------------------------------------------\nStarting up\n");
+    info!("------------------------------------------------\n\t\tStarting up");
 
     let simulate = matches.is_present("simulate");
     let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
