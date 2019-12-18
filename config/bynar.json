@@ -18,12 +18,14 @@
     "redfish_port": 443,
     "vault_endpoint": "https://my_vault.com",
     "vault_token": "token_98706420",
-    "lock_file": "/var/log/setMaintenance.lock",
     "database": {
-        "username": "postgres",
-        "password": "",
-        "port": 5432,
-        "dbname":"bynar",
-        "endpoint":"localhost"
-    }
+        "username": "postgres_user",
+        "password": "postgres_passwd",
+        "port": 8888,
+        "dbname": "database_name",
+        "endpoint": "some_endpoint"
+    },
+    "daemon_output": "bynar_daemon.out",
+    "daemon_error": "bynar_daemon.err",
+    "daemon_pid": "bynar_daemon.pid"
 }
