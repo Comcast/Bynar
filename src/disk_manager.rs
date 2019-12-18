@@ -35,11 +35,33 @@ use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use zmq::Socket;
 
+// default filename for daemon_output
+fn default_out() -> String {
+    "disk_manager_daemon.out".to_string()
+}
+// default filename for daemon_err
+fn default_err() -> String {
+    "disk_manager_daemon.err".to_string()
+}
+//default filename for daemon_pid
+fn default_pid() -> String {
+    "disk_manager_daemon.pid".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct DiskManagerConfig {
     backend: BackendType,
     vault_token: Option<String>,
     vault_endpoint: Option<String>,
+     /// Name of the Daemon Output file
+    #[serde(default = "default_out")]
+    pub daemon_output: String,
+    /// Name of the Daemon Error file
+    #[serde(default = "default_err")]
+    pub daemon_error: String,
+    /// Name of the Daemon pid file
+    #[serde(default = "default_pid")]
+    pub daemon_pid: String
 }
 
 fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
@@ -622,15 +644,18 @@ fn main() {
     .expect("Unable to create iterator signal handler");
     //Check if daemon, if so, start the daemon
     if daemon {
-        let stdout = File::create("/var/log/disk_manager_daemon.out")
-            .expect("/var/log/disk_manager_daemon.out creation failed");
-        let stderr = File::create("/var/log/disk_manager_daemon.err")
-            .expect("/var/log/disk_manager_daemon.err creation failed");
+        let outfile = format!("/var/log/{}", config.daemon_output);
+        let errfile = format!("/var/log/{}", config.daemon_error);
+        let pidfile = format!("/var/log/{}", config.daemon_pid);
+
+        let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
+        let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
+
 
         trace!("I'm Parent and My pid is {}", process::id());
 
         let daemon = Daemonize::new()
-            .pid_file("/var/log/disk_manager_daemon.pid") // Every method except `new` and `start`
+            .pid_file(&pidfile) // Every method except `new` and `start`
             .chown_pid_file(true)
             .working_directory("/")
             .user("root")
