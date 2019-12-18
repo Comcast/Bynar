@@ -39,7 +39,7 @@ use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
-use std::fs::{create_dir, read_to_string, File};
+use std::fs::{create_dir, read_to_string, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
@@ -533,7 +533,7 @@ fn main() {
     loggers.push(WriteLogger::new(
         level,
         Config::default(),
-        File::create("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
+        OpenOptions::new().append(true).create(true).open("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
     ));
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
@@ -619,7 +619,8 @@ fn main() {
     } else {
         signals.close();
     }
-    info!("Starting up");
+    
+    info!("\n\nStarting up\n");
 
     let simulate = matches.is_present("simulate");
     let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
