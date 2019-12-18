@@ -42,6 +42,7 @@ use slack_hook::{PayloadBuilder, Slack};
 use std::fs::{create_dir, read_to_string, File};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 /*#[derive(Clone, Debug, Deserialize)]
@@ -573,11 +574,32 @@ fn main() {
         let outfile = format!("/var/log/{}", config.daemon_output);
         let errfile = format!("/var/log/{}", config.daemon_error);
         let pidfile = format!("/var/log/{}", config.daemon_pid);
+        //check if the pidfile exists
+        let pidpath = Path::new(&pidfile);
+        if pidpath.exists() {
+            //open pidfile and check if process with pid exists
+            let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
+            let output = Command::new("ps").args(&["-p", &pid]).output().expect("Unable to open shell to run ps command");
+            match output.status.code(){
+                Some(0) => {
+                    let out = String::from_utf8_lossy(&output.stdout);
+                    if out.contains("bynar") {
+                        //skip
+                        signals.close();
+                        error!("There is already a running instance of bynar! Abort!");
+                        return;
+                    }
+                }
+                _ => {}
+            }
+
+        }
+
         let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
         let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
 
         trace!("I'm Parent and My pid is {}", process::id());
-
+ 
         let daemon = Daemonize::new()
             .pid_file(&pidfile) // Every method except `new` and `start`
             .chown_pid_file(true)
@@ -680,7 +702,7 @@ fn main() {
             }
         };
         if daemon {
-            while (now.elapsed() < dur) {
+            while now.elapsed() < dur {
                 for signal in signals.pending() {
                     match signal as c_int {
                         signal_hook::SIGHUP => {
