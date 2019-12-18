@@ -734,7 +734,6 @@ fn main() {
                         signal_hook::SIGTERM => {
                             //"gracefully" exit
                             debug!("Exit Process");
-                            notify_slack(&config, &format!("Bynar daemon on host  {} has stopped", host_info.hostname)).expect("Unable to connect to slack");
                             break 'outer;
                         }
                         _ => unreachable!(),
@@ -746,4 +745,7 @@ fn main() {
         }
     }
     debug!("Bynar exited successfully");
+    if daemon{
+        notify_slack(&config, &format!("Bynar daemon on host  {} has stopped", host_info.hostname)).expect("Unable to connect to slack");
+    }
 }
