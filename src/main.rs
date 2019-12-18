@@ -643,6 +643,7 @@ fn main() {
         ) {
             Err(e) => {
                 error!("Check for failed disks failed with error: {}", e);
+                break 'outer;
             }
             _ => {
                 info!("Check for failed disks completed");
@@ -657,6 +658,7 @@ fn main() {
         ) {
             Err(e) => {
                 error!("Check for failed hardware failed with error: {}", e);
+                break 'outer;
             }
             _ => {
                 info!("Check for failed hardware completed");
@@ -671,6 +673,7 @@ fn main() {
         ) {
             Err(e) => {
                 error!("Add repaired disks failed with error: {}", e);
+                break 'outer;
             }
             _ => {
                 info!("Add repaired disks completed");
