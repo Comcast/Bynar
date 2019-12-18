@@ -663,7 +663,7 @@ fn main() {
             return;
         }
     }
-    let config = helpers::load_config(config_dir, "disk-manager.json");
+    let config = helpers::load_config::<DiskManagerConfig>(config_dir, "disk-manager.json");
     if let Err(e) = config {
         error!(
             "Failed to load config file {}. error: {}",
