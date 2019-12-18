@@ -144,7 +144,7 @@ fn listen(
         .bind(&format!("tcp://{}:5555", listen_address))
         .is_ok());
 
-    loop {
+    'outer: loop {
         let now = Instant::now();
         let events = responder.get_events()? as zmq::PollEvents;
         // is the socket readable?
@@ -308,7 +308,7 @@ fn listen(
                         signal_hook::SIGTERM => {
                             //"gracefully" exit
                             debug!("Exit Process");
-                            break;
+                            break 'outer;
                         }
                         _ => unreachable!(),
                     }
