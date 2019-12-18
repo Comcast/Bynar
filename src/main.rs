@@ -534,6 +534,32 @@ fn main() {
         Config::default(),
         File::create("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
     ));
+    let config_dir = Path::new(matches.value_of("configdir").unwrap());
+    if !config_dir.exists() {
+        warn!(
+            "Config directory {} doesn't exist. Creating",
+            config_dir.display()
+        );
+        if let Err(e) = create_dir(config_dir) {
+            error!(
+                "Unable to create directory {}: {}",
+                config_dir.display(),
+                e.to_string()
+            );
+            return;
+        }
+    }
+    //TODO: create constant for bynar.json
+    let config = helpers::load_config(config_dir, "bynar.json");
+    if let Err(e) = config {
+        error!(
+            "Failed to load config file {}. error: {}",
+            config_dir.join("bynar.json").display(),
+            e
+        );
+        return;
+    }
+    let config: ConfigSettings = config.expect("Failed to load config");
     let _ = CombinedLogger::init(loggers);
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
@@ -544,15 +570,16 @@ fn main() {
     .expect("Unable to create iterator signal handler");
     //Check if daemon, if so, start the daemon
     if daemon {
-        let stdout = File::create("/var/log/bynar_daemon.out")
-            .expect("/var/log/bynar_daemon.out creation failed");
-        let stderr = File::create("/var/log/bynar_daemon.err")
-            .expect("/var/log/bynar_daemon.err creation failed");
+        let outfile = format!("/var/log/{}", config.daemon_output);
+        let errfile = format!("/var/log/{}", config.daemon_error);
+        let pidfile = format!("/var/log/{}", config.daemon_pid);
+        let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
+        let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
 
         trace!("I'm Parent and My pid is {}", process::id());
 
         let daemon = Daemonize::new()
-            .pid_file("/var/log/bynar_daemon.pid") // Every method except `new` and `start`
+            .pid_file(&pidfile) // Every method except `new` and `start`
             .chown_pid_file(true)
             .working_directory("/")
             .user("root")
@@ -572,21 +599,6 @@ fn main() {
     }
     info!("Starting up");
 
-    let config_dir = Path::new(matches.value_of("configdir").unwrap());
-    if !config_dir.exists() {
-        warn!(
-            "Config directory {} doesn't exist. Creating",
-            config_dir.display()
-        );
-        if let Err(e) = create_dir(config_dir) {
-            error!(
-                "Unable to create directory {}: {}",
-                config_dir.display(),
-                e.to_string()
-            );
-            return;
-        }
-    }
     let simulate = matches.is_present("simulate");
     let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
     let h_info = Host::new();
@@ -597,17 +609,6 @@ fn main() {
     }
     let host_info = h_info.expect("Failed to gather host information");
     debug!("Gathered host info: {:?}", host_info);
-    //TODO: create constant for bynar.json
-    let config = helpers::load_config(config_dir, "bynar.json");
-    if let Err(e) = config {
-        error!(
-            "Failed to load config file {}. error: {}",
-            config_dir.join("bynar.json").display(),
-            e
-        );
-        return;
-    }
-    let config: ConfigSettings = config.expect("Failed to load config");
 
     let db_pool = match create_db_connection_pool(&config.database) {
         Err(e) => {
