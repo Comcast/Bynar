@@ -689,7 +689,6 @@ fn main() {
         //check if the pidfile exists
         let pidpath = Path::new(&pidfile);
         if pidpath.exists() {
-            trace!("path exists");
             //open pidfile and check if process with pid exists
             let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
             let output = Command::new("ps")
