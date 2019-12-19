@@ -533,7 +533,11 @@ fn main() {
     loggers.push(WriteLogger::new(
         level,
         Config::default(),
-        OpenOptions::new().append(true).create(true).open("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
+        OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("/var/log/bynar.log")
+            .expect("/var/log/bynar.log creation failed"),
     ));
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
@@ -579,8 +583,11 @@ fn main() {
         if pidpath.exists() {
             //open pidfile and check if process with pid exists
             let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
-            let output = Command::new("ps").args(&["-p", &pid]).output().expect("Unable to open shell to run ps command");
-            match output.status.code(){
+            let output = Command::new("ps")
+                .args(&["-p", &pid])
+                .output()
+                .expect("Unable to open shell to run ps command");
+            match output.status.code() {
                 Some(0) => {
                     let out = String::from_utf8_lossy(&output.stdout);
                     if out.contains("bynar") {
@@ -592,14 +599,13 @@ fn main() {
                 }
                 _ => {}
             }
-
         }
 
         let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
         let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
 
         trace!("I'm Parent and My pid is {}", process::id());
- 
+
         let daemon = Daemonize::new()
             .pid_file(&pidfile) // Every method except `new` and `start`
             .chown_pid_file(true)
@@ -619,7 +625,7 @@ fn main() {
     } else {
         signals.close();
     }
-    
+
     info!("------------------------------------------------\n\t\tStarting up");
 
     let simulate = matches.is_present("simulate");
