@@ -673,6 +673,30 @@ fn main() {
         return;
     }
     let config: DiskManagerConfig = config.expect("Failed to load config");
+    let pidfile = format!("/var/log/{}", config.daemon_pid);
+
+    //check if the pidfile exists
+    let pidpath = Path::new(&pidfile);
+    if pidpath.exists() {
+        //open pidfile and check if process with pid exists
+        let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
+        let output = Command::new("ps")
+            .args(&["-p", &pid])
+            .output()
+            .expect("Unable to open shell to run ps command");
+        match output.status.code() {
+            Some(0) => {
+                let out = String::from_utf8_lossy(&output.stdout);
+                if out.contains("disk-manager") {
+                    //skip
+                    signals.close();
+                    error!("There is already a running instance of disk-manager! Abort!");
+                    return;
+                }
+            }
+            _ => {}
+        }
+    }
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
         signal_hook::SIGTERM,
@@ -684,30 +708,6 @@ fn main() {
     if daemon {
         let outfile = format!("/var/log/{}", config.daemon_output);
         let errfile = format!("/var/log/{}", config.daemon_error);
-        let pidfile = format!("/var/log/{}", config.daemon_pid);
-
-        //check if the pidfile exists
-        let pidpath = Path::new(&pidfile);
-        if pidpath.exists() {
-            //open pidfile and check if process with pid exists
-            let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
-            let output = Command::new("ps")
-                .args(&["-p", &pid])
-                .output()
-                .expect("Unable to open shell to run ps command");
-            match output.status.code() {
-                Some(0) => {
-                    let out = String::from_utf8_lossy(&output.stdout);
-                    if out.contains("disk-manager") {
-                        //skip
-                        signals.close();
-                        error!("There is already a running instance of disk-manager! Abort!");
-                        return;
-                    }
-                }
-                _ => {}
-            }
-        }
 
         let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
         let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
