@@ -689,7 +689,6 @@ fn main() {
                 let out = String::from_utf8_lossy(&output.stdout);
                 if out.contains("disk-manager") {
                     //skip
-                    signals.close();
                     error!("There is already a running instance of disk-manager! Abort!");
                     return;
                 }

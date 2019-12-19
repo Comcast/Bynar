@@ -581,7 +581,6 @@ fn main() {
                 let out = String::from_utf8_lossy(&output.stdout);
                 if out.contains("bynar") {
                     //skip
-                    signals.close();
                     error!("There is already a running instance of bynar! Abort!");
                     return;
                 }
