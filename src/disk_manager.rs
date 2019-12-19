@@ -1,7 +1,7 @@
 use serde_derive::*;
 
 use std::fs;
-use std::fs::{create_dir, File, read_to_string};
+use std::fs::{create_dir, read_to_string, File};
 use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
 use std::process;
@@ -54,7 +54,7 @@ struct DiskManagerConfig {
     backend: BackendType,
     vault_token: Option<String>,
     vault_endpoint: Option<String>,
-     /// Name of the Daemon Output file
+    /// Name of the Daemon Output file
     #[serde(default = "default_out")]
     pub daemon_output: String,
     /// Name of the Daemon Error file
@@ -62,7 +62,7 @@ struct DiskManagerConfig {
     pub daemon_error: String,
     /// Name of the Daemon pid file
     #[serde(default = "default_pid")]
-    pub daemon_pid: String
+    pub daemon_pid: String,
 }
 
 fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
@@ -686,30 +686,32 @@ fn main() {
         let errfile = format!("/var/log/{}", config.daemon_error);
         let pidfile = format!("/var/log/{}", config.daemon_pid);
 
-         //check if the pidfile exists
+        //check if the pidfile exists
         let pidpath = Path::new(&pidfile);
         if pidpath.exists() {
+            trace!("path exists");
             //open pidfile and check if process with pid exists
             let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
-            let output = Command::new("ps").args(&["-p", &pid]).output().expect("Unable to open shell to run ps command");
-            match output.status.code(){
+            let output = Command::new("ps")
+                .args(&["-p", &pid])
+                .output()
+                .expect("Unable to open shell to run ps command");
+            match output.status.code() {
                 Some(0) => {
                     let out = String::from_utf8_lossy(&output.stdout);
-                    if out.contains("bynar") {
+                    if out.contains("disk-manager") {
                         //skip
                         signals.close();
-                        error!("There is already a running instance of bynar! Abort!");
+                        error!("There is already a running instance of disk-manager! Abort!");
                         return;
                     }
                 }
                 _ => {}
             }
-
         }
 
         let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
         let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
-
 
         trace!("I'm Parent and My pid is {}", process::id());
 
@@ -732,7 +734,7 @@ fn main() {
     } else {
         signals.close();
     }
-    
+
     info!("---------------------------------\nStarting up");
     let backend = BackendType::from_str(matches.value_of("backend").unwrap())
         .expect("unable to convert backend option to BackendType");
@@ -740,7 +742,7 @@ fn main() {
         bool::from_str(matches.value_of("vault").unwrap())
             .expect("unable to convert vault option to bool")
     };
-    
+
     match listen(
         &backend,
         config_dir,
