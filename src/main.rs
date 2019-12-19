@@ -39,9 +39,10 @@ use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
-use std::fs::{create_dir, read_to_string, File};
+use std::fs::{create_dir, read_to_string, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 /*#[derive(Clone, Debug, Deserialize)]
@@ -532,7 +533,11 @@ fn main() {
     loggers.push(WriteLogger::new(
         level,
         Config::default(),
-        File::create("/var/log/bynar.log").expect("/var/log/bynar.log creation failed"),
+        OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("/var/log/bynar.log")
+            .expect("/var/log/bynar.log creation failed"),
     ));
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
@@ -561,6 +566,28 @@ fn main() {
     }
     let config: ConfigSettings = config.expect("Failed to load config");
     let _ = CombinedLogger::init(loggers);
+    let pidfile = format!("/var/log/{}", config.daemon_pid);
+    //check if the pidfile exists
+    let pidpath = Path::new(&pidfile);
+    if pidpath.exists() {
+        //open pidfile and check if process with pid exists
+        let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
+        let output = Command::new("ps")
+            .args(&["-p", &pid])
+            .output()
+            .expect("Unable to open shell to run ps command");
+        match output.status.code() {
+            Some(0) => {
+                let out = String::from_utf8_lossy(&output.stdout);
+                if out.contains("bynar") {
+                    //skip
+                    error!("There is already a running instance of bynar! Abort!");
+                    return;
+                }
+            }
+            _ => {}
+        }
+    }
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
         signal_hook::SIGTERM,
@@ -572,7 +599,7 @@ fn main() {
     if daemon {
         let outfile = format!("/var/log/{}", config.daemon_output);
         let errfile = format!("/var/log/{}", config.daemon_error);
-        let pidfile = format!("/var/log/{}", config.daemon_pid);
+
         let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
         let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
 
@@ -597,7 +624,8 @@ fn main() {
     } else {
         signals.close();
     }
-    info!("Starting up");
+
+    info!("------------------------------------------------\n\t\tStarting up");
 
     let simulate = matches.is_present("simulate");
     let time = matches.value_of("time").unwrap().parse::<u64>().unwrap();
@@ -680,7 +708,7 @@ fn main() {
             }
         };
         if daemon {
-            while (now.elapsed() < dur) {
+            while now.elapsed() < dur {
                 for signal in signals.pending() {
                     match signal as c_int {
                         signal_hook::SIGHUP => {

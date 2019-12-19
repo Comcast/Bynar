@@ -1,10 +1,11 @@
 use serde_derive::*;
 
 use std::fs;
-use std::fs::{create_dir, File};
+use std::fs::{create_dir, read_to_string, File};
 use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
 use std::process;
+use std::process::Command;
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -35,11 +36,33 @@ use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use zmq::Socket;
 
+// default filename for daemon_output
+fn default_out() -> String {
+    "disk_manager_daemon.out".to_string()
+}
+// default filename for daemon_err
+fn default_err() -> String {
+    "disk_manager_daemon.err".to_string()
+}
+//default filename for daemon_pid
+fn default_pid() -> String {
+    "disk_manager_daemon.pid".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct DiskManagerConfig {
     backend: BackendType,
     vault_token: Option<String>,
     vault_endpoint: Option<String>,
+    /// Name of the Daemon Output file
+    #[serde(default = "default_out")]
+    pub daemon_output: String,
+    /// Name of the Daemon Error file
+    #[serde(default = "default_err")]
+    pub daemon_error: String,
+    /// Name of the Daemon pid file
+    #[serde(default = "default_pid")]
+    pub daemon_pid: String,
 }
 
 fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
@@ -612,7 +635,67 @@ fn main() {
         1 => log::LevelFilter::Debug,
         _ => log::LevelFilter::Trace,
     };
-    info!("Starting up");
+    let log = Path::new(matches.value_of("log").unwrap());
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
+    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
+        //systemd doesn't use a terminal
+        loggers.push(term_logger);
+    }
+    loggers.push(WriteLogger::new(
+        level,
+        Config::default(),
+        File::create(log).expect("log file creation failed"),
+    ));
+    let _ = CombinedLogger::init(loggers);
+    //Sanity check
+    let config_dir = Path::new(matches.value_of("configdir").unwrap());
+    if !config_dir.exists() {
+        warn!(
+            "Config directory {} doesn't exist. Creating",
+            config_dir.display()
+        );
+        if let Err(e) = create_dir(config_dir) {
+            error!(
+                "Unable to create directory {}: {}",
+                config_dir.display(),
+                e.to_string()
+            );
+            return;
+        }
+    }
+    let config = helpers::load_config::<DiskManagerConfig>(config_dir, "disk-manager.json");
+    if let Err(e) = config {
+        error!(
+            "Failed to load config file {}. error: {}",
+            config_dir.join("disk-manager.json").display(),
+            e
+        );
+        return;
+    }
+    let config: DiskManagerConfig = config.expect("Failed to load config");
+    let pidfile = format!("/var/log/{}", config.daemon_pid);
+
+    //check if the pidfile exists
+    let pidpath = Path::new(&pidfile);
+    if pidpath.exists() {
+        //open pidfile and check if process with pid exists
+        let pid = read_to_string(pidpath).expect("Unable to read pid from pidfile");
+        let output = Command::new("ps")
+            .args(&["-p", &pid])
+            .output()
+            .expect("Unable to open shell to run ps command");
+        match output.status.code() {
+            Some(0) => {
+                let out = String::from_utf8_lossy(&output.stdout);
+                if out.contains("disk-manager") {
+                    //skip
+                    error!("There is already a running instance of disk-manager! Abort!");
+                    return;
+                }
+            }
+            _ => {}
+        }
+    }
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
         signal_hook::SIGTERM,
@@ -622,15 +705,16 @@ fn main() {
     .expect("Unable to create iterator signal handler");
     //Check if daemon, if so, start the daemon
     if daemon {
-        let stdout = File::create("/var/log/disk_manager_daemon.out")
-            .expect("/var/log/disk_manager_daemon.out creation failed");
-        let stderr = File::create("/var/log/disk_manager_daemon.err")
-            .expect("/var/log/disk_manager_daemon.err creation failed");
+        let outfile = format!("/var/log/{}", config.daemon_output);
+        let errfile = format!("/var/log/{}", config.daemon_error);
+
+        let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
+        let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
 
         trace!("I'm Parent and My pid is {}", process::id());
 
         let daemon = Daemonize::new()
-            .pid_file("/var/log/disk_manager_daemon.pid") // Every method except `new` and `start`
+            .pid_file(&pidfile) // Every method except `new` and `start`
             .chown_pid_file(true)
             .working_directory("/")
             .user("root")
@@ -648,40 +732,15 @@ fn main() {
     } else {
         signals.close();
     }
-    //Sanity check
-    let config_dir = Path::new(matches.value_of("configdir").unwrap());
-    if !config_dir.exists() {
-        warn!(
-            "Config directory {} doesn't exist. Creating",
-            config_dir.display()
-        );
-        if let Err(e) = create_dir(config_dir) {
-            error!(
-                "Unable to create directory {}: {}",
-                config_dir.display(),
-                e.to_string()
-            );
-            return;
-        }
-    }
-    let log = Path::new(matches.value_of("log").unwrap());
+
+    info!("---------------------------------\nStarting up");
     let backend = BackendType::from_str(matches.value_of("backend").unwrap())
         .expect("unable to convert backend option to BackendType");
     let vault_support = {
         bool::from_str(matches.value_of("vault").unwrap())
             .expect("unable to convert vault option to bool")
     };
-    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
-    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
-        //systemd doesn't use a terminal
-        loggers.push(term_logger);
-    }
-    loggers.push(WriteLogger::new(
-        level,
-        Config::default(),
-        File::create(log).expect("log file creation failed"),
-    ));
-    let _ = CombinedLogger::init(loggers);
+
     match listen(
         &backend,
         config_dir,
