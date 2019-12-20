@@ -35,6 +35,7 @@ pub trait Backend {
 /// The supported backend types
 #[derive(Clone, Debug, Deserialize)]
 pub enum BackendType {
+    #[serde(alias = "ceph")]
     Ceph,
     Gluster,
 }
