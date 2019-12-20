@@ -1489,16 +1489,40 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
         "Requesting kernel to refresh partition cache for {} ",
         device.display()
     );
+    let dev_path = device;
     let device = OpenOptions::new().read(true).write(true).open(device)?;
-    let ret = unsafe { blkrrpart(device.as_raw_fd()) }?;
-    if ret != 0 {
-        Err(BynarError::new(format!(
-            "BLKRRPART ioctl failed with return code: {}",
-            ret,
-        )))
-    } else {
-        Ok(())
+    //Occaisonally blkrrpart will fail, device busy etc.  run partprobe instead
+    match unsafe { blkrrpart(device.as_raw_fd()) } {
+        Ok(ret) => {
+            if ret != 0 {
+                Err(BynarError::new(format!(
+                    "BLKRRPART ioctl failed with return code: {}",
+                    ret,
+                )))
+            } else {
+                Ok(())
+            }
+        }
+        Err(e) => {
+            error!("blkrrpart failed, {:?}, attempting partprobe", e);
+            part_probe(dev_path)?;
+            Ok(())
+        }
     }
+}
+
+fn part_probe(device: &Path) -> BynarResult<()> {
+    let output = Command::new("partprobe")
+        .arg(&format!("{}", device.display()))
+        .output()?;
+    if let Some(0) = output.status.code() {
+        trace!("Partprobe successful!");
+        return Ok(());
+    }
+    Err(BynarError::new(format!(
+        "partprobe failed {:?}",
+        output.stderr
+    )))
 }
 
 /// check if a device is in the list of SystemDisks
