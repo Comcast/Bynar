@@ -879,6 +879,24 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<
             }
         }
     }
+    //might be a Bluestore lvm, check the ceph-volume
+    let ceph_volumes = ceph_volume_list(&cluster_handle)?;
+    for (id, meta) in ceph_volumes {
+        for data in meta {
+            match data.metadata {
+                LvmData::Osd(data) => {
+                    //check if devices contains the device path
+                    for device in data.devices {
+                        if device == path {
+                            return Ok(true);
+                        }
+                    }
+                }
+                //skip other lvm types
+                _ => {}
+            }
+        }
+    }
     Ok(false)
 }
 
