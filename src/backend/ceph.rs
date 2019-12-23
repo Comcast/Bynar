@@ -648,25 +648,7 @@ impl CephBackend {
     fn remove_filestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
-        let mount_point = match block_utils::get_mountpoint(&dev_path)? {
-            Some(osd_path) => osd_path,
-            None => {
-                let temp_dir = TempDir::new("osd")?;
-                temp_dir.into_path()
-            }
-        };
-        debug!("OSD mounted at: {:?}", mount_point);
-
-        let osd_id = match get_osd_id(&mount_point, simulate) {
-            Ok(osd_id) => osd_id,
-            Err(e) => {
-                error!(
-                    "Failed to discover osd id: {:?}.  Falling back on path name",
-                    e
-                );
-                get_osd_id_from_path(&mount_point)?
-            }
-        };
+        let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
         osd_set(
@@ -944,41 +926,6 @@ fn get_osd_id_from_device(cluster_handle: &Rados, dev_path: &Path) -> BynarResul
     Err(BynarError::new(format!(
         "unable to find the osd in the osd metadata"
     )))
-}
-// A fallback function to get the osd id from the mount path.  This isn't
-// 100% accurate but it should be good enough for most cases unless the disk
-// is mounted in the wrong location or is missing an osd id in the path name
-fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
-    match path.file_name() {
-        Some(name) => {
-            debug!("file name: {:?}", name);
-            let name_string = name.to_string_lossy().into_owned();
-            let parts: Vec<&str> = name_string.split('-').collect();
-            if parts.len() < 2 {
-                return Err(BynarError::new(format!(
-                    "Unable to get osd id from {}",
-                    path.display()
-                )));
-            }
-            let id = u64::from_str(parts[1])?;
-            Ok(id)
-        }
-        None => Err(BynarError::new(format!(
-            "Unable to get filename from {}",
-            path.display()
-        ))),
-    }
-}
-
-// Get an osd ID from the whoami file in the osd mount directory
-fn get_osd_id(path: &Path, simulate: bool) -> BynarResult<u64> {
-    if simulate {
-        return Ok(0);
-    }
-    let whoami_path = path.join("whoami");
-    debug!("Discovering osd id number from: {}", whoami_path.display());
-    let buff = read_to_string(&whoami_path)?;
-    Ok(u64::from_str(buff.trim())?)
 }
 
 fn save_keyring(
