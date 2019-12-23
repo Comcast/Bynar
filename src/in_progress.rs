@@ -68,6 +68,7 @@ mod tests {
             state: crate::test_disk::State::Unscanned,
             storage_detail_id: result.storage_detail_id,
             operation_id: None,
+            smart_passed: false,
         };
 
         println!("Adding disk {:#?}", d);
