@@ -776,6 +776,16 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
+        // check if the osd id, if given, is already in the cluster
+        match id {
+            Some(osd_id) => {
+                if is_osd_id_in_cluster(&self.cluster_handle, osd_id)? {
+                    error!("Osd ID {} is already in the cluster. Skipping", osd_id);
+                    return Ok(OpOutcome::Skipped)
+                }
+            }
+            None => {},
+        }
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
             debug!(
