@@ -858,29 +858,34 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok((OpOutcome::Skipped, false));
         }
-        //Get the mountpoint
-        let mount_point = match block_utils::get_mountpoint(&device)? {
-            Some(osd_path) => osd_path,
-            None => {
-                let temp_dir = TempDir::new("osd")?;
-                temp_dir.into_path()
-            }
-        };
-        debug!("Device mounted at: {:?}", mount_point);
-        // get the osd id
-        let osd_id = match get_osd_id(&mount_point, simulate) {
-            Ok(osd_id) => osd_id,
+        //get the osd id
+        let osd_id = match get_osd_id_from_device(&self.cluster_handle, device) {
+            Ok(id) => id,
             Err(e) => {
-                error!(
-                    "Failed to discover osd id: {:?}.  Falling back on path name",
-                    e
-                );
-                match get_osd_id_from_path(&mount_point) {
+                error!("{:?}", e); //Get the mountpoint
+                let mount_point = match block_utils::get_mountpoint(&device)? {
+                    Some(osd_path) => osd_path,
+                    None => {
+                        let temp_dir = TempDir::new("osd")?;
+                        temp_dir.into_path()
+                    }
+                };
+                debug!("Device mounted at: {:?}", mount_point);
+                match get_osd_id(&mount_point, simulate) {
                     Ok(osd_id) => osd_id,
-                    Err(_) => {
-                        //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
-                        error!("Unable to get OSD id, unsafe to remove");
-                        return Err(BynarError::from("Unable to get OSD id from OSD disk"));
+                    Err(e) => {
+                        error!(
+                            "Failed to discover osd id: {:?}.  Falling back on path name",
+                            e
+                        );
+                        match get_osd_id_from_path(&mount_point) {
+                            Ok(osd_id) => osd_id,
+                            Err(_) => {
+                                //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
+                                error!("Unable to get OSD id, unsafe to remove");
+                                return Err(BynarError::from("Unable to get OSD id from OSD disk"));
+                            }
+                        }
                     }
                 }
             }
@@ -893,7 +898,7 @@ impl Backend for CephBackend {
     }
 }
 
-// Check if a device path is already in the cluster 
+// Check if a device path is already in the cluster
 fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
     debug!("Check if device is in cluster");
     let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
@@ -935,6 +940,41 @@ fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool
     Ok(false)
 }
 
+/// get the osd id from the device path using the osd metadata (Needs modification for Bluestore)
+/// Note: need to use ceph-volume lvm list to (potentially) get the osd ID for a Bluestore osd,
+/// if looping over osd metadata doesn't work (on the plus side, ceph-volume lvm list only works
+/// on the server the lvm is on...)
+fn get_osd_id_from_device(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<u64> {
+    debug!("Check if device is in cluster");
+    let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
+    trace!("Hostname is {:?}", host);
+    let path = dev_path.to_string_lossy();
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        match osd.objectstore_meta {
+            ObjectStoreMeta::Bluestore {
+                bluestore_bdev_partition_path,
+                ..
+            } => {
+                if bluestore_bdev_partition_path == path && osd.hostname == host {
+                    return Ok(osd.id);
+                }
+            }
+
+            ObjectStoreMeta::Filestore {
+                backend_filestore_partition_path,
+                ..
+            } => {
+                if backend_filestore_partition_path == path && osd.hostname == host {
+                    return Ok(osd.id);
+                }
+            }
+        }
+    }
+    Err(BynarError::new(format!(
+        "unable to find the osd in the osd metadata"
+    )))
+}
 // A fallback function to get the osd id from the mount path.  This isn't
 // 100% accurate but it should be good enough for most cases unless the disk
 // is mounted in the wrong location or is missing an osd id in the path name
