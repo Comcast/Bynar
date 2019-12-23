@@ -859,37 +859,7 @@ impl Backend for CephBackend {
             return Ok((OpOutcome::Skipped, false));
         }
         //get the osd id
-        let osd_id = match get_osd_id_from_device(&self.cluster_handle, device) {
-            Ok(id) => id,
-            Err(e) => {
-                error!("{:?}", e); //Get the mountpoint
-                let mount_point = match block_utils::get_mountpoint(&device)? {
-                    Some(osd_path) => osd_path,
-                    None => {
-                        let temp_dir = TempDir::new("osd")?;
-                        temp_dir.into_path()
-                    }
-                };
-                debug!("Device mounted at: {:?}", mount_point);
-                match get_osd_id(&mount_point, simulate) {
-                    Ok(osd_id) => osd_id,
-                    Err(e) => {
-                        error!(
-                            "Failed to discover osd id: {:?}.  Falling back on path name",
-                            e
-                        );
-                        match get_osd_id_from_path(&mount_point) {
-                            Ok(osd_id) => osd_id,
-                            Err(_) => {
-                                //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
-                                error!("Unable to get OSD id, unsafe to remove");
-                                return Err(BynarError::from("Unable to get OSD id from OSD disk"));
-                            }
-                        }
-                    }
-                }
-            }
-        };
+        let osd_id = get_osd_id_from_device(&self.cluster_handle, device)?;
         // create and send the command to check if the osd is safe to remove
         Ok((
             OpOutcome::Success,
