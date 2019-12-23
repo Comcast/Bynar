@@ -37,8 +37,9 @@ Bynar requires a Postgres database to be setup.  Setting up a production ready P
 1. Create your configuration file.  The utility takes json config
 information.  Edit the `/etc/bynar/bynar.json` file to configure it.
 The slack_* fields are optional.  They will allow Bynar to send alerts to a
-channel while it's performing maintenance. JIRA is the only currently supported
-back end ticketing system.  A plugin system allows for more back end support.  
+channel while it's performing maintenance. The daemon_* fields are optional.  
+They will allow the user to choose the output files if Bynar is run as a daemon.
+JIRA is the only currently supported back end ticketing system.  A plugin system allows for more back end support.  
 An optional proxy field can be configured to send JIRA REST API requests through.
 For extra security we highly recommend that you enable the vault integration.
 The disk-manager sits on a port and if an attacker gains access to it they can
@@ -65,13 +66,15 @@ config/bynar.json.
  "vault_endpoint": "https://my_vault.com",
  "vault_token": "token_98706420",
  "database": {
-     "username": "postgres",
-     "password": "",
-     "port": "1234",
+     "username": "postgres_user",
+     "password": "postgres_passwd",
+     "port": "8888",
      "dbname": "database_name",
      "endpoint": "some.endpoint"
- }
-
+ },
+ "daemon_output": "bynar_daemon.out",
+ "daemon_error" : "bynar_daemon.err",
+ "daemon_pid" : "bynar_daemon.pid"
 }
 ```
 

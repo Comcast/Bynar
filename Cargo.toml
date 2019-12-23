@@ -40,12 +40,13 @@ rand = "~0.7"
 
 [dependencies]
 api = { path = "api" }
-blkid = "~0.2"
+blkid = {git = "https://github.com/cholcombe973/blkid.git"}#"~0.2"
 block-utils = {git = "https://github.com/cholcombe973/block-utils.git"}#"~0.6"
 bytes = "*"
-ceph = "~3.0"
+ceph = {git = "https://github.com/mzhong1/ceph-rust"}#"~3.0"
 chrono = "~0.4"
 clap = "~2"
+daemonize = "~0.4"
 derive-error = "0.0.4"
 dirs = "~2.0"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
@@ -76,13 +77,16 @@ reqwest = "~0.9"
 serde = "~1"
 serde_derive = "~1"
 serde_json = "~1"
+signal-hook = "~0.1"
 simplelog = "~0.5"
 slack-hook = "~0.8"
 tempdir = "~0.3"
 time = "~0.1"
 uname = "~0.1"
-uuid = { version="~0.7", features = ["v4"]}
+uuid = { version="~0.7", features = ["serde", "v4"]}
 zmq = {version="~0.8"}
+
+
 
 [lib]
 name = "helpers"

@@ -19,11 +19,12 @@ use ceph::CephVersion;
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
+use hostname::get_hostname;
 use init_daemon::{detect_daemon, Daemon};
 use log::{debug, error, info, trace};
 use lvm::*;
 use nix::{
-    ioctl_none, request_code_none,
+    ioctl_none,
     unistd::chown,
     unistd::{Gid, Uid},
 };
@@ -180,9 +181,9 @@ impl CephBackend {
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
             */
+        debug!("Select a Journal");
         // Create the journal device if requested
         let journal = self.select_journal()?;
-
         // Create a new osd id
         let new_osd_id = osd_create(&self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
@@ -428,7 +429,7 @@ impl CephBackend {
             &info,
             journal_device,
         )?;
-        Ok((lv_dev_name.to_path_buf(), vg.get_size()))
+        Ok((lv_dev_name, vg.get_size()))
     }
 
     // Add the lvm tags that ceph requires to identify the osd
@@ -461,9 +462,28 @@ impl CephBackend {
                 Some(uuid) => uuid,
                 None => {
                     debug!("Discovering {} partition uuid", journal_dev);
-                    let blkid = BlkId::new(&Path::new(&format!("{}", journal_dev)))?;
-                    blkid.do_probe()?;
-                    uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?
+                    let devname = journal_dev.device.as_path();
+                    let blkid = BlkId::new(&devname)?;
+                    let uuid = match blkid.get_tag_value("PARTUUID", &devname) {
+                        Ok(ref s) if s == "" => {
+                            // Try getting the UUID instead
+                            match blkid.get_tag_value("UUID", &devname) {
+                                Ok(ref s) if s == "" => {
+                                    // Try getting PTUUID instead...
+                                    blkid.get_tag_value("PTUUID", &devname)?
+                                }
+                                Ok(s) => s,
+                                Err(e) => return Err(BynarError::from(e)),
+                            }
+                        }
+                        Ok(s) => s,
+                        Err(e) => return Err(BynarError::from(e)),
+                    };
+                    if uuid == "" {
+                        // If uuid is STILL empty, Error
+                        return Err(BynarError::from("Unable to get the partition UUID"));
+                    }
+                    uuid::Uuid::from_str(&uuid)?
                 }
             };
             // Get the partition uuid from the device
@@ -565,14 +585,7 @@ impl CephBackend {
             simulate,
         )?;
         debug!("Crush reweight to 0");
-        let cmd = json!({
-            "prefix": "osd crush reweight",
-            "name":  format!("osd.{}", osd_id),
-            "weight": 0.0,
-        });
-        if !simulate {
-            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-        }
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -663,14 +676,7 @@ impl CephBackend {
             simulate,
         )?;
         debug!("Crush reweight to 0");
-        if !simulate {
-            let cmd = json!({
-                "prefix": "osd crush reweight",
-                "name": format!("osd.{}", osd_id),
-                "weight": 0.0,
-            });
-            self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
-        }
+        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -751,6 +757,7 @@ impl CephBackend {
         journal_devices.sort_by_key(|j| j.num_partitions);
         // Clear any space that we can
         //remove_unused_journals(&journal_devices)?;
+        debug!("Journal Devices to select over {:?}", journal_devices);
         let journal: Option<&JournalDevice> = journal_devices
             .iter()
             // Remove any devices without enough free space
@@ -768,6 +775,7 @@ impl CephBackend {
             // Take the first one
             .take(1)
             .next();
+        debug!("Selected Journal {:?}", journal);
         match journal {
             Some(ref j) => Ok(Some(evaluate_journal(j, journal_size_mb)?)),
             None => Ok(None),
@@ -785,6 +793,14 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
+        // check if the disk is already in the cluster
+        if is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!(
+                "Device {} is already in the cluster.  Skipping",
+                device.display()
+            );
+            return Ok(OpOutcome::SkipRepeat);
+        }
         if self.version >= CephVersion::Luminous {
             self.add_bluestore_osd(device, id, simulate)?;
         } else {
@@ -801,6 +817,14 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
+        // check if the disk is already out of the cluster
+        if !is_device_in_cluster(&self.cluster_handle, device)? {
+            debug!(
+                "Device {} is already out of the cluster.  Skipping",
+                device.display()
+            );
+            return Ok(OpOutcome::SkipRepeat);
+        }
         if self.version >= CephVersion::Luminous {
             // Check if the type file exists
             match self.remove_bluestore_osd(device, simulate) {
@@ -809,7 +833,7 @@ impl Backend for CephBackend {
                 }
                 Err(e) => {
                     self.unset_noscrub(simulate)?;
-                    return Err(BynarError::from(e));
+                    return Err(e);
                 }
             };
         } else {
@@ -819,7 +843,7 @@ impl Backend for CephBackend {
                 }
                 Err(e) => {
                     self.unset_noscrub(simulate)?;
-                    return Err(BynarError::from(e));
+                    return Err(e);
                 }
             };
         }
@@ -853,7 +877,7 @@ impl Backend for CephBackend {
                 );
                 match get_osd_id_from_path(&mount_point) {
                     Ok(osd_id) => osd_id,
-                    Err(e) => {
+                    Err(_) => {
                         //Unable to get OSD id, unsafe to remove.  It's not a boot disk, OSD, or journal
                         error!("Unable to get OSD id, unsafe to remove");
                         return Err(BynarError::from("Unable to get OSD id from OSD disk"));
@@ -862,21 +886,53 @@ impl Backend for CephBackend {
             }
         };
         // create and send the command to check if the osd is safe to remove
-        let cmd = json!({
-            "prefix": "osd safe-to-destroy",
-            "ids": [osd_id.to_string()]
-        });
-        let result = match self.cluster_handle.ceph_mon_command_without_data(&cmd) {
-            Err(e) => {
-                debug!("Unsafe to remove");
-                return Ok((OpOutcome::Success, false));
-            }
-            Ok(r) => r,
-        };
-        debug!("Message: {:?}", result.1);
-        // osd is safe to remove
-        Ok((OpOutcome::Success, true))
+        Ok((
+            OpOutcome::Success,
+            osd_safe_to_destroy(&self.cluster_handle, osd_id),
+        ))
     }
+}
+
+// Check if a device path is already in the cluster 
+fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<bool> {
+    debug!("Check if device is in cluster");
+    let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
+    trace!("Hostname is {:?}", host);
+    let path = dev_path.to_string_lossy();
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        match osd.objectstore_meta {
+            ObjectStoreMeta::Bluestore {
+                bluestore_bdev_partition_path,
+                ..
+            } => {
+                if bluestore_bdev_partition_path == path && osd.hostname == host {
+                    return Ok(true);
+                }
+            }
+
+            ObjectStoreMeta::Filestore {
+                backend_filestore_partition_path,
+                ..
+            } => {
+                if backend_filestore_partition_path == path && osd.hostname == host {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+// Check if an osd_id is already in the cluster
+fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool> {
+    let osd_meta = osd_metadata(cluster_handle)?;
+    for osd in osd_meta {
+        if osd_id == osd.id {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // A fallback function to get the osd id from the mount path.  This isn't
@@ -888,7 +944,7 @@ fn get_osd_id_from_path(path: &Path) -> BynarResult<u64> {
             debug!("file name: {:?}", name);
             let name_string = name.to_string_lossy().into_owned();
             let parts: Vec<&str> = name_string.split('-').collect();
-            if (parts.len() < 2) {
+            if parts.len() < 2 {
                 return Err(BynarError::new(format!(
                     "Unable to get osd id from {}",
                     path.display()
@@ -922,8 +978,8 @@ fn save_keyring(
     gid: Option<u32>,
     simulate: bool,
 ) -> BynarResult<()> {
-    let uid = uid.and_then(|u| Some(Uid::from_raw(u)));
-    let gid = gid.and_then(|g| Some(Gid::from_raw(g)));
+    let uid = uid.map(Uid::from_raw);
+    let gid = gid.map(Gid::from_raw);
     let base_dir = Path::new("/var/lib/ceph/osd").join(&format!("ceph-{}", osd_id));
     if !Path::new(&base_dir).exists() {
         return Err(BynarError::new(format!(
@@ -1011,6 +1067,7 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         };
         debug!("Journal path: {}", journal_path.display());
         let meta = symlink_metadata(&journal_path)?;
+        trace!("Got the metadata");
         if !meta.file_type().is_symlink() {
             // Whoops.  Symlink pointer missing.  Can't proceed
             // TODO: Is this always true?
@@ -1021,11 +1078,31 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         }
 
         // Resolve the device the symlink points to
+        trace!("Read the device symlink");
         let dev = journal_path.read_link()?;
         let blkid = BlkId::new(&dev)?;
-        blkid.do_probe()?;
+        let uuid = match blkid.get_tag_value("PARTUUID", &dev) {
+            Ok(ref s) if s == "" => {
+                // Try getting the UUID instead
+                match blkid.get_tag_value("UUID", &dev) {
+                    Ok(ref s) if s == "" => {
+                        // Try getting PTUUID instead...
+                        blkid.get_tag_value("PTUUID", &dev)?
+                    }
+                    Ok(s) => s,
+                    Err(e) => return Err(BynarError::from(e)),
+                }
+            }
+            Ok(s) => s,
+            Err(e) => return Err(BynarError::from(e)),
+        };
+        if uuid == "" {
+            // If uuid is STILL empty, Error
+            return Err(BynarError::from("Unable to get the partition UUID"));
+        }
         // Get the partition uuid from the device
-        let dev_partition_uuid = uuid::Uuid::from_str(&blkid.lookup_value("PARTUUID")?)?;
+        trace!("Get the partition uuid");
+        let dev_partition_uuid = uuid::Uuid::from_str(&uuid)?;
         debug!("Journal partition uuid: {}", dev_partition_uuid);
         if partition_uuid == &dev_partition_uuid {
             return Ok(true);
@@ -1285,6 +1362,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
     match (&journal.device, journal.partition_id) {
         (journal, Some(part_id)) => {
             // Got both a journal device and a partition id
+            debug!("Have journal and partition ID to use");
             // Check if it exists and whether it's in use by another osd
             let cfg = gpt::GptConfig::new().writable(false).initialized(true);
             let disk = cfg.open(&journal)?;
@@ -1303,6 +1381,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                         });
                     } else {
                         // Create a new partition because the old one is in use
+                        debug!("Create a new partition");
                         let partition_info =
                             create_journal("ceph_journal", journal_size, &journal)?;
                         let mut j = JournalDevice {
@@ -1311,6 +1390,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                             partition_uuid: Some(partition_info.1),
                             num_partitions: None,
                         };
+                        debug!("Created new Journal Device {:?}", j);
                         j.update_num_partitions()?;
                         return Ok(j);
                     }
@@ -1333,6 +1413,7 @@ fn evaluate_journal(journal: &JournalDevice, journal_size: u64) -> BynarResult<J
                 partition_uuid: Some(partition_info.1),
                 num_partitions: None,
             };
+            debug!("Created new Journal Device {:?}", j);
             j.update_num_partitions()?;
             Ok(j)
         }
@@ -1417,16 +1498,15 @@ fn update_partition_cache(device: &Path) -> BynarResult<()> {
 }
 
 /// check if a device is in the list of SystemDisks
-fn is_system_disk(system_disks: &Vec<SystemDisk>, device: &Path) -> bool {
+fn is_system_disk(system_disks: &[SystemDisk], device: &Path) -> bool {
     debug!("Checking config boot disk list for {}", device.display());
-    if let disks = system_disks {
-        for bdisk in disks {
-            if bdisk.device == device {
-                return true;
-            }
+    for bdisk in system_disks {
+        if bdisk.device == device {
+            return true;
         }
     }
-    return false;
+
+    false
 }
 
 /// check if a device is in the list of Journal Disks
@@ -1439,7 +1519,7 @@ fn is_journal(journal_devices: &Option<Vec<JournalDevice>>, device: &Path) -> bo
             }
         }
     }
-    return false;
+    false
 }
 
 // This macro from the nix crate crates an ioctl to call the linux kernel

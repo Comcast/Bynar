@@ -44,7 +44,7 @@ pub fn create_support_ticket(
             )?
         }
         None => Jira::new(
-            settings.jira_host.clone().to_string(),
+            settings.jira_host.to_string(),
             Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
         )?,
     };
@@ -72,7 +72,7 @@ pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> BynarResult
             )?
         }
         None => Jira::new(
-            settings.jira_host.clone().to_string(),
+            settings.jira_host.to_string(),
             Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
         )?,
     };
