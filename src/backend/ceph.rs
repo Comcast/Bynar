@@ -14,6 +14,7 @@ use api::service::OpOutcome;
 
 use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
+use ceph::ceph_volume::{ceph_volume_list, Lvm as CephLvm, LvmData};
 use ceph::cmd::*;
 use ceph::CephVersion;
 use dirs::home_dir;
@@ -878,6 +879,24 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<
             }
         }
     }
+    //might be a Bluestore lvm, check the ceph-volume
+    let ceph_volumes = ceph_volume_list(&cluster_handle)?;
+    for (id, meta) in ceph_volumes {
+        for data in meta {
+            match data.metadata {
+                LvmData::Osd(data) => {
+                    //check if devices contains the device path
+                    for device in data.devices {
+                        if device == path {
+                            return Ok(true);
+                        }
+                    }
+                }
+                //skip other lvm types
+                _ => {}
+            }
+        }
+    }
     Ok(false)
 }
 
@@ -920,6 +939,24 @@ fn get_osd_id_from_device(cluster_handle: &Rados, dev_path: &Path) -> BynarResul
                 if backend_filestore_partition_path == path && osd.hostname == host {
                     return Ok(osd.id);
                 }
+            }
+        }
+    }
+    //Probably a Bluestore lvm, check the ceph-volume
+    let ceph_volumes = ceph_volume_list(&cluster_handle)?;
+    for (id, meta) in ceph_volumes {
+        for data in meta {
+            match data.metadata {
+                LvmData::Osd(data) => {
+                    //check if devices contains the device path
+                    for device in data.devices {
+                        if device == path {
+                            return Ok(id.parse::<u64>()?);
+                        }
+                    }
+                }
+                //skip other lvm types
+                _ => {}
             }
         }
     }
