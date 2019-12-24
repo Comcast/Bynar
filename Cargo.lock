@@ -310,7 +310,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "ceph"
 version = "3.2.0"
-source = "git+https://github.com/mzhong1/ceph-rust#9c6f49a90a640e4dfca0503fca3a9df284cf85e6"
+source = "git+https://github.com/mzhong1/ceph-rust#7d1ee41a07a91cb9b891735641ff7986c9afc369"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
