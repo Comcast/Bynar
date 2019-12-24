@@ -12,7 +12,7 @@ use mocktopus::*;
 
 use crate::in_progress::{
     add_disk_detail, add_or_update_operation, get_devices_from_db, get_state,
-    is_hardware_waiting_repair, save_state, HostDetailsMapping, OperationInfo,
+    is_hardware_waiting_repair, save_smart_result, save_state, HostDetailsMapping, OperationInfo,
 };
 use blkid::BlkId;
 use block_utils::{
@@ -56,6 +56,7 @@ pub struct BlockDevice {
     pub state: State,
     pub storage_detail_id: u32,
     pub operation_id: Option<u32>,
+    pub smart_passed: bool,
 }
 
 impl BlockDevice {
@@ -174,6 +175,7 @@ mod tests {
             state: super::State::Unscanned,
             storage_detail_id: 1,
             operation_id: None,
+            smart_passed: false,
         };
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
@@ -229,6 +231,7 @@ mod tests {
             state: super::State::Unscanned,
             storage_detail_id: 1,
             operation_id: None,
+            smart_passed: false,
         };
         let mut s = super::StateMachine::new(d, None, true);
         s.setup_state_machine();
@@ -283,6 +286,7 @@ mod tests {
             state: super::State::Unscanned,
             storage_detail_id: 1,
             operation_id: None,
+            smart_passed: false,
         };
         let mut s = super::StateMachine::new(d, None, false);
         s.setup_state_machine();
@@ -328,6 +332,7 @@ mod tests {
             state: super::State::Replaced,
             storage_detail_id: 1,
             operation_id: None,
+            smart_passed: true,
         };
         // restore state?
         let mut s = super::StateMachine::new(d, None, true);
@@ -769,6 +774,7 @@ impl Transition for Scan {
         match (raid_backed.0, raid_backed.1) {
             (false, _) => match run_smart_checks(&Path::new(&device.dev_path)) {
                 Ok(stat) => {
+                    device.smart_passed = stat;
                     // If the device is a Disk, then end the state machine here.
                     if device.device.device_type == DeviceType::Disk {
                         if stat {
@@ -800,6 +806,7 @@ impl Transition for Scan {
                             // If the device is a Disk, then end the state machine here.
                             if device.device.device_type == DeviceType::Disk {
                                 debug!("Disk is Healthy");
+                                device.smart_passed = true;
                                 return State::Good;
                             }
                             to_state
@@ -1242,6 +1249,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
                 state: State::Unscanned,
                 storage_detail_id,
                 operation_id: None,
+                smart_passed: false,
             }
         })
         .collect();
@@ -1350,6 +1358,7 @@ fn add_previous_devices(
                     state: State::WaitingForReplacement,
                     storage_detail_id: host_mapping.storage_detail_id,
                     operation_id: None,
+                    smart_passed: false,
                 };
                 save_state(pool, &b, State::WaitingForReplacement)?;
                 devices.push(b);
@@ -1444,6 +1453,8 @@ pub fn check_all_disks(
         s.run();
         // Save the state to database after state machine finishes its run
         save_state(pool, &s.block_device, s.block_device.state)?;
+        // Save the smart result to database after state machine finishes its run
+        save_smart_result(pool, &s.block_device, s.block_device.smart_passed)?;
         disk_states.push(Ok(s));
     }
 
