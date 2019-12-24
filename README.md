@@ -174,10 +174,11 @@ sudo apt install <package_name>
 17. gcc
 18. clang
 19. smartmontools
+20. parted
 
 CLI command to install all the dependencies:
 ```
-sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang smartmontools
+sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang smartmontools parted
 ```
 
 
