@@ -821,9 +821,10 @@ impl CephBackend {
                     Ok(latency) => {
                         info!(
                             "Current latency in pool {} is {} ms",
-                            &self.config.pool_name, latency
+                            &self.config.pool_name, latency * 1000
                         );
-                        return Ok(latency);
+                        // latency given by rados bench is in s, multiply by 1000 for ms
+                        return Ok(latency * 1000);
                     }
                     Err(e) => {
                         return Err(BynarError::from(format!("unable to parse latency {:?}", e)))
