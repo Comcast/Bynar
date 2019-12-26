@@ -6,8 +6,10 @@ use std::fs::{
 use std::io::Write;
 use std::os::unix::{fs::symlink, io::AsRawFd};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::thread::*;
+use std::time::Duration;
 
 use crate::backend::Backend;
 use api::service::OpOutcome;
@@ -16,13 +18,14 @@ use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
 use ceph::ceph_volume::{ceph_volume_list, Lvm as CephLvm, LvmData};
 use ceph::cmd::*;
+use ceph::cmd::{pg_stat, PgStat};
 use ceph::CephVersion;
 use dirs::home_dir;
 use fstab::FsTab;
 use helpers::{error::*, host_information::Host};
 use hostname::get_hostname;
 use init_daemon::{detect_daemon, Daemon};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use lvm::*;
 use nix::{
     ioctl_none,
@@ -108,12 +111,40 @@ struct SystemDisk {
     device: PathBuf,
 }
 
+// default latency allowed for pool
+fn default_latency() -> f64 {
+    15.0
+}
+
+// default number of pgs allowed to backfill
+fn default_backfill() -> u64 {
+    50
+}
+
+// default change in weight increment
+fn default_increment() -> f64 {
+    0.01
+}
+
 #[derive(Deserialize, Debug)]
 struct CephConfig {
     /// The location of the ceph.conf file
     config_file: String,
     /// The cephx user to connect to the Ceph service with
     user_id: String,
+    /// The name of the pool to test latency on when gently reweighting an osd for an add operation
+    pool_name: String,
+    /// The target weight of the osds
+    target_weight: f64,
+    /// the maximum amount of latency allowed in the pool while performing operations
+    #[serde(default = "default_latency")]
+    latency_cap: f64,
+    /// the maximum amount of pgs allowed to backfill while performing operations
+    #[serde(default = "default_backfill")]
+    backfill_cap: u64,
+    /// the increment used to change the weight of an osd
+    #[serde(default = "default_increment")]
+    increment: f64,
     /// The /dev/xxx devices that have one of the /, /boot, or /boot/efi partitions
     /// This includes the partitions that are /, /boot, or /boot/efi
     /// Or in general any disk that should not be touched by ceph
@@ -266,7 +297,7 @@ impl CephBackend {
 
         let host_info = Host::new()?;
         let gb_capacity = vg_size / 1_073_741_824;
-        let osd_weight = gb_capacity as f64 * 0.001_f64;
+        let osd_weight = 0.0;
         debug!(
             "Adding OSD {} to crushmap under host {} with weight: {}",
             new_osd_id, host_info.hostname, osd_weight
@@ -280,6 +311,7 @@ impl CephBackend {
         )?;
         systemctl_enable(new_osd_id, &osd_fsid, simulate)?;
         setup_osd_init(new_osd_id, simulate)?;
+        self.gradual_weight(new_osd_id, simulate)?;
         Ok(())
     }
 
@@ -359,7 +391,7 @@ impl CephBackend {
         save_keyring(new_osd_id, &auth_key, None, None, simulate)?;
         let host_info = Host::new()?;
         let gb_capacity = info.capacity / 1_073_741_824;
-        let osd_weight = gb_capacity as f64 * 0.001_f64;
+        let osd_weight = 0.0; //gb_capacity as f64 * 0.001_f64;
         debug!(
             "Adding OSD {} to crushmap under host {} with weight: {}",
             new_osd_id, host_info.hostname, osd_weight
@@ -374,6 +406,7 @@ impl CephBackend {
         add_osd_to_fstab(&info, new_osd_id, simulate)?;
         // This step depends on whether it's systemctl, upstart, etc
         setup_osd_init(new_osd_id, simulate)?;
+        self.gradual_weight(new_osd_id, simulate)?;
         Ok(())
     }
 
@@ -521,6 +554,17 @@ impl CephBackend {
         Ok(())
     }
 
+    fn set_noscrub(&self, simulate: bool) -> BynarResult<()> {
+        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
+        osd_set(
+            &self.cluster_handle,
+            &OsdOption::NoDeepScrub,
+            false,
+            simulate,
+        )?;
+        Ok(())
+    }
+
     fn remove_bluestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         debug!("initializing LVM");
         let lvm = Lvm::new(None)?;
@@ -578,13 +622,7 @@ impl CephBackend {
         }
         let osd_id = osd_id.unwrap();
         debug!("Toggle noscrub, nodeep-scrub flags");
-        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
-        osd_set(
-            &self.cluster_handle,
-            &OsdOption::NoDeepScrub,
-            false,
-            simulate,
-        )?;
+        self.set_noscrub(simulate)?;
         debug!("Crush reweight to 0");
         osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
@@ -651,13 +689,7 @@ impl CephBackend {
         //should ask either another OSD or a monitor.
         let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
-        osd_set(&self.cluster_handle, &OsdOption::NoScrub, false, simulate)?;
-        osd_set(
-            &self.cluster_handle,
-            &OsdOption::NoDeepScrub,
-            false,
-            simulate,
-        )?;
+        self.set_noscrub(simulate)?;
         debug!("Crush reweight to 0");
         osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
@@ -764,6 +796,143 @@ impl CephBackend {
             None => Ok(None),
         }
     }
+
+    //Measure latency using Rados' benchmark command
+    fn get_latency(&self) -> BynarResult<f64> {
+        let output_child = Command::new("rados")
+            .args(&[
+                "-p",
+                &self.config.pool_name,
+                "bench",
+                "5",
+                "write",
+                "-t",
+                "1",
+                "-b",
+                "4096",
+            ])
+            .output()?;
+        let output = String::from_utf8_lossy(&output_child.stdout).to_lowercase();
+        let lines: Vec<&str> = output.split("\n").collect();
+        for line in lines {
+            if line.contains("average latency") {
+                let attr: Vec<&str> = line.split_whitespace().collect();
+                match attr[2].trim().parse::<f64>() {
+                    Ok(latency) => {
+                        info!(
+                            "Current latency in pool {} is {} ms",
+                            &self.config.pool_name, latency
+                        );
+                        return Ok(latency);
+                    }
+                    Err(e) => {
+                        return Err(BynarError::from(format!("unable to parse latency {:?}", e)))
+                    }
+                }
+            }
+        }
+        Err(BynarError::from(
+            "benchmark output did not contain average latency",
+        ))
+    }
+
+    // get the number of pgs currently backfilling
+    fn get_current_backfill(&self) -> BynarResult<u64> {
+        let pgstats = pg_stat(&self.cluster_handle)?;
+        let pgsum = match pgstats {
+            PgStat::Wrapped { pg_summary: s, .. } => s,
+            PgStat::UnWrapped { pg_summary: s } => s,
+        };
+        let mut backfilling = 0;
+        for pgstate in pgsum.num_pg_by_state {
+            if pgstate.name.contains("backfilling") {
+                backfilling += pgstate.num;
+            }
+        }
+        Ok(backfilling)
+    }
+
+    //Get the current weight of an osd
+    fn get_current_weight(&self, crush_tree: CrushTree, osd_id: u64) -> BynarResult<f64> {
+        for node in crush_tree.nodes {
+            if node.id as u64 == osd_id {
+                if let Some(weight) = node.crush_weight {
+                    trace!("get_crush_weight: {} has weight {}", osd_id, weight);
+                    return Ok(weight);
+                }
+                return Err(BynarError::from(format!(
+                    "Undefined crush weight for osd {}",
+                    osd_id
+                )));
+            }
+        }
+        return Err(BynarError::from(format!(
+            "Could not find Osd {} in crush map",
+            osd_id
+        )));
+    }
+
+    // incrementally weight the osd. return true if reweight ongoing, false if finished
+    fn incremental_weight_osd(&self, osd_id: u64, simulate: bool) -> BynarResult<bool> {
+        let latency_cap = self.config.latency_cap;
+        let backfill_cap = self.config.backfill_cap;
+        let increment = self.config.increment;
+        let target_weight = self.config.target_weight;
+        let crush_tree = osd_tree(&self.cluster_handle)?;
+
+        let current_weight = self.get_current_weight(crush_tree, osd_id)?;
+        if current_weight == target_weight {
+            self.unset_noscrub(simulate)?;
+            debug!("incremental weight done");
+            return Ok(false);
+        }
+        trace!(
+            "incrementally weight osd.{} by increment {} (target weight {})",
+            osd_id,
+            increment,
+            target_weight
+        );
+
+        while {
+            let current_backfill = self.get_current_backfill()?;
+            current_backfill > backfill_cap
+        } {
+            warn!(
+                "Too many backfilling PGs {}, cap is {}",
+                current_backfill, backfill_cap
+            );
+        }
+
+        while {
+            let current_latency = self.get_latency()?;
+            current_latency > latency_cap
+        } {
+            warn!(
+                "Latency on pool {} is {}, cap is {}",
+                self.config.pool_name, current_latency, latency_cap
+            );
+            std::thread::sleep(Duration::from_secs(3));
+        }
+        //get the new weight
+        let new_weight = target_weight.min(current_weight + increment);
+        trace!("reweight osd.{} to {}", osd_id, new_weight);
+
+        osd_crush_reweight(&self.cluster_handle, osd_id, new_weight, simulate)?;
+
+        Ok(true)
+    }
+    // weight the osd slowly back to the target weight so as not to introduce too
+    // much latency into the cluster
+    fn gradual_weight(&self, osd_id: u64, simulate: bool) -> BynarResult<()> {
+        let crush_tree = osd_tree(&self.cluster_handle)?;
+        debug!("Gradually weighting osd: {}", osd_id);
+        //set noscrub (remember to handle error by unsetting noscrub)
+        self.set_noscrub(simulate)?;
+        while (self.incremental_weight_osd(osd_id, simulate)?) {
+            trace!("incrementally reweighting osd");
+        }
+        Ok(())
+    }
 }
 
 impl Backend for CephBackend {
@@ -781,10 +950,10 @@ impl Backend for CephBackend {
             Some(osd_id) => {
                 if is_osd_id_in_cluster(&self.cluster_handle, osd_id)? {
                     error!("Osd ID {} is already in the cluster. Skipping", osd_id);
-                    return Ok(OpOutcome::Skipped)
+                    return Ok(OpOutcome::Skipped);
                 }
             }
-            None => {},
+            None => {}
         }
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
