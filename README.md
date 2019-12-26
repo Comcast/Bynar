@@ -105,6 +105,8 @@ where to look for ceph configuration, user details etc.
 {
   "config_file": "/etc/ceph/ceph.conf",
   "user_id": "admin",
+  "pool_name": "pool_name",
+  "target_weight": 1.0,
   "system_disks": [
     {
       "device": "/dev/sdc"
@@ -121,10 +123,19 @@ where to look for ceph configuration, user details etc.
 	]
 }
 ```
-System Disks must be specified for ceph to filter out.  This is a list of all disks that Ceph should not run on.  A disk with the root or boot partition, as well
-as the device path of the root and boot (/boot, /boot/efi) partitions must be provided for Bynar to filter 
-out.  Bynar needs to be able to distinguish the disks so it does not try to wipe a boot partition.  If not
-provided ceph will attempt to add/remove the disk/partition as an OSD.  
+The pool_name is the name of the pool used to measure latency in the cluster,
+target_weight the desired weight of OSDs in the cluster. 
+
+System Disks must be specified for ceph to filter out.  
+This is a list of all disks that Ceph should not run on.  
+A disk with the root or boot partition, as wellas the device path of the root and boot (/boot, /boot/efi) partitions must be provided for Bynar to filter out.  
+Bynar needs to be able to distinguish the disks so it does not try to wipe a boot partition.  
+If not provided ceph will attempt to add/remove the disk/partition as an OSD. 
+
+Optionally, latency_cap, backfill_cap, and increment can be specified for ceph to use. 
+Bynar will gradually weight in an osd that is added to the cluster so as not to introduce
+too much latency to the cluster or cause issues with pgs stuck in backfill.  
+Bynar has its own defaults to use however explicit parameters can be set.
 
 Journal devices can optionally be specified for ceph to use.  Bynar will attempt
 to balance the number of partitions across the devices given.  If an explict 
