@@ -882,7 +882,7 @@ impl CephBackend {
         let crush_tree = osd_tree(&self.cluster_handle)?;
 
         let current_weight = self.get_current_weight(crush_tree, osd_id)?;
-        if current_weight == target_weight {
+        if current_weight >= target_weight - 0.00001 && current_weight <= target_weight + 0.00001 {
             self.unset_noscrub(simulate)?;
             debug!("incremental weight done");
             return Ok(false);
