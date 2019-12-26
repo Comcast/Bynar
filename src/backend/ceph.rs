@@ -895,22 +895,25 @@ impl CephBackend {
 
         while {
             let current_backfill = self.get_current_backfill()?;
+            if current_backfill > backfill_cap {
+                warn!(
+                    "Too many backfilling PGs {}, cap is {}",
+                    current_backfill, backfill_cap
+                );
+            }
             current_backfill > backfill_cap
-        } {
-            warn!(
-                "Too many backfilling PGs {}, cap is {}",
-                current_backfill, backfill_cap
-            );
-        }
+        } {}
 
         while {
             let current_latency = self.get_latency()?;
+            if current_latency > latency_cap {
+                warn!(
+                    "Latency on pool {} is {}, cap is {}",
+                    self.config.pool_name, current_latency, latency_cap
+                );
+            }
             current_latency > latency_cap
         } {
-            warn!(
-                "Latency on pool {} is {}, cap is {}",
-                self.config.pool_name, current_latency, latency_cap
-            );
             std::thread::sleep(Duration::from_secs(3));
         }
         //get the new weight
