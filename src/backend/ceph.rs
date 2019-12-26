@@ -821,10 +821,10 @@ impl CephBackend {
                     Ok(latency) => {
                         info!(
                             "Current latency in pool {} is {} ms",
-                            &self.config.pool_name, latency * 1000
+                            &self.config.pool_name, latency * 1000.0
                         );
                         // latency given by rados bench is in s, multiply by 1000 for ms
-                        return Ok(latency * 1000);
+                        return Ok(latency * 1000.0);
                     }
                     Err(e) => {
                         return Err(BynarError::from(format!("unable to parse latency {:?}", e)))
@@ -858,7 +858,7 @@ impl CephBackend {
         for node in crush_tree.nodes {
             if node.id as u64 == osd_id {
                 if let Some(weight) = node.crush_weight {
-                    trace!("get_crush_weight: {} has weight {}", osd_id, weight);
+                    trace!("get_current_weight: osd.{} has weight {}", osd_id, weight);
                     return Ok(weight);
                 }
                 return Err(BynarError::from(format!(
