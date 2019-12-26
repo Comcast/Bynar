@@ -136,7 +136,7 @@ struct CephConfig {
     pool_name: String,
     /// The target weight of the osds
     target_weight: f64,
-    /// the maximum amount of latency allowed in the pool while performing operations
+    /// the maximum amount of latency allowed in the pool while performing operations in ms
     #[serde(default = "default_latency")]
     latency_cap: f64,
     /// the maximum amount of pgs allowed to backfill while performing operations
@@ -909,7 +909,7 @@ impl CephBackend {
             let current_latency = self.get_latency()?;
             if current_latency > latency_cap {
                 warn!(
-                    "Latency on pool {} is {}, cap is {}",
+                    "Latency on pool {} is {} ms, cap is {} ms",
                     self.config.pool_name, current_latency, latency_cap
                 );
             }

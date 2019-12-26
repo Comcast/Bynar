@@ -136,6 +136,7 @@ Optionally, latency_cap, backfill_cap, and increment can be specified for ceph t
 Bynar will gradually weight in an osd that is added to the cluster so as not to introduce
 too much latency to the cluster or cause issues with pgs stuck in backfill.  
 Bynar has its own defaults to use however explicit parameters can be set.
+Please note that the latency_cap is in ms
 
 Journal devices can optionally be specified for ceph to use.  Bynar will attempt
 to balance the number of partitions across the devices given.  If an explict 
