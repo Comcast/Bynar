@@ -201,12 +201,11 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
         return Err(BynarError::from("backfill cap is 0"));
     }
     if config.latency_cap == 0.0 || config.latency_cap < 0.0 {
-        return Err(BynarError::from(
-            "latency cap is less than or equal to 0.0",
-        ));
+        return Err(BynarError::from("latency cap is less than or equal to 0.0"));
     }
     let names = osd_pool_ls(cluster_handle)?;
-    if !names.contains(&config.pool_name) {
+
+    if !names.iter().any(|e| e == &config.pool_name) {
         return Err(BynarError::new(format!(
             "pool {} does not exist in the cluster",
             config.pool_name
@@ -346,7 +345,7 @@ impl CephBackend {
         )?;
         systemctl_enable(new_osd_id, &osd_fsid, simulate)?;
         setup_osd_init(new_osd_id, simulate)?;
-        self.gradual_weight(new_osd_id, simulate)?;
+        self.gradual_weight(new_osd_id, true, simulate)?;
         Ok(())
     }
 
@@ -441,7 +440,7 @@ impl CephBackend {
         add_osd_to_fstab(&info, new_osd_id, simulate)?;
         // This step depends on whether it's systemctl, upstart, etc
         setup_osd_init(new_osd_id, simulate)?;
-        self.gradual_weight(new_osd_id, simulate)?;
+        self.gradual_weight(new_osd_id, true, simulate)?;
         Ok(())
     }
 
@@ -658,8 +657,8 @@ impl CephBackend {
         let osd_id = osd_id.unwrap();
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
-        debug!("Crush reweight to 0");
-        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        debug!("gradually reweight to 0");
+        self.gradual_weight(osd_id, false, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -725,8 +724,8 @@ impl CephBackend {
         let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
-        debug!("Crush reweight to 0");
-        osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        debug!("gradually reweight to 0");
+        self.gradual_weight(osd_id, false, simulate)?;
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -910,11 +909,20 @@ impl CephBackend {
     }
 
     // incrementally weight the osd. return true if reweight ongoing, false if finished
-    fn incremental_weight_osd(&self, osd_id: u64, simulate: bool) -> BynarResult<bool> {
+    fn incremental_weight_osd(
+        &self,
+        osd_id: u64,
+        is_add: bool,
+        simulate: bool,
+    ) -> BynarResult<bool> {
         let latency_cap = self.config.latency_cap;
         let backfill_cap = self.config.backfill_cap;
         let increment = self.config.increment;
-        let target_weight = self.config.target_weight;
+        let target_weight = if is_add {
+            self.config.target_weight
+        } else {
+            0.0
+        };
         let crush_tree = osd_tree(&self.cluster_handle)?;
 
         let current_weight = self.get_current_weight(crush_tree, osd_id)?;
@@ -954,21 +962,25 @@ impl CephBackend {
             std::thread::sleep(Duration::from_secs(3));
         }
         //get the new weight
-        let new_weight = target_weight.min(current_weight + increment);
+        let new_weight = if is_add {
+            target_weight.min(current_weight + increment)
+        } else {
+            target_weight.max(current_weight - increment)
+        };
         trace!("reweight osd.{} to {}", osd_id, new_weight);
 
         osd_crush_reweight(&self.cluster_handle, osd_id, new_weight, simulate)?;
 
         Ok(true)
     }
-    // weight the osd slowly back to the target weight so as not to introduce too
+    // weight the osd slowly to the target weight so as not to introduce too
     // much latency into the cluster
-    fn gradual_weight(&self, osd_id: u64, simulate: bool) -> BynarResult<()> {
+    fn gradual_weight(&self, osd_id: u64, is_add: bool, simulate: bool) -> BynarResult<()> {
         let crush_tree = osd_tree(&self.cluster_handle)?;
         debug!("Gradually weighting osd: {}", osd_id);
         //set noscrub (remember to handle error by unsetting noscrub)
         self.set_noscrub(simulate)?;
-        while (self.incremental_weight_osd(osd_id, simulate)?) {
+        while (self.incremental_weight_osd(osd_id, is_add, simulate)?) {
             trace!("incrementally reweighting osd");
         }
         Ok(())
