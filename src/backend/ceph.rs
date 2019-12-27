@@ -657,8 +657,14 @@ impl CephBackend {
         let osd_id = osd_id.unwrap();
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
-        debug!("gradually reweight to 0");
-        self.gradual_weight(osd_id, false, simulate)?;
+        // check if the osd is out (if so, osd_crush_reweight to 0, else gradual reweight)
+        if self.is_osd_out(osd_id, simulate)? {
+            debug!("OSD already out, reweight osd to 0");
+            osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        } else {
+            debug!("gradually reweight to 0");
+            self.gradual_weight(osd_id, false, simulate)?;
+        }
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
@@ -718,14 +724,30 @@ impl CephBackend {
         Ok(())
     }
 
+    fn is_osd_out(&self, osd_id: u64, simulate: bool) -> BynarResult<bool> {
+        let out_tree = osd_tree_status(&self.cluster_handle, ceph::cmd::CrushNodeStatus::Out)?;
+        for node in out_tree.nodes {
+            if node.id as u64 == osd_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn remove_filestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
         let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
-        debug!("gradually reweight to 0");
-        self.gradual_weight(osd_id, false, simulate)?;
+        // check if the osd is out (if so, osd_crush_reweight to 0, else gradual reweight)
+        if self.is_osd_out(osd_id, simulate)? {
+            debug!("OSD already out, reweight osd to 0");
+            osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        } else {
+            debug!("gradually reweight to 0");
+            self.gradual_weight(osd_id, false, simulate)?;
+        }
         debug!("Checking pgs on osd {:?} until empty", osd_id);
         loop {
             if simulate {
