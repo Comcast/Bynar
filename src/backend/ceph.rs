@@ -182,6 +182,39 @@ fn choose_ceph_config(config_dir: Option<&Path>) -> BynarResult<PathBuf> {
     }
 }
 
+// validate cephConfig input: check target_weight, increment != 0,
+// backfill_cap > 0, latency_cap > 0, pool_name is valid
+fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResult<()> {
+    if config.target_weight <= 0.0 {
+        return Err(BynarError::from(
+            "target weight is less than or equal to 0.0",
+        ));
+    }
+    if config.increment < 0.0 {
+        warn!("input increment < 0, flipping to positive value");
+        config.increment = config.increment * -1.0;
+    }
+    if config.increment == 0.0 {
+        return Err(BynarError::from("increment is 0.0"));
+    }
+    if config.backfill_cap == 0 {
+        return Err(BynarError::from("backfill cap is 0"));
+    }
+    if config.latency_cap == 0.0 || config.latency_cap < 0.0 {
+        return Err(BynarError::from(
+            "latency cap is less than or equal to 0.0",
+        ));
+    }
+    let names = osd_pool_ls(cluster_handle)?;
+    if !names.contains(&config.pool_name) {
+        return Err(BynarError::new(format!(
+            "pool {} does not exist in the cluster",
+            config.pool_name
+        )));
+    }
+    Ok(())
+}
+
 impl CephBackend {
     pub fn new(config_dir: Option<&Path>) -> BynarResult<CephBackend> {
         let ceph_config = choose_ceph_config(config_dir)?;
@@ -189,13 +222,15 @@ impl CephBackend {
             error!("ceph config {} does not exist", ceph_config.display());
         }
         let s = read_to_string(ceph_config)?;
-        let deserialized: CephConfig = serde_json::from_str(&s)?;
+        let mut deserialized: CephConfig = serde_json::from_str(&s)?;
 
         info!("Connecting to Ceph");
         let cluster_handle = connect_to_ceph(&deserialized.user_id, &deserialized.config_file)?;
         info!("Connected to Ceph");
         let version_str = version(&cluster_handle)?;
         let version: CephVersion = version_str.parse()?;
+        validate_config(&mut deserialized, &cluster_handle)?;
+
         Ok(CephBackend {
             cluster_handle,
             config: deserialized,
@@ -821,7 +856,8 @@ impl CephBackend {
                     Ok(latency) => {
                         info!(
                             "Current latency in pool {} is {} ms",
-                            &self.config.pool_name, latency * 1000.0
+                            &self.config.pool_name,
+                            latency * 1000.0
                         );
                         // latency given by rados bench is in s, multiply by 1000 for ms
                         return Ok(latency * 1000.0);
