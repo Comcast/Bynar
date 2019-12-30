@@ -710,13 +710,13 @@ impl CephBackend {
                         bluestore_wal_partition_path,
                         ..
                     } => {
-                        if Some(wal_path) = bluestore_wal_partition_path {
-                            return Ok(Some(Path::new(&wal_path).to_path_buf()?));
+                        if let Some(wal_path) = bluefs_wal_partition_path {
+                            return Ok(Some(Path::new(&wal_path).to_path_buf()));
                         }
                     }
                     ObjectStoreMeta::Filestore { .. } => {
-                        if Some(journal_path) = osd.osd_journal {
-                            return Ok(Some(read_link(Path::new(journal_path))?));
+                        if let Some(journal_path) = osd.osd_journal {
+                            return Ok(Some(read_link(Path::new(&journal_path))?));
                         }
                     }
                 }
@@ -727,8 +727,25 @@ impl CephBackend {
     // remove the journal partition if one exists (if there is a filestore journal, or if there
     // is a block.wal journal partition).  Do nothing if there is no journal
     fn remove_journal(&self, osd_id: u64) -> BynarResult<()> {
-        if Some(journal_path) = self.get_journal_path(osd_id)? {
-            
+        if let Some(journal_path) = self.get_journal_path(osd_id)? {
+            if let (Some(part_id), device) = block_utils::get_device_from_path(&journal_path)? {
+                if let Some(parent_path) = block_utils::get_parent_devpath_from_path(&journal_path)?
+                {
+                    let mut journal_devices = self
+                        .config
+                        .journal_devices
+                        .clone()
+                        .unwrap_or_else(|| vec![]);
+                    for journal_device in journal_devices {
+                        if parent_path == journal_device.device {
+                            let cfg = gpt::GptConfig::new().writable(true).initialized(true);
+                            let mut disk = cfg.open(&parent_path)?;
+                            disk.remove_partition(Some(part_id as u32), None)?;
+                            disk.write();
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
