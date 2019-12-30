@@ -927,7 +927,7 @@ dependencies = [
 [[package]]
 name = "gpt"
 version = "0.6.3"
-source = "git+https://github.com/Quyzi/gpt#d29234f54f7459131f12743b18ee934f3105f7fe"
+source = "git+https://github.com/mzhong1/gpt#f3ffd7db4c94e726f6d7df9346c3e31b02a42e54"
 dependencies = [
  "bitflags 1.2.1",
  "crc",
