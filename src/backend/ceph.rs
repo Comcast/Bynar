@@ -599,6 +599,39 @@ impl CephBackend {
         Ok(())
     }
 
+    fn get_journal_path(&self, osd_id: u64) -> BynarResult<Option<PathBuf>> {
+        //get osd metadata
+        let osd_meta = osd_metadata(&self.cluster_handle)?;
+        for osd in osd_meta {
+            if osd.id == osd_id {
+                match osd.objectstore_meta {
+                    ObjectStoreMeta::Bluestore {
+                        bluestore_wal_partition_path,
+                        ..
+                    } => {
+                        if Some(wal_path) = bluestore_wal_partition_path {
+                            return Ok(Some(Path::new(&wal_path).to_path_buf()?));
+                        }
+                    }
+                    ObjectStoreMeta::Filestore { .. } => {
+                        if Some(journal_path) = osd.osd_journal {
+                            return Ok(Some(read_link(Path::new(journal_path))?));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+    // remove the journal partition if one exists (if there is a filestore journal, or if there
+    // is a block.wal journal partition).  Do nothing if there is no journal
+    fn remove_journal(&self, osd_id: u64) -> BynarResult<()> {
+        if Some(journal_path) = self.get_journal_path(osd_id)? {
+            
+        }
+        Ok(())
+    }
+
     fn remove_bluestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         debug!("initializing LVM");
         let lvm = Lvm::new(None)?;
