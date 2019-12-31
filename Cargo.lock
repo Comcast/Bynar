@@ -208,7 +208,7 @@ dependencies = [
 [[package]]
 name = "block-utils"
 version = "0.6.2"
-source = "git+https://github.com/mzhong1/block-utils.git#434858b35d6c06976708ad315077e62712d1b4d0"
+source = "git+https://github.com/mzhong1/block-utils.git#b7fd36b32396a3bf6f1aa23381c82a4cfedd0d38"
 dependencies = [
  "fstab",
  "log 0.4.8",
