@@ -717,6 +717,7 @@ impl CephBackend {
         let journal_path = self.get_journal_path(osd_id)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
+        debug!("Check if osd is already out");
         // check if the osd is out (if so, osd_crush_reweight to 0, else gradual reweight)
         if self.is_osd_out(osd_id, simulate)? {
             debug!("OSD already out, reweight osd to 0");
@@ -807,6 +808,7 @@ impl CephBackend {
         let journal_path = self.get_journal_path(osd_id)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
+        debug!("Check id osd is already out");
         // check if the osd is out (if so, osd_crush_reweight to 0, else gradual reweight)
         if self.is_osd_out(osd_id, simulate)? {
             debug!("OSD already out, reweight osd to 0");
@@ -855,6 +857,12 @@ impl CephBackend {
                 }
             };
         }
+        let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
+        if osd_dir.exists() {
+            debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
+            remove_dir_all(osd_dir)?;
+        }
+
         // remove the journal device partition if one exists
         if let Some(journal) = journal_path {
             debug!("Cleaning up journal");
@@ -1079,24 +1087,6 @@ impl CephBackend {
         Ok(())
     }
 
-    // check if a device is a bluestore or not
-    fn is_bluestore(&self, device: &Path, simulate: bool) -> BynarResult<bool> {
-        //get the osd id
-        let osd_id = get_osd_id_from_device(&self.cluster_handle, device)?;
-        let osd_meta = osd_metadata(&self.cluster_handle)?;
-        for osd in osd_meta {
-            if osd.id == osd_id {
-                match osd.objectstore_meta {
-                    ObjectStoreMeta::Bluestore { .. } => {
-                        return Ok(true);
-                    }
-
-                    ObjectStoreMeta::Filestore { .. } => return Ok(false),
-                }
-            }
-        }
-        Err(BynarError::new(format!("Could not find osd in cluster")))
-    }
 }
 
 impl Backend for CephBackend {
@@ -1135,8 +1125,6 @@ impl Backend for CephBackend {
         Ok(OpOutcome::Success)
     }
 
-    
-
     fn remove_disk(&self, device: &Path, simulate: bool) -> BynarResult<OpOutcome> {
         // check if the disk is a system disk or journal disk first and skip evaluation if so.
         if is_system_disk(&self.config.system_disks, device)
@@ -1153,7 +1141,7 @@ impl Backend for CephBackend {
             );
             return Ok(OpOutcome::SkipRepeat);
         }
-        if self.version >= CephVersion::Luminous && self.is_bluestore(device, simulate)? {
+        if self.version >= CephVersion::Luminous {
             // Check if the type file exists
             match self.remove_bluestore_osd(device, simulate) {
                 Ok(_) => {
