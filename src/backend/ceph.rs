@@ -619,7 +619,13 @@ impl CephBackend {
                     }
                     ObjectStoreMeta::Filestore { .. } => {
                         if let Some(journal_path) = osd.osd_journal {
-                            return Ok(Some(read_link(Path::new(&journal_path))?));
+                            match read_link(Path::new(&journal_path)) {
+                            Ok(path) => return Ok(Some(path)),
+                                Err(e) => {
+                                    error!("Bad journal symlink.  journal no longer points to valid UUID");
+                                    return Ok(None)
+                                }
+                            }
                         }
                     }
                 }
@@ -1148,6 +1154,7 @@ impl Backend for CephBackend {
                     self.unset_noscrub(simulate)?;
                 }
                 Err(e) => {
+                    error!("{:?}", e);
                     self.unset_noscrub(simulate)?;
                     return Err(e);
                 }
@@ -1158,6 +1165,7 @@ impl Backend for CephBackend {
                     self.unset_noscrub(simulate)?;
                 }
                 Err(e) => {
+                    error!("{:?}", e);
                     self.unset_noscrub(simulate)?;
                     return Err(e);
                 }
