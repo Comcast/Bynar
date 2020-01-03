@@ -789,7 +789,7 @@ impl CephBackend {
         systemctl_disable(osd_id, &osd_fsid.unwrap(), simulate)?;
         // remove the journal if one exists
         if let Some(journal) = journal_path {
-            debug!("Cleaning up journal");
+            debug!("Cleaning up journal {:?}", journal.display());
             self.remove_journal(&journal)?;
         }
         Ok(())
@@ -863,16 +863,27 @@ impl CephBackend {
                 }
             };
         }
-        let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
-        if osd_dir.exists() {
-            debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
-            remove_dir_all(osd_dir)?;
-        }
 
         // remove the journal device partition if one exists
         if let Some(journal) = journal_path {
-            debug!("Cleaning up journal");
+            debug!("Cleaning up journal {:?}", journal.display());
             self.remove_journal(&journal)?;
+        }
+
+        let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
+        //unmount the device and clean up 
+        block_utils::unmount_device(&dev_path)?;
+        if osd_dir.exists() {
+            debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
+            match remove_dir_all(osd_dir){
+                Ok(_) => {
+                    debug!("Cleaned up /var/lib/ceph/osd/ceph-{}", osd_id);
+                },
+                Err(e) => {
+                    error!("{:?}", e);
+                    return Err(BynarError::from(e));
+                }
+            };
         }
         Ok(())
     }
