@@ -605,27 +605,23 @@ impl CephBackend {
     // get the journal path (if one exists)
     fn get_journal_path(&self, osd_id: u64) -> BynarResult<Option<PathBuf>> {
         //get osd metadata
-        let osd_meta = osd_metadata(&self.cluster_handle)?;
-        for osd in osd_meta {
-            if osd.id == osd_id {
-                match osd.objectstore_meta {
-                    ObjectStoreMeta::Bluestore {
-                        bluefs_wal_partition_path,
-                        ..
-                    } => {
-                        if let Some(wal_path) = bluefs_wal_partition_path {
-                            return Ok(Some(Path::new(&wal_path).to_path_buf()));
-                        }
-                    }
-                    ObjectStoreMeta::Filestore { .. } => {
-                        if let Some(journal_path) = osd.osd_journal {
-                            match read_link(Path::new(&journal_path)) {
-                            Ok(path) => return Ok(Some(path)),
-                                Err(e) => {
-                                    error!("Bad journal symlink.  journal no longer points to valid UUID");
-                                    return Ok(None)
-                                }
-                            }
+        let osd_meta = osd_metadata_by_id(&self.cluster_handle, osd_id)?;
+        match osd_meta.objectstore_meta {
+            ObjectStoreMeta::Bluestore {
+                bluefs_wal_partition_path,
+                ..
+            } => {
+                if let Some(wal_path) = bluefs_wal_partition_path {
+                    return Ok(Some(Path::new(&wal_path).to_path_buf()));
+                }
+            }
+            ObjectStoreMeta::Filestore { .. } => {
+                if let Some(journal_path) = osd_meta.osd_journal {
+                    match read_link(Path::new(&journal_path)) {
+                        Ok(path) => return Ok(Some(path)),
+                        Err(e) => {
+                            error!("Bad journal symlink.  journal no longer points to valid UUID");
+                            return Ok(None);
                         }
                     }
                 }
@@ -871,14 +867,14 @@ impl CephBackend {
         }
 
         let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
-        //unmount the device and clean up 
+        //unmount the device and clean up
         block_utils::unmount_device(&dev_path)?;
         if osd_dir.exists() {
             debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
-            match remove_dir_all(osd_dir){
+            match remove_dir_all(osd_dir) {
                 Ok(_) => {
                     debug!("Cleaned up /var/lib/ceph/osd/ceph-{}", osd_id);
-                },
+                }
                 Err(e) => {
                     error!("{:?}", e);
                     return Err(BynarError::from(e));
@@ -1103,7 +1099,6 @@ impl CephBackend {
         }
         Ok(())
     }
-
 }
 
 impl Backend for CephBackend {
@@ -1119,7 +1114,7 @@ impl Backend for CephBackend {
         // check if the osd id, if given, is already in the cluster
         match id {
             Some(osd_id) => {
-                if is_osd_id_in_cluster(&self.cluster_handle, osd_id)? {
+                if is_osd_id_in_cluster(&self.cluster_handle, osd_id) {
                     error!("Osd ID {} is already in the cluster. Skipping", osd_id);
                     return Ok(OpOutcome::Skipped);
                 }
@@ -1253,14 +1248,11 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<
 }
 
 // Check if an osd_id is already in the cluster
-fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> BynarResult<bool> {
-    let osd_meta = osd_metadata(cluster_handle)?;
-    for osd in osd_meta {
-        if osd_id == osd.id {
-            return Ok(true);
-        }
+fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> bool {
+    match osd_metadata_by_id(cluster_handle, osd_id) {
+        Ok(_) => true,
+        Err(_) => false,
     }
-    Ok(false)
 }
 
 /// get the osd id from the device path using the osd metadata (Needs modification for Bluestore)
