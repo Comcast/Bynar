@@ -120,7 +120,13 @@ where to look for ceph configuration, user details etc.
 			"device": "/dev/sdb",
 			"partition_id": 1
 		}
-	]
+	],
+  "osd_config": {
+    "is_lvm": false,
+    "dev_path": "/dev/sdxX",
+    "journal_path" : "/dev/sdxY",
+    "rdb_path': "dev/sdxZ",
+  }
 }
 ```
 The pool_name is the name of the pool used to measure latency in the cluster,
