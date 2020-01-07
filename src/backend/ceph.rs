@@ -107,6 +107,19 @@ fn test_journal_sorting() {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+/// determine if the osd uses LVMs or not and, if a bluestore and NOT an LVM, get the journal_path and RocksDB path if necessary
+struct OsdConfig{
+    /// return true if the osd config file given is an LVM or not
+    is_lvm: bool,
+    /// path of the device the Osd sits
+    dev_path: String,
+    /// optional path to the journal if one exists, should NOT be the same as rbd_path
+    journal_path : Option<String>,
+    /// optional RocksDB path, for blustore non-LVM deployment, should NOT be the same as journal_path   
+    rdb_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 /// A disk or partition that should not be touched by ceph
 struct SystemDisk {
     device: PathBuf,
@@ -155,6 +168,9 @@ struct CephConfig {
     /// Bynar will create new partitions on these devices as needed
     /// if no journal_partition_id is given
     journal_devices: Option<Vec<JournalDevice>>,
+    /// The configuration for the osds, specifically, whether the osd
+    /// uses LVMs, and what its journal path and RocksDB path are 
+    osd_config: Vec<OsdConfig>,
 }
 
 fn choose_ceph_config(config_dir: Option<&Path>) -> BynarResult<PathBuf> {
