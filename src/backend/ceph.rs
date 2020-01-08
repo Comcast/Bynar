@@ -108,13 +108,13 @@ fn test_journal_sorting() {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 /// determine if the osd uses LVMs or not and, if a bluestore and NOT an LVM, get the journal_path and RocksDB path if necessary
-struct OsdConfig{
+struct OsdConfig {
     /// return true if the osd config file given is an LVM or not
     is_lvm: bool,
     /// path of the device the Osd sits
     dev_path: String,
     /// optional path to the journal if one exists, should NOT be the same as rbd_path
-    journal_path : Option<String>,
+    journal_path: Option<String>,
     /// optional RocksDB path, for blustore non-LVM deployment, should NOT be the same as journal_path   
     rdb_path: Option<String>,
 }
@@ -169,7 +169,7 @@ struct CephConfig {
     /// if no journal_partition_id is given
     journal_devices: Option<Vec<JournalDevice>>,
     /// The configuration for the osds, specifically, whether the osd
-    /// uses LVMs, and what its journal path and RocksDB path are 
+    /// uses LVMs, and what its journal path and RocksDB path are
     osd_config: Vec<OsdConfig>,
 }
 
@@ -232,19 +232,21 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
 }
 
 // get the OSDConfig for a given input osd path if one exists
-fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<OsdConfig>
-{
+fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<OsdConfig> {
     let parent = match block_utils::get_parent_devpath_from_path(dev_path)? {
         Some(p) => p.to_string_lossy().to_string(),
         None => String::new(),
     };
     let path = dev_path.to_string_lossy().to_string();
-    for osdconfig in config.osd_config{
+    for osdconfig in config.osd_config {
         if osdconfig.dev_path == path || osdconfig.dev_path == parent {
             return Ok(osdconfig);
         }
     }
-    Err(BynarError::from(format!("Neither {} or its parent is in the config file", dev_path.display())))
+    Err(BynarError::from(format!(
+        "Neither {} or its parent is in the config file",
+        dev_path.display()
+    )))
 }
 
 impl CephBackend {
@@ -269,10 +271,28 @@ impl CephBackend {
             version,
         })
     }
-    // add a bluestore without using LVM
-    fn add_bluestore_manual(&self, dev_path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
-        // disk /dev/sdX should have two partitions, 1st one 100M, second one rest of disk
-        // first one for bluestore mount, second for block device. make them if so
+    // add a bluestore without using LVM, dev_path should be the disk path
+    fn add_bluestore_manual(
+        &self,
+        dev_path: &Path,
+        id: Option<u64>,
+        simulate: bool,
+    ) -> BynarResult<()> {
+        // disk /dev/sdX should have two partitions, 1st one 100MB, second one rest of disk
+        // first one for bluestore mount, second for block device. make them if so.  Note: gpt cfg.open()
+        // errors out if the path is NOT a gpt formatted disk. if partition or not gpt, will fail
+        // this is a bluestore osd, so we should be adding osds via the disk path, not the partition path
+        create_bluestore_man_partitions(dev_path)?;
+        //partition the disk if necessary
+        let partitions = disk.partitions();
+        let filesystem_size = 100 * 1024 * 1024; //100 MB, to bytes
+                                                 //partition the disk
+        if partitions.len() < 2 {
+            if !partitions.is_empty() {
+                let part1 = partitions.get(1);
+            }
+        }
+
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
         // create osd id
         // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
@@ -1692,6 +1712,73 @@ fn ceph_bluestore_tool(device: &Path, mount_path: &Path, simulate: bool) -> Byna
         );
         return Err(BynarError::new(stderr));
     }
+    Ok(())
+}
+
+/// Create the partitions needed for a manual bluestore deployment
+fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
+    let mut disk = match cfg.open(dev_path) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("{:?}, path not the osd disk", e);
+            return Err(BynarError::from(e));
+        }
+    }; // error our here, this should be a disk path
+    let partitions = disk.partitions();
+    let filesystem_size = 100 * 1024 * 1024; //100 MB, to bytes
+                                             //partition the disk
+    if let Some(part1) = partitions.get(&1) {
+        if (part1.last_lba - part1.first_lba + 1) * 512 != filesystem_size {
+            //remove partition and then make new one
+            debug!(
+                "Remove partition {:?}",
+                disk.remove_partition(Some(1), None)?
+            );
+            //add partition
+            debug!(
+                "Add partition {:?}",
+                disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0)?
+            );
+        }
+    } else {
+        //make partition 1
+        //add partition
+        debug!(
+            "Add partition number {:?}",
+            disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0)
+                .unwrap()
+        );
+    }
+    if let Some(part2) = disk.partitions().get(&2) {
+        if let Some(header) = disk.primary_header() {
+            let last = header.last_usable;
+            if part2.last_lba != last {
+                //remove partition and then make new one
+                debug!(
+                    "Remove Partition {:?}",
+                    disk.remove_partition(Some(2), None)?
+                );
+                let size = last - (disk.partitions().get(&1)?.last_lba + 1);
+                //add partition
+                debug!(
+                    "Add partition number{:?}",
+                    disk.add_partition("", size * 512, gpt::partition_types::LINUX_FS, 0)?
+                );
+            }
+        }
+    } else {
+        //add partition
+        if let Some(header) = disk.primary_header() {
+            let last = header.last_usable;
+            let size = last - (disk.partitions().get(&1)?.last_lba + 1);
+            debug!("Sectors {:?}", size);
+            debug!(
+                "Add partition number{:?}",
+                disk.add_partition("", size * 512, gpt::partition_types::LINUX_FS, 0)?
+            );
+        }
+    }
+    disk.write()?;
     Ok(())
 }
 

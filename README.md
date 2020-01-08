@@ -124,7 +124,7 @@ where to look for ceph configuration, user details etc.
   "osd_config": [
     {
       "is_lvm": false,
-      "dev_path": "/dev/sdxX",
+      "dev_path": "/dev/sdx",
       "journal_path" : "/dev/sdxY",
       "rdb_path': "dev/sdxZ",
     }
