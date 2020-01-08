@@ -16,5 +16,6 @@
 			"device": "/dev/sdb",
 			"partition_id": 1
 		}
-	]
+	],
+	"osd_config": []
 }

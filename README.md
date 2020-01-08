@@ -121,12 +121,14 @@ where to look for ceph configuration, user details etc.
 			"partition_id": 1
 		}
 	],
-  "osd_config": {
-    "is_lvm": false,
-    "dev_path": "/dev/sdxX",
-    "journal_path" : "/dev/sdxY",
-    "rdb_path': "dev/sdxZ",
-  }
+  "osd_config": [
+    {
+      "is_lvm": false,
+      "dev_path": "/dev/sdxX",
+      "journal_path" : "/dev/sdxY",
+      "rdb_path': "dev/sdxZ",
+    }
+  ]
 }
 ```
 The pool_name is the name of the pool used to measure latency in the cluster,
@@ -150,6 +152,11 @@ to balance the number of partitions across the devices given.  If an explict
 is given Bynar will create new partitions when disks are added.  The partition 
 size will be equal to the ceph.conf `osd journal size` configuration setting 
 which is given in megabytes.
+
+Osd Configs should be specified for ceph to use.  This lets Bynar know whether to add
+an osd device manually or through LVM. When configuring for a Bluestore device that will
+not be added as an LVM, you can also specify the journal path and the RocksDB path (the 
+block.wal and block.db symlinks respectively), though they should not point to the same location.
 ### Directory layout:
 1. Top level is the dead disk detector aka bynar
 2. api is the protobuf api create
