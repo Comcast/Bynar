@@ -231,6 +231,22 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
     Ok(())
 }
 
+// get the OSDConfig for a given input osd path if one exists
+fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<OsdConfig>
+{
+    let parent = match block_utils::get_parent_devpath_from_path(dev_path)? {
+        Some(p) => p.to_string_lossy().to_string(),
+        None => String::new(),
+    };
+    let path = dev_path.to_string_lossy().to_string();
+    for osdconfig in config.osd_config{
+        if osdconfig.dev_path == path || osdconfig.dev_path == parent {
+            return Ok(osdconfig);
+        }
+    }
+    Err(BynarError::from(format!("Neither {} or its parent is in the config file", dev_path.display())))
+}
+
 impl CephBackend {
     pub fn new(config_dir: Option<&Path>) -> BynarResult<CephBackend> {
         let ceph_config = choose_ceph_config(config_dir)?;
@@ -253,7 +269,27 @@ impl CephBackend {
             version,
         })
     }
+    // add a bluestore without using LVM
+    fn add_bluestore_manual(&self, dev_path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<()> {
+        // disk /dev/sdX should have two partitions, 1st one 100M, second one rest of disk
+        // first one for bluestore mount, second for block device. make them if so
+        // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
+        // create osd id
+        // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
+        // create file type with "bluestore"
+        // symlink /dev/sdx2 to block
+        // IF journal_path exists, symlink journal_path to block.wal
+        // if rbd_path exists, symlink rbd_path to block.db
+        // NOTE: journal_path != rbd_path
+        // add block device to udev/rules.d if not already in
+        // ceph-osd --setuser ceph -i 0 --mkkey --mkfs
+        // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
+        // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
+        // gradual weight
+        //systemctl start
 
+        Ok(())
+    }
     fn add_bluestore_osd(
         &self,
         dev_path: &Path,
