@@ -239,7 +239,7 @@ fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<O
     };
     let path = dev_path.to_string_lossy().to_string();
     for osdconfig in &config.osd_config {
-        if osdconfig.dev_path == path || osdconfig.dev_path == parent {
+        if osdconfig.dev_path == path {
             return Ok(osdconfig.clone());
         }
     }
@@ -271,11 +271,12 @@ impl CephBackend {
             version,
         })
     }
-    // add a bluestore without using LVM, dev_path should be the disk path
+    // add a bluestore without using LVM, dev_path should be the disk path (ensure it is the disk path with get_parent_dev)
     fn add_bluestore_manual(
         &self,
         dev_path: &Path,
         id: Option<u64>,
+        osd_config: &OsdConfig,
         simulate: bool,
     ) -> BynarResult<()> {
         // disk /dev/sdX should have two partitions, 1st one 100MB, second one rest of disk
@@ -285,7 +286,9 @@ impl CephBackend {
         create_bluestore_man_partitions(dev_path)?;
 
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
-        // create osd id
+        let status = Command::new("mkfs")
+            .args(&["-t","xfs","-f","-i","size=2048","--",&format!("{}1", dev_path.display())])
+            .status()?;
         // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
         // create file type with "bluestore"
         // symlink /dev/sdx2 to block
@@ -293,6 +296,7 @@ impl CephBackend {
         // if rbd_path exists, symlink rbd_path to block.db
         // NOTE: journal_path != rbd_path
         // add block device to udev/rules.d if not already in
+        // create osd id
         // ceph-osd --setuser ceph -i 0 --mkkey --mkfs
         // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
         // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
@@ -666,7 +670,15 @@ impl CephBackend {
     }
 
     // get the journal path (if one exists)
-    fn get_journal_path(&self, osd_id: u64) -> BynarResult<Option<PathBuf>> {
+    // if the config file journal_path is not None, return None
+    fn get_journal_path(
+        &self,
+        osd_id: u64,
+        osd_config: &OsdConfig,
+    ) -> BynarResult<Option<PathBuf>> {
+        if osd_config.journal_path.is_some() {
+            return None; //In otherwords, do NOT remove the journal since we can reuse it
+        }
         //get osd metadata
         let osd_meta = osd_metadata_by_id(&self.cluster_handle, osd_id)?;
         match osd_meta.objectstore_meta {
@@ -778,6 +790,8 @@ impl CephBackend {
             )));
         }
         let osd_id = osd_id.unwrap();
+        debug!("Get the osd config");
+        let osd_config = self.get_osd_config_by_path(dev_path)?;
         debug!("Try to get the journal path");
         let journal_path = self.get_journal_path(osd_id)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
@@ -869,8 +883,10 @@ impl CephBackend {
         //If the OSD is still running we can query its version.  If not then we
         //should ask either another OSD or a monitor.
         let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
+        debug!("Get the osd config");
+        let osd_config = self.get_osd_config_by_path(dev_path)?;
         debug!("Try to get the journal path");
-        let journal_path = self.get_journal_path(osd_id)?;
+        let journal_path = self.get_journal_path(osd_id, &osd_config)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
         debug!("Check id osd is already out");

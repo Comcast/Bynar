@@ -153,9 +153,10 @@ is given Bynar will create new partitions when disks are added.  The partition
 size will be equal to the ceph.conf `osd journal size` configuration setting 
 which is given in megabytes.
 
-Osd Configs should be specified for ceph to use.  This lets Bynar know whether to add
-an osd device manually or through LVM. When configuring for a Bluestore device that will
-not be added as an LVM, you can also specify the journal path and the RocksDB path (the 
+Osd Configs should be specified for ceph to use for each OSD device on the server.  
+This lets Bynar know whether to add an osd device manually or through LVM. 
+When configuring for a Bluestore device that will not be added as an LVM, 
+you can also specify the journal path and the RocksDB path (the 
 block.wal and block.db symlinks respectively), though they should not point to the same location.
 ### Directory layout:
 1. Top level is the dead disk detector aka bynar
