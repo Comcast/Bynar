@@ -238,9 +238,9 @@ fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<O
         None => String::new(),
     };
     let path = dev_path.to_string_lossy().to_string();
-    for osdconfig in config.osd_config {
+    for osdconfig in &config.osd_config {
         if osdconfig.dev_path == path || osdconfig.dev_path == parent {
-            return Ok(osdconfig);
+            return Ok(osdconfig.clone());
         }
     }
     Err(BynarError::from(format!(
@@ -283,15 +283,6 @@ impl CephBackend {
         // errors out if the path is NOT a gpt formatted disk. if partition or not gpt, will fail
         // this is a bluestore osd, so we should be adding osds via the disk path, not the partition path
         create_bluestore_man_partitions(dev_path)?;
-        //partition the disk if necessary
-        let partitions = disk.partitions();
-        let filesystem_size = 100 * 1024 * 1024; //100 MB, to bytes
-                                                 //partition the disk
-        if partitions.len() < 2 {
-            if !partitions.is_empty() {
-                let part1 = partitions.get(1);
-            }
-        }
 
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
         // create osd id
@@ -722,7 +713,7 @@ impl CephBackend {
                         let cfg = gpt::GptConfig::new().writable(true).initialized(true);
                         let mut disk = cfg.open(&parent_path)?;
                         disk.remove_partition(Some(part_id as u32), None)?;
-                        disk.write();
+                        disk.write()?;
                         update_partition_cache(&parent_path)?;
                     }
                 }
@@ -1717,7 +1708,8 @@ fn ceph_bluestore_tool(device: &Path, mount_path: &Path, simulate: bool) -> Byna
 
 /// Create the partitions needed for a manual bluestore deployment
 fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
-    let mut disk = match cfg.open(dev_path) {
+    let cfg = gpt::GptConfig::new().writable(true).initialized(true);
+    let mut disk = match cfg.open(path) {
         Ok(d) => d,
         Err(e) => {
             error!("{:?}, path not the osd disk", e);
@@ -1749,16 +1741,32 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
                 .unwrap()
         );
     }
+    disk.write()?;
+    let cfg = gpt::GptConfig::new().writable(true).initialized(true);
+    let mut disk = match cfg.open(path) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("{:?}, path not the osd disk", e);
+            return Err(BynarError::from(e));
+        }
+    }; // error our here, this should be a disk path
     if let Some(part2) = disk.partitions().get(&2) {
         if let Some(header) = disk.primary_header() {
             let last = header.last_usable;
-            if part2.last_lba != last {
+            if part2.last_lba < last {
                 //remove partition and then make new one
                 debug!(
                     "Remove Partition {:?}",
                     disk.remove_partition(Some(2), None)?
                 );
-                let size = last - (disk.partitions().get(&1)?.last_lba + 1);
+                let first_end = match disk.partitions().get(&1) {
+                    Some(p1) => p1.last_lba,
+                    None => {
+                        error!("First partition does not exist!");
+                        return Err(BynarError::from(format!("First partition does not exist!")));
+                    }
+                };
+                let size = last - first_end;
                 //add partition
                 debug!(
                     "Add partition number{:?}",
@@ -1770,7 +1778,14 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
         //add partition
         if let Some(header) = disk.primary_header() {
             let last = header.last_usable;
-            let size = last - (disk.partitions().get(&1)?.last_lba + 1);
+            let first_end = match disk.partitions().get(&1) {
+                Some(p1) => p1.last_lba,
+                None => {
+                    error!("First partition does not exist!");
+                    return Err(BynarError::from(format!("First partition does not exist!")));
+                }
+            };
+            let size = last - first_end;
             debug!("Sectors {:?}", size);
             debug!(
                 "Add partition number{:?}",
