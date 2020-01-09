@@ -286,17 +286,56 @@ impl CephBackend {
         create_bluestore_man_partitions(dev_path)?;
 
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
-        let status = Command::new("mkfs")
-            .args(&["-t","xfs","-f","-i","size=2048","--",&format!("{}1", dev_path.display())])
-            .status()?;
-        // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
-        // create file type with "bluestore"
-        // symlink /dev/sdx2 to block
-        // IF journal_path exists, symlink journal_path to block.wal
-        // if rbd_path exists, symlink rbd_path to block.db
-        // NOTE: journal_path != rbd_path
-        // add block device to udev/rules.d if not already in
+        mkfs(dev_path)?;
+
         // create osd id
+        let osd_id = osd_create(&self.cluster_handle, id, simulate)?;
+        //mkdir /var/lib/ceph/osd/{clustername-osd}
+        let mount_point = Path::new("/var/lib/ceph/osd").join(&format!("ceph-{}", osd_id));
+        if !mount_point.exists() {
+            debug!(
+                "Mount point {} doesn't exist.  Creating.",
+                mount_point.display()
+            );
+            create_dir(&mount_point)?;
+        }
+        // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
+        let status = Command::new("mount")
+            .args(&[
+                &format!("{}1", dev_path.display()),
+                &format!("{}", mount_point.display()),
+            ])
+            .output()?;
+        if !status.status.success() {
+            return Err(BynarError::new(format!(
+                "Unable to mount {}1",
+                dev_path.display()
+            )));
+        }
+        // create file type with "bluestore"
+        let type_path = mount_point.join("type");
+        debug!("opening {} for writing", type_path.display());
+        let mut activate_file = File::create(&type_path)?;
+        activate_file.write_all(&format!("{}", "bluestore".to_string()).as_bytes())?;
+        // symlink /dev/sdx2 to block
+        let block_dev = format!("{}2", dev_path.display());
+        let block_dev = Path::new(&block_dev);
+        let block = mount_point.join("block");
+        symlink(block_dev, block)?;
+        // IF journal_path exists, symlink journal_path to block.wal
+        if let Some(journal_path) = &osd_config.journal_path {
+            let blockwal = mount_point.join("block.wal");
+            let wal_path = Path::new(&journal_path);
+            symlink(wal_path, blockwal);
+        }
+        // if rbd_path exists, symlink rbd_path to block.db
+        if let Some(rdb_path) = &osd_config.rdb_path {
+            let blockdb = mount_point.join("block.db");
+            let rbd_path = Path::new(&rdb_path);
+            symlink(rbd_path, blockdb);
+        }
+        // NOTE: journal_path != rbd_path 
+        // add block device to udev/rules.d if not already in
         // ceph-osd --setuser ceph -i 0 --mkkey --mkfs
         // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
         // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
@@ -677,7 +716,7 @@ impl CephBackend {
         osd_config: &OsdConfig,
     ) -> BynarResult<Option<PathBuf>> {
         if osd_config.journal_path.is_some() {
-            return None; //In otherwords, do NOT remove the journal since we can reuse it
+            return Ok(None); //In otherwords, do NOT remove the journal since we can reuse it
         }
         //get osd metadata
         let osd_meta = osd_metadata_by_id(&self.cluster_handle, osd_id)?;
@@ -791,9 +830,9 @@ impl CephBackend {
         }
         let osd_id = osd_id.unwrap();
         debug!("Get the osd config");
-        let osd_config = self.get_osd_config_by_path(dev_path)?;
+        let osd_config = get_osd_config_by_path(&self.config, dev_path)?;
         debug!("Try to get the journal path");
-        let journal_path = self.get_journal_path(osd_id)?;
+        let journal_path = self.get_journal_path(osd_id, &osd_config)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
         self.set_noscrub(simulate)?;
         debug!("Check if osd is already out");
@@ -884,7 +923,7 @@ impl CephBackend {
         //should ask either another OSD or a monitor.
         let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
         debug!("Get the osd config");
-        let osd_config = self.get_osd_config_by_path(dev_path)?;
+        let osd_config = get_osd_config_by_path(&self.config, dev_path)?;
         debug!("Try to get the journal path");
         let journal_path = self.get_journal_path(osd_id, &osd_config)?;
         debug!("Toggle noscrub, nodeep-scrub flags");
@@ -1627,6 +1666,28 @@ fn settle_udev() -> BynarResult<()> {
         ));
     }
     Ok(())
+}
+
+// run a mkfs on the 100MB partition.  Dev_path should be the disk path
+fn mkfs(dev_path: &Path) -> BynarResult<()>{
+    let status = Command::new("mkfs")
+            .args(&[
+                "-t",
+                "xfs",
+                "-f",
+                "-i",
+                "size=2048",
+                "--",
+                &format!("{}1", dev_path.display()),
+            ])
+            .output()?;
+        if !status.status.success() {
+            return Err(BynarError::new(format!(
+                "Unable to format {}1",
+                dev_path.display()
+            )));
+        }
+        Ok(())
 }
 
 // Run ceph-osd --mkfs and return the osd UUID
