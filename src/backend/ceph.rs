@@ -298,9 +298,11 @@ impl CephBackend {
         // first one for bluestore mount, second for block device. make them if so.  Note: gpt cfg.open()
         // errors out if the path is NOT a gpt formatted disk. if partition or not gpt, will fail
         // this is a bluestore osd, so we should be adding osds via the disk path, not the partition path
+        debug!("create partitions");
         create_bluestore_man_partitions(dev_path)?;
         let dir_partition = format!("{}1", dev_path.display());
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
+        debug!("make the filesystem partition");
         mkfs_osd_dir(&dir_partition)?;
 
         // create osd id
@@ -315,6 +317,7 @@ impl CephBackend {
             create_dir(&mount_point)?;
         }
         // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
+        debug!("mount the osd directory");
         mount_osd_dir(&dir_partition, &mount_point)?;
         // create file type with "bluestore"
         let type_path = mount_point.join("type");
@@ -322,22 +325,26 @@ impl CephBackend {
         let mut activate_file = File::create(&type_path)?;
         activate_file.write_all(&format!("{}", "bluestore".to_string()).as_bytes())?;
         // symlink /dev/sdx2 to block
+        debug!("Symlink bluestore devices");
         let block_dev = format!("{}2", dev_path.display());
         symlink_bluestore_devices(&block_dev, &mount_point, osd_config)?;
         // NOTE: journal_path != rbd_path
         // add block device to udev/rules.d if not already in (journal + rdb should already be in but check anyways)
         // check if dev_path in udev/rules.d
+        debug!("Try to add the block device to the udev rules");
         add_block_to_udev(dev_path, &self.config.udev_rule_path)?;
         //chown /var/lib/ceph/osd/{cluster-id}
 
         // ceph-osd --setuser ceph -i 0 --mkkey --mkfs
+        debug!("Ceph mkfs");
+        ceph_mkfs(osd_id, None, false, None, None, None, None, None, simulate)?;
         debug!("Creating ceph authorization entry");
         osd_auth_add(&self.cluster_handle, osd_id, simulate)?;
         let auth_key = auth_get_key(&self.cluster_handle, "osd", &osd_id.to_string())?;
         // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
         debug!("Saving ceph keyring");
         save_keyring(osd_id, &auth_key, Some(0), Some(0), simulate)?;
-        ceph_mkfs(osd_id, None, false, None, None, None, None, None, simulate)?;
+        
 
         // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
         let host_info = Host::new()?;
@@ -365,6 +372,19 @@ impl CephBackend {
         id: Option<u64>,
         simulate: bool,
     ) -> BynarResult<()> {
+        //get osd_config
+        debug!("Get osd config");
+        let osd_config = get_osd_config_by_path(&self.config, dev_path)?;
+        if !osd_config.is_lvm {
+            debug!("osd is not lvm");
+            //check if dev_path is disk or not
+            if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
+                return self.add_bluestore_manual(parent.as_path(), id, &osd_config, simulate);
+            } else {
+                return self.add_bluestore_manual(dev_path, id, &osd_config, simulate);
+            }
+        }
+
         /*
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
