@@ -4,7 +4,7 @@ use std::fs::{
     create_dir, read_dir, read_link, read_to_string, remove_dir_all, symlink_metadata, File,
     OpenOptions,
 };
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::{fs::symlink, io::AsRawFd};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -171,6 +171,9 @@ struct CephConfig {
     /// The configuration for the osds, specifically, whether the osd
     /// uses LVMs, and what its journal path and RocksDB path are
     osd_config: Vec<OsdConfig>,
+    /// The location of the udev rules, which will be updated on adding an osd device
+    /// so the osd is owned properly by ceph:ceph
+    udev_rule_path: String,
 }
 
 fn choose_ceph_config(config_dir: Option<&Path>) -> BynarResult<PathBuf> {
@@ -228,6 +231,18 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
             config.pool_name
         )));
     }
+    for osd_config in &config.osd_config {
+        if let Some(journal_path) = &osd_config.journal_path {
+            if let Some(rdb_path) = &osd_config.rdb_path {
+                if journal_path == rdb_path {
+                    return Err(BynarError::new(format!(
+                        "Osd Config {} has same block.wal and block.db symlink paths",
+                        osd_config.dev_path
+                    )));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -284,9 +299,9 @@ impl CephBackend {
         // errors out if the path is NOT a gpt formatted disk. if partition or not gpt, will fail
         // this is a bluestore osd, so we should be adding osds via the disk path, not the partition path
         create_bluestore_man_partitions(dev_path)?;
-
+        let dir_partition = format!("{}1", dev_path.display());
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
-        mkfs(dev_path)?;
+        mkfs_osd_dir(&dir_partition)?;
 
         // create osd id
         let osd_id = osd_create(&self.cluster_handle, id, simulate)?;
@@ -300,18 +315,7 @@ impl CephBackend {
             create_dir(&mount_point)?;
         }
         // mount /dev/sdx1 to /var/lib/ceph/osd/{clustername-osd_id}
-        let status = Command::new("mount")
-            .args(&[
-                &format!("{}1", dev_path.display()),
-                &format!("{}", mount_point.display()),
-            ])
-            .output()?;
-        if !status.status.success() {
-            return Err(BynarError::new(format!(
-                "Unable to mount {}1",
-                dev_path.display()
-            )));
-        }
+        mount_osd_dir(&dir_partition, &mount_point)?;
         // create file type with "bluestore"
         let type_path = mount_point.join("type");
         debug!("opening {} for writing", type_path.display());
@@ -319,24 +323,16 @@ impl CephBackend {
         activate_file.write_all(&format!("{}", "bluestore".to_string()).as_bytes())?;
         // symlink /dev/sdx2 to block
         let block_dev = format!("{}2", dev_path.display());
-        let block_dev = Path::new(&block_dev);
-        let block = mount_point.join("block");
-        symlink(block_dev, block)?;
-        // IF journal_path exists, symlink journal_path to block.wal
-        if let Some(journal_path) = &osd_config.journal_path {
-            let blockwal = mount_point.join("block.wal");
-            let wal_path = Path::new(&journal_path);
-            symlink(wal_path, blockwal);
-        }
-        // if rbd_path exists, symlink rbd_path to block.db
-        if let Some(rdb_path) = &osd_config.rdb_path {
-            let blockdb = mount_point.join("block.db");
-            let rbd_path = Path::new(&rdb_path);
-            symlink(rbd_path, blockdb);
-        }
-        // NOTE: journal_path != rbd_path 
-        // add block device to udev/rules.d if not already in
+        symlink_bluestore_devices(&block_dev, &mount_point, osd_config)?;
+        // NOTE: journal_path != rbd_path
+        // add block device to udev/rules.d if not already in (journal + rdb should already be in but check anyways)
+        // check if dev_path in udev/rules.d
+        add_block_to_udev(dev_path, &self.config.udev_rule_path)?;
+        //chown /var/lib/ceph/osd/{cluster-id}
+
         // ceph-osd --setuser ceph -i 0 --mkkey --mkfs
+
+        ceph_mkfs(osd_id, None, false, None, None, None, None, None, simulate)?;
         // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
         // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
         // gradual weight
@@ -1668,26 +1664,83 @@ fn settle_udev() -> BynarResult<()> {
     Ok(())
 }
 
-// run a mkfs on the 100MB partition.  Dev_path should be the disk path
-fn mkfs(dev_path: &Path) -> BynarResult<()>{
+/// run a mkfs on the 100MB partition.  Dev_path should be the 100MB partition
+fn mkfs_osd_dir(dev_path: &str) -> BynarResult<()> {
     let status = Command::new("mkfs")
-            .args(&[
-                "-t",
-                "xfs",
-                "-f",
-                "-i",
-                "size=2048",
-                "--",
-                &format!("{}1", dev_path.display()),
-            ])
-            .output()?;
-        if !status.status.success() {
-            return Err(BynarError::new(format!(
-                "Unable to format {}1",
-                dev_path.display()
-            )));
+        .args(&["-t", "xfs", "-f", "-i", "size=2048", "--", dev_path])
+        .output()?;
+    if !status.status.success() {
+        return Err(BynarError::new(format!("Unable to format {}", dev_path)));
+    }
+    Ok(())
+}
+
+/// mount the osd directory on 100MB partition
+fn mount_osd_dir(dev_path: &str, mount_point: &Path) -> BynarResult<()> {
+    let status = Command::new("mount")
+        .args(&[dev_path, &format!("{}", mount_point.display())])
+        .output()?;
+    if !status.status.success() {
+        return Err(BynarError::new(format!("Unable to mount {}", dev_path)));
+    }
+    Ok(())
+}
+
+fn symlink_bluestore_devices(
+    block_path: &str,
+    mount_point: &Path,
+    osd_config: &OsdConfig,
+) -> BynarResult<()> {
+    let block_dev = Path::new(&block_path);
+    let block = mount_point.join("block");
+    symlink(block_dev, block)?;
+    // IF journal_path exists, symlink journal_path to block.wal
+    if let Some(journal_path) = &osd_config.journal_path {
+        let blockwal = mount_point.join("block.wal");
+        let wal_path = Path::new(&journal_path);
+        symlink(wal_path, blockwal)?;
+    }
+    // if rbd_path exists, symlink rbd_path to block.db
+    if let Some(rdb_path) = &osd_config.rdb_path {
+        let blockdb = mount_point.join("block.db");
+        let rbd_path = Path::new(&rdb_path);
+        symlink(rbd_path, blockdb)?;
+    }
+    Ok(())
+}
+
+/// add block device to udev rules if necessary
+fn add_block_to_udev(dev_path: &Path, udev_rule_path: &str) -> BynarResult<()> {
+    let udev_path = Path::new(udev_rule_path);
+    let udev_rules = OpenOptions::new()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(udev_path)?;
+    let reader = BufReader::new(udev_rules);
+
+    let mut found = false;
+    if let Some(dev) = dev_path.file_name() {
+        for line in reader.lines() {
+            if line?.contains(&dev.to_string_lossy().to_string()) {
+                found = true;
+            }
         }
-        Ok(())
+        if !found {
+            let mut udev_rules = OpenOptions::new()
+                .read(true)
+                .append(true)
+                .create(true)
+                .open(udev_path)?;
+            udev_rules.write_all(&format!(r#"KERNEL="{}*", SUBSYSTEM=="block", ENV{{DEVTYPE}}=="partition", OWNER="ceph", GROUP="ceph", MODE="0660""#, dev.to_string_lossy()).as_bytes())?;
+            // reload udev rules
+            Command::new("udevadm")
+                .args(&["control", "--reload-rules"])
+                .output()?;
+            Command::new("udevadm").arg("trigger").output()?;
+        }
+    }
+    Ok(())
 }
 
 // Run ceph-osd --mkfs and return the osd UUID
