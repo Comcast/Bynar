@@ -361,6 +361,7 @@ impl CephBackend {
         )?;
         // gradual weight
         //systemctl start
+        enable_bluestore_manual(osd_id, simulate)?;
         setup_osd_init(osd_id, simulate)?;
         self.gradual_weight(osd_id, true, simulate)?;
         Ok(())
@@ -1821,6 +1822,7 @@ fn ceph_mkkey_mkfs(osd_id: u64, simulate: bool) -> BynarResult<()> {
     }
     Ok(())
 }
+
 // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
 fn osd_auth_add_with_import(osd_id: u64, key_path: &Path, simulate: bool) -> BynarResult<()> {
     debug!("Add authorization to ceph");
@@ -1846,6 +1848,27 @@ fn osd_auth_add_with_import(osd_id: u64, key_path: &Path, simulate: bool) -> Byn
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         error!(
             "ceph auth cmd failed: {}. stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            stderr
+        );
+        return Err(BynarError::new(stderr));
+    }
+    Ok(())
+}
+
+// systemctl enable for bluestore
+fn enable_bluestore_manual(osd_id: u64, simulate: bool) -> BynarResult<()>{
+    debug!("Enable osd daemon");
+    if simulate {
+        return Ok(());
+    }
+    let output = Command::new("systemctl")
+        .args(&["enable", &format!("ceph-osd@{}", osd_id)])
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        error!(
+            "systemctl enable failed: {}. stderr: {}",
             String::from_utf8_lossy(&output.stdout),
             stderr
         );
