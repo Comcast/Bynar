@@ -325,7 +325,7 @@ impl CephBackend {
         let type_path = mount_point.join("type");
         debug!("opening {} for writing", type_path.display());
         let mut activate_file = File::create(&type_path)?;
-        activate_file.write_all(&format!("{}", "bluestore".to_string()).as_bytes())?;
+        activate_file.write_all(&format!("{}\n", "bluestore".to_string()).as_bytes())?;
         // symlink /dev/sdx2 to block
         debug!("Symlink bluestore devices");
         let block_dev = format!("{}2", dev_path.display());
@@ -336,17 +336,14 @@ impl CephBackend {
         debug!("Try to add the block device to the udev rules");
         add_block_to_udev(dev_path, &self.config.udev_rule_path)?;
         //chown /var/lib/ceph/osd/{cluster-id}
+        ceph_chown(&mount_point, simulate)?;
 
-        // ceph-osd --setuser ceph -i 0 --mkkey --mkfs
-        debug!("Ceph mkfs");
-        ceph_mkfs(osd_id, None, false, None, None, None, None, None, simulate)?;
+        // ceph-osd --setuser ceph -i id --mkkey --mkfs
+        ceph_mkkey_mkfs(osd_id, simulate)?;
+        // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-id/keyring
         debug!("Creating ceph authorization entry");
-        osd_auth_add(&self.cluster_handle, osd_id, simulate)?;
-        let auth_key = auth_get_key(&self.cluster_handle, "osd", &osd_id.to_string())?;
-        // ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
-        debug!("Saving ceph keyring");
-        save_keyring(osd_id, &auth_key, Some(0), Some(0), simulate)?;
-        
+        let keyring = mount_point.join("keyring");
+        osd_auth_add_with_import(osd_id, &keyring, simulate)?;
 
         // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
         let host_info = Host::new()?;
@@ -1780,6 +1777,79 @@ fn add_block_to_udev(dev_path: &Path, udev_rule_path: &str) -> BynarResult<()> {
                 .output()?;
             Command::new("udevadm").arg("trigger").output()?;
         }
+    }
+    Ok(())
+}
+
+fn ceph_chown(mount_point: &Path, simulate: bool) -> BynarResult<()> {
+    debug!("chown osd directoy");
+    if simulate {
+        return Ok(());
+    }
+    let output = Command::new("chown")
+        .args(&["-R", "ceph:ceph", &format!("{}", mount_point.display())])
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        error!(
+            "chown failed: {}. stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            stderr
+        );
+        return Err(BynarError::new(stderr));
+    }
+    Ok(())
+}
+
+// ceph_mkkey_mkfs
+fn ceph_mkkey_mkfs(osd_id: u64, simulate: bool) -> BynarResult<()> {
+    debug!("Running ceph-osd --mkkey --mkfs");
+    if simulate {
+        return Ok(());
+    }
+    let output = Command::new("ceph-osd")
+        .args(&["-i", &osd_id.to_string(), "--mkkey", "--mkfs"])
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        error!(
+            "ceph-osd cmd failed: {}. stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            stderr
+        );
+        return Err(BynarError::new(stderr));
+    }
+    Ok(())
+}
+// ceph auth add osd.0 osd 'allow *' mon 'allow rwx' mgr 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring
+fn osd_auth_add_with_import(osd_id: u64, key_path: &Path, simulate: bool) -> BynarResult<()> {
+    debug!("Add authorization to ceph");
+    if simulate {
+        return Ok(());
+    }
+    let output = Command::new("ceph")
+        .args(&[
+            "auth",
+            "add",
+            &format!("osd.{}", osd_id),
+            "osd",
+            "allow *",
+            "mon",
+            "allow rwx",
+            "mgr",
+            "allow profile osd",
+            "-i",
+            &format!("{}", key_path.display()),
+        ])
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        error!(
+            "ceph auth cmd failed: {}. stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            stderr
+        );
+        return Err(BynarError::new(stderr));
     }
     Ok(())
 }
