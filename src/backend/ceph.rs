@@ -300,6 +300,8 @@ impl CephBackend {
         // this is a bluestore osd, so we should be adding osds via the disk path, not the partition path
         debug!("create partitions");
         create_bluestore_man_partitions(dev_path)?;
+        //update_partition_cache
+        update_partition_cache(dev_path)?;
         let dir_partition = format!("{}1", dev_path.display());
         // mkfs -t xfs -f -i size=2048 -- /dev/sdx1
         debug!("make the filesystem partition");
