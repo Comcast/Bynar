@@ -248,10 +248,6 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
 
 // get the OSDConfig for a given input osd path if one exists
 fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<OsdConfig> {
-    let parent = match block_utils::get_parent_devpath_from_path(dev_path)? {
-        Some(p) => p.to_string_lossy().to_string(),
-        None => String::new(),
-    };
     let path = dev_path.to_string_lossy().to_string();
     for osdconfig in &config.osd_config {
         if osdconfig.dev_path == path {
@@ -298,7 +294,7 @@ impl CephBackend {
         // first one for bluestore mount, second for block device. make them if so.  Note: gpt cfg.open()
         // errors out if the path is NOT a gpt formatted disk. if partition or not gpt, will fail
         // this is a bluestore osd, so we should be adding osds via the disk path, not the partition path
-        debug!("create partitions");
+        debug!("create partitions on {}", dev_path.display());
         create_bluestore_man_partitions(dev_path)?;
         //update_partition_cache
         update_partition_cache(dev_path)?;
@@ -380,13 +376,12 @@ impl CephBackend {
         if !osd_config.is_lvm {
             debug!("osd is not lvm");
             //check if dev_path is disk or not
-            if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
+            if let Ok(Some(parent)) = block_utils::get_parent_devpath_from_path(dev_path) {
                 return self.add_bluestore_manual(parent.as_path(), id, &osd_config, simulate);
             } else {
                 return self.add_bluestore_manual(dev_path, id, &osd_config, simulate);
             }
         }
-
         /*
         //TODO  What is the deal with this tmpfs??
         mount, "-t", "tmpfs", "tmpfs", "/var/lib/ceph/osd/ceph-2"
@@ -1978,7 +1973,7 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
     let mut disk = match cfg.open(path) {
         Ok(d) => d,
         Err(e) => {
-            error!("{:?}, path not the osd disk", e);
+            error!("{:?}, path {} not the osd disk", e, path.display());
             return Err(BynarError::from(e));
         }
     }; // error our here, this should be a disk path

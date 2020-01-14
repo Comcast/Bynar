@@ -193,7 +193,7 @@ dependencies = [
 [[package]]
 name = "block-utils"
 version = "0.6.2"
-source = "git+https://github.com/mzhong1/block-utils.git#b7fd36b32396a3bf6f1aa23381c82a4cfedd0d38"
+source = "git+https://github.com/mzhong1/block-utils.git#0cc00694f5226678ac92cfb7ff9ad87d58c88ba5"
 dependencies = [
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
