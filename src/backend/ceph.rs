@@ -344,6 +344,8 @@ impl CephBackend {
         debug!("Creating ceph authorization entry");
         let keyring = mount_point.join("keyring");
         osd_auth_add_with_import(osd_id, &keyring, simulate)?;
+        //chown /var/lib/ceph/osd/{cluster-id} again, because there are now new files
+        ceph_chown(&mount_point, simulate)?;
 
         // osd_crush_add(&self.cluster_handle,new_osd_id,0,&host_info.hostname,simulate,)?;
         let host_info = Host::new()?;
@@ -1857,7 +1859,7 @@ fn osd_auth_add_with_import(osd_id: u64, key_path: &Path, simulate: bool) -> Byn
 }
 
 // systemctl enable for bluestore
-fn enable_bluestore_manual(osd_id: u64, simulate: bool) -> BynarResult<()>{
+fn enable_bluestore_manual(osd_id: u64, simulate: bool) -> BynarResult<()> {
     debug!("Enable osd daemon");
     if simulate {
         return Ok(());
