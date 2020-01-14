@@ -714,6 +714,8 @@ fn main() {
                         signal_hook::SIGHUP => {
                             //Reload the config file
                             debug!("Reload Config File");
+                            let _ = notify_slack(&config, &format!("reload config file"))
+                                .expect("Unable to connect to slack");
                             let config_file = helpers::load_config(config_dir, "bynar.json");
                             if let Err(e) = config_file {
                                 error!(
@@ -721,6 +723,15 @@ fn main() {
                                     config_dir.join("bynar.json").display(),
                                     e
                                 );
+                                let _ = notify_slack(
+                                    &config,
+                                    &format!(
+                                        "Failed to load config file {}. error: {}",
+                                        config_dir.join("bynar.json").display(),
+                                        e
+                                    ),
+                                )
+                                .expect("Unable to connect to slack");
                                 return;
                             }
                             let config: ConfigSettings =
@@ -745,7 +756,11 @@ fn main() {
         }
     }
     debug!("Bynar exited successfully");
-    if daemon{
-        notify_slack(&config, &format!("Bynar daemon on host  {} has stopped", host_info.hostname)).expect("Unable to connect to slack");
+    if daemon {
+        let _ = notify_slack(
+            &config,
+            &format!("Bynar on host  {} has stopped", host_info.hostname),
+        )
+        .expect("Unable to connect to slack");
     }
 }
