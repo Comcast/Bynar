@@ -282,6 +282,7 @@ impl CephBackend {
             version,
         })
     }
+
     // add a bluestore without using LVM, dev_path should be the disk path (ensure it is the disk path with get_parent_dev)
     fn add_bluestore_manual(
         &self,
@@ -364,6 +365,8 @@ impl CephBackend {
         self.gradual_weight(osd_id, true, simulate)?;
         Ok(())
     }
+
+    // add a bluestore osd, either with LVM or manually
     fn add_bluestore_osd(
         &self,
         dev_path: &Path,
@@ -805,6 +808,76 @@ impl CephBackend {
         Ok(())
     }
 
+    // remove a manually provisioned bluestore osd, dev_path should be the first partition path
+    fn remove_bluestore_manual(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
+        // toggle noscrub/deepscrub flags
+        debug!("Toggle noscrub, nodeep-scrub flags");
+        self.set_noscrub(simulate)?;
+        // get the osd id
+        let osd_id = get_osd_id_from_device(&self.cluster_handle, dev_path)?;
+        // gradually weight osd to 0
+        debug!("Check if osd is already out");
+        // check if the osd is out (if so, osd_crush_reweight to 0, else gradual reweight)
+        if self.is_osd_out(osd_id, simulate)? {
+            debug!("OSD already out, reweight osd to 0");
+            osd_crush_reweight(&self.cluster_handle, osd_id, 0.0, simulate)?;
+        } else {
+            debug!("gradually reweight to 0");
+            self.gradual_weight(osd_id, false, simulate)?;
+        }
+        debug!("Checking pgs on osd {:?} until empty", osd_id);
+        loop {
+            if simulate {
+                break;
+            }
+            let cmd = json!({
+                "prefix": "pg ls-by-osd",
+                "name":  format!("osd.{}", osd_id),
+            });
+            let result = self.cluster_handle.ceph_mon_command_without_data(&cmd)?;
+            debug!("PG List {:?}", result.1);
+            if result.1.is_none() {
+                break;
+            }
+        }
+        // set the osd out
+        debug!("Setting osd {} out", osd_id);
+        osd_out(&self.cluster_handle, osd_id, simulate)?;
+        // stop the osd
+        debug!("Stop osd {}", osd_id);
+        systemctl_stop(osd_id, simulate)?;
+        // remove from crush map
+        debug!("Removing osd {} from crush", osd_id);
+        osd_crush_remove(&self.cluster_handle, osd_id, simulate)?;
+        // remove auth key
+        debug!("Deleting osd {} auth key", osd_id);
+        auth_del(&self.cluster_handle, osd_id, simulate)?;
+        // rm osd
+        debug!("Removing osd {}", osd_id);
+        osd_rm(&self.cluster_handle, osd_id, simulate)?;
+
+         //unmount the device and clean up
+         block_utils::unmount_device(&dev_path)?;
+
+        // remove the osd directory
+        let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
+        if osd_dir.exists() {
+            debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
+            match remove_dir_all(osd_dir) {
+                Ok(_) => {
+                    debug!("Cleaned up /var/lib/ceph/osd/ceph-{}", osd_id);
+                }
+                Err(e) => {
+                    error!("{:?}", e);
+                    return Err(BynarError::from(e));
+                }
+            };
+        }
+        // wipe the disk
+        Ok(())
+    }
+
+    // remove a bluestore osd, either LVM or manually provisioned
     fn remove_bluestore_osd(&self, dev_path: &Path, simulate: bool) -> BynarResult<()> {
         debug!("initializing LVM");
         let lvm = Lvm::new(None)?;
@@ -1998,8 +2071,7 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
         //add partition
         debug!(
             "Add partition number {:?}",
-            disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0)
-                .unwrap()
+            disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0)?
         );
     }
     disk.write()?;
