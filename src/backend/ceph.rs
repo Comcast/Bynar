@@ -1452,8 +1452,10 @@ impl Backend for CephBackend {
         let osd_id;
         if !osd_config.is_lvm {
             let mut part2: String = device.to_string_lossy().to_string();
+            part2.truncate(part2.len()-1);
             part2.push_str("2");
             let part2 = Path::new(&part2);
+            debug!("CHECKING PATH {}", part2.display());
             //get the osd id
             osd_id = get_osd_id_from_device(&self.cluster_handle, part2)?;
         } else {
