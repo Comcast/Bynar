@@ -872,7 +872,10 @@ impl CephBackend {
         osd_rm(&self.cluster_handle, osd_id, simulate)?;
 
         //unmount the device and clean up
-        block_utils::unmount_device(&dev_path)?;
+        let mut part1: String = dev_path.to_string_lossy().to_string();
+        part1.push_str("1");
+        let part1 = Path::new(&part1);
+        block_utils::unmount_device(&part1)?;
 
         // remove the osd directory
         let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
@@ -1404,8 +1407,19 @@ impl Backend for CephBackend {
             debug!("Device {} is not an OSD.  Skipping", device.display());
             return Ok(OpOutcome::Skipped);
         }
+        //check if manual bluestore
+        let osd_config = get_osd_config_by_path(&self.config, device)?;
+        let path_check;
+        let mut part2: String = device.to_string_lossy().to_string();
+        part2.truncate(part2.len() - 1);
+        part2.push_str("2");
+        if !osd_config.is_lvm {
+            path_check = Path::new(&part2);
+        } else {
+            path_check = device;
+        }
         // check if the disk is already out of the cluster
-        if !is_device_in_cluster(&self.cluster_handle, device)? {
+        if !is_device_in_cluster(&self.cluster_handle, path_check)? {
             debug!(
                 "Device {} is already out of the cluster.  Skipping",
                 device.display()
@@ -1452,7 +1466,7 @@ impl Backend for CephBackend {
         let osd_id;
         if !osd_config.is_lvm {
             let mut part2: String = device.to_string_lossy().to_string();
-            part2.truncate(part2.len()-1);
+            part2.truncate(part2.len() - 1);
             part2.push_str("2");
             let part2 = Path::new(&part2);
             debug!("CHECKING PATH {}", part2.display());
