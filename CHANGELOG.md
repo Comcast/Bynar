@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.8] - 2019-1-17
+
+### Changed
+
+### Added
+- [Add a gradual weight when adding/removing an OSD][pr#119]
+- [Remove the journal when removing an OSD][pr#121]
+- [Add a Bluestore OSD manually][pr#124]
+- [Remove a Manually made Bluestore OSD][pr#125]
+
 ## [0.1.7] - 2019-12-24
 
 ### Changed
