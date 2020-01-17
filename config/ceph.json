@@ -16,5 +16,7 @@
 			"device": "/dev/sdb",
 			"partition_id": 1
 		}
-	]
+	],
+	"osd_config": [],
+	"udev_rule_path": "/etc/udev/rules.d"
 }
