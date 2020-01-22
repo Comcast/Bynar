@@ -27,7 +27,7 @@ mod util;
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
-use api::service::OpOutcome;
+use api::service::{OpOutcome, Op};
 use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
@@ -44,43 +44,24 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 
-/*#[derive(Clone, Debug, Deserialize)]
-pub struct ConfigSettings {
-    manager_host: String,
-    manager_port: u16,
-    /// Redfish Ip address or dns name ( Usually iLo where redfish is listening)
-    redfish_ip: Option<String>,
-    /// Redfish credentials
-    redfish_username: Option<String>,
-    /// Redfish credentials
-    redfish_password: Option<String>,
-    /// The port redfish is listening on
-    redfish_port: Option<u16>,
-    slack_webhook: Option<String>,
-    slack_channel: Option<String>,
-    slack_botname: Option<String>,
-    vault_endpoint: Option<String>,
-    vault_token: Option<String>,
-    pub jira_user: String,
-    pub jira_password: String,
-    pub jira_host: String,
-    pub jira_issue_type: String,
-    pub jira_priority: String,
-    pub jira_project_id: String,
-    pub jira_ticket_assignee: String,
-    pub proxy: Option<String>,
-    pub database: DBConfig,
+// a specific operation and its outcome
+struct DiskOp {
+    op_type: Op, // operation type
+    ret_val: Option<OpOutcome>, //None if outcome not yet determined
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct DBConfig {
-    pub username: String,
-    pub password: Option<String>,
-    pub port: u16,
-    pub endpoint: String,
-    pub dbname: String,
-}*/
+// create a message map to handle list of disk-manager requests
+fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>> {
+    // List out currently mounted block_devices
+    let mut devices = block_utils::get_block_devices()?;
+    let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+
+    // for each block device get its partitions
+    // add them to HashMap   
+    Ok(map)
+}
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();

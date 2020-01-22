@@ -187,7 +187,7 @@ fn listen(
 ) -> BynarResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
-    let responder = context.socket(zmq::REP)?;
+    let responder = context.socket(zmq::DEALER)?;
 
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails

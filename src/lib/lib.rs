@@ -34,7 +34,7 @@ where
 pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<Socket> {
     debug!("Starting zmq sender with version({:?})", zmq::version());
     let context = zmq::Context::new();
-    let requester = context.socket(zmq::REQ)?;
+    let requester = context.socket(zmq::DEALER)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
     debug!("Created new keypair");
     requester.set_curve_serverkey(server_publickey)?;
@@ -44,7 +44,7 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     assert!(requester
         .connect(&format!("tcp://{}:{}", host, port))
         .is_ok());
-    debug!("Client mechanism: {:?}", requester.get_mechanism());
+    debug!("Client mechanism: {:?}", requester.get_mechanism());     
 
     Ok(requester)
 }
