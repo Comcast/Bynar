@@ -27,7 +27,7 @@ mod util;
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
-use api::service::{OpOutcome, Op};
+use api::service::{Op, OpOutcome};
 use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
@@ -39,27 +39,57 @@ use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
+use std::collections::HashMap;
 use std::fs::{create_dir, read_to_string, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
 
 // a specific operation and its outcome
 struct DiskOp {
-    op_type: Op, // operation type
+    op_type: Op,                // operation type
     ret_val: Option<OpOutcome>, //None if outcome not yet determined
 }
 
 // create a message map to handle list of disk-manager requests
 fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>> {
     // List out currently mounted block_devices
-    let mut devices = block_utils::get_block_devices()?;
+    let mut devices: Vec<PathBuf> = block_utils::get_block_devices()?
+        .into_iter()
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("sr")
+            } else {
+                true
+            })
+        })
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("loop")
+            } else {
+                true
+            })
+        })
+        .collect();
     let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-
-    // for each block device get its partitions
-    // add them to HashMap   
+    let mut partitions = block_utils::get_block_partitions()?;
+    // for each block device add its partitions to the HashMap
+    // add them to HashMap
+    for device in &devices {
+        // make a new hashmap
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+        disk_map.insert(device.to_path_buf(), None);
+        // check if partition parent is device
+        for partition in &partitions {
+            if let Some(disk) = block_utils::get_parent_devpath_from_path(&partition)? {
+                if &disk == device {
+                    disk_map.insert(partition.to_path_buf(), None);
+                }
+            }
+        }
+        map.insert(device.to_path_buf(), disk_map);
+    }
     Ok(map)
 }
 

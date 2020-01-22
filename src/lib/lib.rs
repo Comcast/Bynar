@@ -44,7 +44,7 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     assert!(requester
         .connect(&format!("tcp://{}:{}", host, port))
         .is_ok());
-    debug!("Client mechanism: {:?}", requester.get_mechanism());     
+    debug!("Client mechanism: {:?}", requester.get_mechanism());
 
     Ok(requester)
 }
