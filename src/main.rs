@@ -47,6 +47,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 // a specific operation and its outcome
+#[derive(Debug, Clone)]
 struct DiskOp {
     op_type: Op,                // operation type
     ret_val: Option<OpOutcome>, //None if outcome not yet determined
@@ -152,6 +153,32 @@ fn add_map_op(
         }
     }
     Ok(())
+}
+
+// get the operation for a device (disk/partition) if one exists
+fn get_map_op(
+    message_map: &HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    dev_path: &PathBuf,
+) -> BynarResult<Option<DiskOp>> {
+    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
+        //parent is in the map
+        if let Some(disk) = message_map.get(&parent) {
+            if let Some(partition) = disk.get(dev_path) {
+                // partition in map
+                return Ok(partition.clone());
+            }
+        }
+    } else {
+        //not partition
+        //parent is in the map
+        if let Some(disk) = message_map.get(dev_path) {
+            if let Some(partition) = disk.get(dev_path) {
+                // partition in map
+                return Ok(partition.clone());
+            }
+        }
+    }
+    return Ok(None);
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
