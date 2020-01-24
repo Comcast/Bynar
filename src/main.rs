@@ -94,26 +94,25 @@ fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<Disk
     Ok(map)
 }
 
-// add an operation to the message map.  If an operation is already ongoing, do nothing
-fn add_map_op(
+// add or update an operation to the message map.  If an operation is already ongoing, update op and return the old operation
+fn add_or_update_map_op(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     dev_path: &PathBuf,
     op: DiskOp,
-) -> BynarResult<()> {
+) -> BynarResult<Option<DiskOp>> {
     if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
         //parent is in the map
         if let Some(disk) = message_map.get_mut(&parent) {
-            if let Some(partition) = disk.get(dev_path) {
+            if let Some(partition) = disk.clone().get(dev_path) {
                 // partition in map
-                if partition.is_some() {
-                    return Ok(());
-                }
                 disk.insert(dev_path.to_path_buf(), Some(op));
+                return Ok(partition.clone());
             }
+            disk.insert(dev_path.to_path_buf(), Some(op));
         } else {
             //add to map
             let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-            disk_map.insert(parent.to_path_buf(), None);
+            disk_map.insert(parent.to_path_buf(), Some(op));
             let partitions = block_utils::get_block_partitions()?;
             // check if partition parent is device
             for partition in &partitions {
@@ -129,17 +128,16 @@ fn add_map_op(
         //not partition
         //parent is in the map
         if let Some(disk) = message_map.get_mut(dev_path) {
-            if let Some(partition) = disk.get(dev_path) {
+            if let Some(partition) = disk.clone().get(dev_path) {
                 // partition in map
-                if partition.is_some() {
-                    return Ok(());
-                }
                 disk.insert(dev_path.to_path_buf(), Some(op));
+                return Ok(partition.clone());
             }
+            disk.insert(dev_path.to_path_buf(), Some(op));
         } else {
             //add to map
             let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-            disk_map.insert(dev_path.to_path_buf(), None);
+            disk_map.insert(dev_path.to_path_buf(), Some(op));
             let partitions = block_utils::get_block_partitions()?;
             // check if partition parent is device
             for partition in &partitions {
@@ -152,7 +150,7 @@ fn add_map_op(
             message_map.insert(dev_path.to_path_buf(), disk_map);
         }
     }
-    Ok(())
+    Ok(None)
 }
 
 // get the operation for a device (disk/partition) if one exists
