@@ -74,7 +74,7 @@ fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<Disk
         })
         .collect();
     let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-    let mut partitions = block_utils::get_block_partitions()?;
+    let partitions = block_utils::get_block_partitions()?;
     // for each block device add its partitions to the HashMap
     // add them to HashMap
     for device in &devices {
@@ -179,6 +179,39 @@ fn get_map_op(
         }
     }
     return Ok(None);
+}
+
+// replace the DiskOp associated with the input dev_path None and return the previous DiskOp
+// If the dev_path is not in the map error out
+fn remove_map_op(
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    dev_path: &PathBuf,
+) -> BynarResult<Option<DiskOp>> {
+    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
+        //parent is in the map
+        if let Some(disk) = message_map.get_mut(&parent) {
+            if let Some(partition) = disk.clone().get(dev_path) {
+                //set point as None
+                disk.insert(dev_path.to_path_buf(), None);
+                // partition in map
+                return Ok(partition.clone());
+            }
+        }
+    } else {
+        //not partition
+        //parent is in the map
+        if let Some(disk) = message_map.get_mut(dev_path) {
+            if let Some(partition) = disk.clone().get(dev_path) {
+                // partition in map
+                disk.insert(dev_path.to_path_buf(), None);
+                return Ok(partition.clone());
+            }
+        }
+    }
+    return Err(BynarError::from(format!(
+        "Path {} is not in the message map",
+        dev_path.display()
+    )));
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
