@@ -212,6 +212,26 @@ fn remove_map_op(
     )));
 }
 
+// get the hashmap associated with a diskpath from the op map
+fn get_disk_map_op(
+    message_map: &HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    dev_path: &PathBuf,
+) -> BynarResult<HashMap<PathBuf, Option<DiskOp>>> {
+    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
+        //parent is in the map
+        if let Some(disk) = message_map.get(&parent) {
+            return Ok(disk.clone());
+        }
+    } else {
+        //not partition
+        //parent is in the map
+        if let Some(disk) = message_map.get(dev_path) {
+            return Ok(disk.clone());
+        }
+    }
+    Err(BynarError::from(format!("Path is not a disk in the map")))
+}
+
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();
     let slack = Slack::new(
