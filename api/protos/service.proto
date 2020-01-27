@@ -80,6 +80,8 @@ message OpBoolResult {
   optional bool value = 2;
   // error_msg is set if ERR
   optional string error_msg = 3;
+  // the type of the operation
+  required Op op_type = 4;
 }
 
 message OpStringResult {
@@ -88,6 +90,8 @@ message OpStringResult {
   optional string value = 2;
   // error_msg is set if ERR
   optional string error_msg = 3;
+  // the type of the operation
+  required Op op_type = 4;
 }
 
 message OpOutcomeResult{
@@ -98,6 +102,10 @@ message OpOutcomeResult{
   optional bool value = 3;
   // error_msg set if ERR
   optional string error_msg = 4;
+  // the type of the operation
+  required Op op_type = 5;
+  // the disk/partition the operation was performed on
+  optional string disk = 6;
 }
 
 enum OpOutcome {

@@ -10,6 +10,7 @@ use postgres::Error as PostgresError;
 use protobuf::ProtobufError;
 use pwd::PwdError;
 use r2d2::Error as R2d2Error;
+use rayon::ThreadPoolBuildError;
 use reqwest::Error as ReqwestError;
 use serde_json::Error as SerdeJsonError;
 use slack_hook::Error as SlackError;
@@ -79,6 +80,7 @@ pub enum BynarError {
     ProtobufError(ProtobufError),
     #[error(msg, non_std, no_from)]
     PwdError(PwdBError),
+    RayonError(ThreadPoolBuildError),
     R2d2Error(R2d2Error),
     #[error(msg, non_std)]
     RadosError(RadosError),

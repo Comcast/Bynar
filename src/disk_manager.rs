@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process;
 use std::process::Command;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -21,6 +22,7 @@ mod test_disk;
 use crate::backend::BackendType;
 use block_utils::{Device, MediaType};
 use clap::{crate_authors, crate_version, App, Arg};
+use crossbeam::*;
 use daemonize::Daemonize;
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
@@ -196,138 +198,173 @@ fn listen(
         .bind(&format!("tcp://{}:5555", listen_address))
         .is_ok());
 
-    'outer: loop {
-        let now = Instant::now();
-        let events = responder.get_events()? as zmq::PollEvents;
-        // is the socket readable?
-        if (events & zmq::POLLIN) != 0 {
-            let msg = responder.recv_bytes(0)?;
-            debug!("Got msg len: {}", msg.len());
-            trace!("Parsing msg {:?} as hex", msg);
-            let operation = match parse_from_bytes::<Operation>(&msg) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
-                    continue;
-                }
-            };
+    debug!("Building thread pool");
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(16).build()?;
+    let responder = Arc::new(Mutex::new(responder));
+    // channel to send results from backend to main thread
+    let (send_res, recv_res) = crossbeam_channel::unbounded::<OpOutcomeResult>();
+    let (send_disk, recv_disk) = crossbeam_channel::unbounded::<Disks>();
+    pool.scope(|s| 'outer: loop {
+        match responder.try_lock() {
+            Ok(responder) => {
+                let now = Instant::now();
+                let events = match responder.get_events() {
+                    Err(zmq::Error::EBUSY) => {
+                        trace!("Socket Busy, skip");
+                        continue;
+                    }
+                    Err(e) => return Err(BynarError::from(e)),
+                    Ok(e) => e as zmq::PollEvents,
+                };
+                let send_res = send_res.clone();
+                // is the socket readable?
+                if (events & zmq::POLLIN) != 0 {
+                    let msg = responder.recv_bytes(0)?;
+                    debug!("Got msg len: {}", msg.len());
+                    trace!("Parsing msg {:?} as hex", msg);
+                    let operation = match parse_from_bytes::<Operation>(&msg) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
+                            continue;
+                        }
+                    };
 
-            debug!("Operation requested: {:?}", operation.get_Op_type());
-            if op_no_disk(&responder, &operation) {
-                continue;
-            }
-            match operation.get_Op_type() {
-                Op::Add => {
-                    let id = if operation.has_osd_id() {
-                        Some(operation.get_osd_id())
-                    } else {
-                        None
-                    };
-                    match add_disk(
-                        &responder,
-                        operation.get_disk(),
-                        &backend_type,
-                        id,
-                        config_dir,
-                    ) {
-                        Ok(_) => {
-                            info!("Add disk finished");
+                    debug!("Operation requested: {:?}", operation.get_Op_type());
+                    if op_no_disk(&responder, &operation) {
+                        continue;
+                    }
+                    match operation.get_Op_type() {
+                        Op::Add => {
+                            let id = if operation.has_osd_id() {
+                                Some(operation.get_osd_id())
+                            } else {
+                                None
+                            };
+                            s.spawn(move |_| {
+                                let disk = operation.get_disk();
+                                match add_disk(
+                                    &send_res.clone(),
+                                    disk,
+                                    &backend_type,
+                                    id.clone(),
+                                    config_dir,
+                                ) {
+                                    Ok(_) => {
+                                        info!("Add disk finished");
+                                    }
+                                    Err(e) => {
+                                        error!("Add disk error: {:?}", e);
+                                    }
+                                }
+                            });
+                            /*match add_disk(
+                                &responder,
+                                operation.get_disk(),
+                                &backend_type,
+                                id,
+                                config_dir,
+                            ) {
+                                Ok(_) => {
+                                    info!("Add disk finished");
+                                }
+                                Err(e) => {
+                                    error!("Add disk error: {:?}", e);
+                                }
+                            };*/
                         }
-                        Err(e) => {
-                            error!("Add disk error: {:?}", e);
+                        Op::AddPartition => {
+                            //
                         }
-                    };
-                }
-                Op::AddPartition => {
-                    //
-                }
-                Op::List => {
-                    match list_disks(&responder) {
-                        Ok(_) => {
-                            info!("List disks finished");
+                        Op::List => {
+                            match list_disks(&send_disk) {
+                                Ok(_) => {
+                                    info!("List disks finished");
+                                }
+                                Err(e) => {
+                                    error!("List disks error: {:?}", e);
+                                }
+                            };
                         }
-                        Err(e) => {
-                            error!("List disks error: {:?}", e);
+                        Op::Remove => {
+                            let mut result = OpOutcomeResult::new();
+                            match safe_to_remove(
+                                &Path::new(operation.get_disk()),
+                                &backend_type,
+                                config_dir,
+                            ) {
+                                Ok((OpOutcome::Success, true)) => {
+                                    match remove_disk(
+                                        &responder,
+                                        operation.get_disk(),
+                                        &backend_type,
+                                        config_dir,
+                                    ) {
+                                        Ok(_) => {
+                                            info!("Remove disk finished");
+                                        }
+                                        Err(e) => {
+                                            error!("Remove disk error: {:?}", e);
+                                        }
+                                    };
+                                }
+                                Ok((OpOutcome::Skipped, val)) => {
+                                    debug!("Disk skipped");
+                                    result.set_outcome(OpOutcome::Skipped);
+                                    result.set_value(val);
+                                    result.set_result(ResultType::OK);
+                                    let _ = respond_to_client(&result, &responder);
+                                }
+                                Ok((OpOutcome::SkipRepeat, val)) => {
+                                    debug!("Disk skipped, safe to remove already ran");
+                                    result.set_outcome(OpOutcome::SkipRepeat);
+                                    result.set_value(val);
+                                    result.set_result(ResultType::OK);
+                                    let _ = respond_to_client(&result, &responder);
+                                }
+                                Ok((_, false)) => {
+                                    debug!("Disk is not safe to remove");
+                                    //Response to client
+                                    result.set_value(false);
+                                    result.set_outcome(OpOutcome::Success);
+                                    result.set_result(ResultType::ERR);
+                                    result.set_error_msg("Not safe to remove disk".to_string());
+                                    let _ = respond_to_client(&result, &responder);
+                                }
+                                Err(e) => {
+                                    error!("safe to remove failed: {:?}", e);
+                                    // Response to client
+                                    result.set_value(false);
+                                    result.set_result(ResultType::ERR);
+                                    result.set_error_msg(e.to_string());
+                                    let _ = respond_to_client(&result, &responder);
+                                }
+                            };
                         }
-                    };
-                }
-                Op::Remove => {
-                    let mut result = OpOutcomeResult::new();
-                    match safe_to_remove(
-                        &Path::new(operation.get_disk()),
-                        &backend_type,
-                        config_dir,
-                    ) {
-                        Ok((OpOutcome::Success, true)) => {
-                            match remove_disk(
+                        Op::SafeToRemove => {
+                            match safe_to_remove_disk(
                                 &responder,
                                 operation.get_disk(),
                                 &backend_type,
                                 config_dir,
                             ) {
                                 Ok(_) => {
-                                    info!("Remove disk finished");
+                                    info!("Safe to remove disk finished");
                                 }
                                 Err(e) => {
-                                    error!("Remove disk error: {:?}", e);
+                                    error!("Safe to remove error: {:?}", e);
                                 }
                             };
                         }
-                        Ok((OpOutcome::Skipped, val)) => {
-                            debug!("Disk skipped");
-                            result.set_outcome(OpOutcome::Skipped);
-                            result.set_value(val);
-                            result.set_result(ResultType::OK);
-                            let _ = respond_to_client(&result, &responder);
-                        }
-                        Ok((OpOutcome::SkipRepeat, val)) => {
-                            debug!("Disk skipped, safe to remove already ran");
-                            result.set_outcome(OpOutcome::SkipRepeat);
-                            result.set_value(val);
-                            result.set_result(ResultType::OK);
-                            let _ = respond_to_client(&result, &responder);
-                        }
-                        Ok((_, false)) => {
-                            debug!("Disk is not safe to remove");
-                            //Response to client
-                            result.set_value(false);
-                            result.set_outcome(OpOutcome::Success);
-                            result.set_result(ResultType::ERR);
-                            result.set_error_msg("Not safe to remove disk".to_string());
-                            let _ = respond_to_client(&result, &responder);
-                        }
-                        Err(e) => {
-                            error!("safe to remove failed: {:?}", e);
-                            // Response to client
-                            result.set_value(false);
-                            result.set_result(ResultType::ERR);
-                            result.set_error_msg(e.to_string());
-                            let _ = respond_to_client(&result, &responder);
-                        }
-                    };
-                }
-                Op::SafeToRemove => {
-                    match safe_to_remove_disk(
-                        &responder,
-                        operation.get_disk(),
-                        &backend_type,
-                        config_dir,
-                    ) {
-                        Ok(_) => {
-                            info!("Safe to remove disk finished");
-                        }
-                        Err(e) => {
-                            error!("Safe to remove error: {:?}", e);
-                        }
-                    };
-                }
-                Op::GetCreatedTickets => {
-                    match get_jira_tickets(&responder, config_dir) {
-                        Ok(_) => {
-                            info!("Fetching jira tickets finished");
-                        }
-                        Err(e) => {
-                            error!("Fetching jira error: {:?}", e);
+                        Op::GetCreatedTickets => {
+                            match get_jira_tickets(&responder, config_dir) {
+                                Ok(_) => {
+                                    info!("Fetching jira tickets finished");
+                                }
+                                Err(e) => {
+                                    error!("Fetching jira error: {:?}", e);
+                                }
+                            };
                         }
                     };
                 }
@@ -353,25 +390,16 @@ fn listen(
                                 config_file.expect("Failed to load config");
                             let _ = notify_slack(&config, &format!("Reload disk-manager config file")).expect("Unable to connect to slack");
                         }
-                        signal_hook::SIGINT | signal_hook::SIGCHLD => {
-                            //skip this
-                            debug!("Ignore signal");
-                            continue;
-                        }
-                        signal_hook::SIGTERM => {
-                            //"gracefully" exit
-                            debug!("Exit Process");
-                            break 'outer;
-                        }
-                        _ => unreachable!(),
                     }
                 }
             }
+            Err(_) => {}
         }
-    }
+    });
     Ok(())
 }
 
+// send message to client
 fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResult<()> {
     let encoded = result.write_to_bytes()?;
     debug!("Responding to client with msg len: {}", encoded.len());
@@ -379,14 +407,17 @@ fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResul
     Ok(())
 }
 
+// add disk request function.  Send the result through the sender channel back to the main thread.
 fn add_disk(
-    s: &Socket,
+    sender: &crossbeam_channel::Sender<OpOutcomeResult>,
     d: &str,
     backend: &BackendType,
     id: Option<u64>,
     config_dir: &Path,
 ) -> BynarResult<()> {
     let mut result = OpOutcomeResult::new();
+    result.set_disk(d.to_string());
+    result.set_op_type(Op::Add);
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(backend) => backend,
         Err(e) => {
@@ -394,7 +425,7 @@ fn add_disk(
             result.set_error_msg(e.to_string());
 
             // Bail early.  We can't load the backend
-            let _ = respond_to_client(&result, s);
+            let _ = sender.send(result);
             return Ok(());
         }
     };
@@ -410,7 +441,7 @@ fn add_disk(
             result.set_error_msg(e.to_string());
         }
     };
-    let _ = respond_to_client(&result, s);
+    let _ = sender.send(result);
 
     Ok(())
 }
@@ -469,16 +500,17 @@ fn get_partition_info(dev_path: &Path) -> BynarResult<PartitionInfo> {
     Ok(partition_info)
 }
 
-fn list_disks(s: &Socket) -> BynarResult<()> {
+fn list_disks(c: &crossbeam_channel::Sender<Disks>) -> BynarResult<()> {
     let disk_list: Vec<Disk> = get_disks()?;
 
     let mut disks = Disks::new();
     disks.set_disk(RepeatedField::from_vec(disk_list));
-    debug!("Encoding disk list");
+    /*debug!("Encoding disk list");
     let encoded = disks.write_to_bytes()?;
 
     debug!("Responding to client with msg len: {}", encoded.len());
-    s.send(&encoded, 0)?;
+    s.send(&encoded, 0)?;*/
+    let _ = c.send(disks);
     Ok(())
 }
 
