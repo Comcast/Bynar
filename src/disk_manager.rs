@@ -24,7 +24,7 @@ use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
 use gpt::{disk, header::read_header, partition::read_partitions};
 use hashicorp_vault::client::VaultClient;
-use helpers::{error::*, ConfigSettings};
+use helpers::{error::*, host_information::Host, ConfigSettings};
 use hostname::get_hostname;
 use libc::c_int;
 use log::{debug, error, info, trace, warn};
@@ -34,7 +34,32 @@ use protobuf::RepeatedField;
 use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
+use slack_hook::{PayloadBuilder, Slack};
 use zmq::Socket;
+
+// send a notification to slack channel (if config has webhook)
+fn notify_slack(config: &DiskManagerConfig, msg: &str) -> BynarResult<()> {
+    let c = config.clone();
+    let slack = Slack::new(
+        c.slack_webhook
+            .expect("slack webhook option is None")
+            .as_ref(),
+    )?;
+    let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
+    let bot_name = c.slack_botname.unwrap_or_else(|| "".to_string());
+    let p = PayloadBuilder::new()
+        .text(msg)
+        .channel(slack_channel)
+        .username(bot_name)
+        .build()?;
+
+    let res = slack.send(&p);
+    match res {
+        Ok(_) => debug!("Slack notified"),
+        Err(e) => error!("Slack error: {:?}", e),
+    };
+    Ok(())
+}
 
 // default filename for daemon_output
 fn default_out() -> String {
@@ -63,6 +88,10 @@ struct DiskManagerConfig {
     /// Name of the Daemon pid file
     #[serde(default = "default_pid")]
     pub daemon_pid: String,
+    /// Optional Slack webhook (does not have to be the same as main client webhook)
+    slack_webhook: Option<String>,
+    slack_channel: Option<String>,
+    slack_botname: Option<String>,
 }
 
 fn convert_media_to_disk_type(m: &MediaType) -> DiskType {
@@ -311,17 +340,18 @@ fn listen(
                         signal_hook::SIGHUP => {
                             //Reload the config file
                             debug!("Reload Config File");
-                            let config_file = helpers::load_config(config_dir, "bynar.json");
+                            let config_file = helpers::load_config(config_dir, "disk-manager.json");
                             if let Err(e) = config_file {
                                 error!(
                                     "Failed to load config file {}. error: {}",
-                                    config_dir.join("bynar.json").display(),
+                                    config_dir.join("disk-manager.json").display(),
                                     e
                                 );
                                 return Ok(());
                             }
-                            let config: ConfigSettings =
+                            let config: DiskManagerConfig =
                                 config_file.expect("Failed to load config");
+                            let _ = notify_slack(&config, &format!("Reload disk-manager config file")).expect("Unable to connect to slack");
                         }
                         signal_hook::SIGINT | signal_hook::SIGCHLD => {
                             //skip this
@@ -740,7 +770,24 @@ fn main() {
         bool::from_str(matches.value_of("vault").unwrap())
             .expect("unable to convert vault option to bool")
     };
+    let config = helpers::load_config(&config_dir, "disk-manager.json");
+    if let Err(e) = config {
+        error!(
+            "Failed to load config file {}. error: {}",
+            config_dir.join("disk-manager.json").display(),
+            e
+        );
+        return;
+    }
+    let config: DiskManagerConfig = config.expect("Failed to load config");
 
+    let h_info = Host::new();
+    if h_info.is_err() {
+        error!("Failed to gather host information");
+        //gracefully exit
+        return;
+    }
+    let host_info = h_info.expect("Failed to gather host information");
     match listen(
         &backend,
         config_dir,
@@ -751,9 +798,25 @@ fn main() {
     ) {
         Ok(_) => {
             println!("Finished");
+            let _ = notify_slack(
+                &config,
+                &format!(
+                    "Disk-Manager Exited Successfully on host {}",
+                    host_info.hostname
+                ),
+            )
+            .expect("Unable to connect to slack");
         }
         Err(e) => {
             println!("Error: {:?}", e);
+            let _ = notify_slack(
+                &config,
+                &format!(
+                    "Disk-Manager Errored out on host {} with {:?}",
+                    host_info.hostname, e
+                ),
+            )
+            .expect("Unable to connect to slack");
         }
     };
 }
