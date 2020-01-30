@@ -27,7 +27,7 @@ mod util;
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
-use api::service::{Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult};
+use api::service::{Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, Operation, ResultType};
 use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
@@ -578,7 +578,7 @@ fn check_for_failed_hardware(
 // Actually, this function now checks the outstanding tickets, and if any of them are resolved, adds
 // an add_disk request to the message_queue
 fn add_repaired_disks(
-    //config: &ConfigSettings,
+    config: &ConfigSettings,
     //host_info: &Host,
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
     pool: &Pool<ConnectionManager>,
@@ -595,7 +595,7 @@ fn add_repaired_disks(
         match ticket_resolved(config, &ticket.ticket_id.to_string()) {
             Ok(true) => {
                 debug!("Creating add disk operation request");
-                let o = make_op!(
+                let op = helpers::make_op!(
                     Add,
                     format!("{}", Path::new(&ticket.device_path).display()),
                     simulate
@@ -604,8 +604,8 @@ fn add_repaired_disks(
                 o.set_Op_type(Op::Add);
                 o.set_disk(format!("{}", Path::new(&ticket.device_path).display()));
                 o.set_simulate(simulate);*/
-                ticket_id = Some(ticket.ticket_id.to_string());
-                message_queue.push_back((o, ticket_id, None));
+                let tid = Some(ticket.ticket_id.to_string());
+                message_queue.push_back((op, tid, None));
                 //CALL RPC
                 // add add_disk request to message_queue
                 /*

@@ -58,7 +58,7 @@ pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResu
 /// send an operation request to the disk-manager
 pub fn request(s: &Socket, op: Operation, client_id: Vec<u8>) -> BynarResult<()> {
     //send the id first
-    s.send(client_id, zmq::SNDMORE)?;
+    s.send(&client_id, zmq::SNDMORE)?;
     let encoded = op.write_to_bytes().unwrap();
     debug!("Sending message");
     s.send(&encoded, 0)?;
@@ -77,7 +77,7 @@ pub fn add_disk_request(
     let mut o = Operation::new();
     debug!("Creating add disk operation request");
     //send the id first
-    s.send(client_id, zmq::SNDMORE)?;
+    s.send(&client_id, zmq::SNDMORE)?;
 
     o.set_Op_type(Op::Add);
     o.set_disk(format!("{}", path.display()));
@@ -136,7 +136,7 @@ pub fn list_disks_request(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
     //send the id first
-    s.send(client_id, zmq::SNDMORE)?;
+    s.send(&client_id, zmq::SNDMORE)?;
     o.set_Op_type(Op::List);
 
     debug!("Encoding as hex");
@@ -164,7 +164,7 @@ pub fn safe_to_remove_request(s: &Socket, path: &Path, client_id: Vec<u8>) -> By
     //<(OpOutcome, bool)> {
     let mut o = Operation::new();
     //send the id first
-    s.send(client_id, zmq::SNDMORE)?;
+    s.send(&client_id, zmq::SNDMORE)?;
     debug!("Creating safe to remove operation request");
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
@@ -194,7 +194,7 @@ pub fn remove_disk_request(
     let mut o = Operation::new();
     debug!("Creating remove operation request");
     //send the id first
-    s.send(client_id, zmq::SNDMORE)?;
+    s.send(&client_id, zmq::SNDMORE)?;
     o.set_Op_type(Op::Remove);
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
@@ -294,49 +294,50 @@ pub struct DBConfig {
 pub fn get_messages(s: Socket) -> BynarResult<Vec<u8>> {
     let msg = s.recv_bytes(0)?;
     let id = msg.clone();
-    if s.get_rcvmore() {
-        return s.recv_bytes(0)?;
+    if s.get_rcvmore()? {
+        return Ok(s.recv_bytes(0)?);
     }
+    Ok(vec![])
 }
 
 #[macro_export]
 /// Create a new Operation
 macro_rules! make_op {
-    ($op_type: ident) => {
+    ($op_type: ident) => {{
         let mut o = Operation::new();
         o.set_Op_type(Op::$op_type);
         o
-    };
-    ($op_type:ident, $disk_path:expr) => {
+    }};
+    ($op_type:ident, $disk_path:expr) => {{
         let mut o = Operation::new();
         o.set_Op_type(Op::$op_type);
         o.set_disk($disk_path);
         o
-    };
-    ($op_type:ident, $disk_path:expr, $simulate:expr) => {
+    }};
+    ($op_type:ident, $disk_path:expr, $simulate:expr) => {{
         let mut o = Operation::new();
         o.set_Op_type(Op::$op_type);
         o.set_disk($disk_path);
-        o.set_simulate(simulate);
+        o.set_simulate($simulate);
         o
-    };
-    ($op_type:ident, $disk_path:expr, $simulate:expr, $id:expr) => {
+    }};
+    ($op_type:ident, $disk_path:expr, $simulate:expr, $id:expr) => {{
         let mut o = Operation::new();
         o.set_Op_type(Op::$op_type);
         o.set_disk($disk_path);
-        o.set_simulate(simulate);
+        o.set_simulate($simulate);
         if let Some(osd_id) = $id {
             o.set_osd_id(osd_id);
         }
         o
-    };
+    }};
 }
 
 /// get the list of JIRA tickets from disk-manager
 pub fn get_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     let mut o = Operation::new();
     //send the id first
-    s.send(client_id, zmq::SNDMORE)?;
+    s.send(&client_id, zmq::SNDMORE)?;
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;

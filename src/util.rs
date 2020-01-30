@@ -1,3 +1,5 @@
+
+
 #[macro_export]
 macro_rules! evaluate {
     ($e: expr, $i: ident, $err: expr, $e_ident: ident) => {
@@ -17,6 +19,6 @@ macro_rules! evaluate {
 #[macro_export]
 macro_rules! get_message {
     ($type_name:ty, $mess:expr) => {
-        parse_from_bytes::<api::service::$type_name>($mess)
+        protobuf::parse_from_bytes::<$type_name>($mess)
     };
 }
