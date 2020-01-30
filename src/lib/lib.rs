@@ -290,6 +290,48 @@ pub struct DBConfig {
     pub dbname: String,
 }
 
+/// get message(s) from the socket
+pub fn get_messages(s: Socket) -> BynarResult<Vec<u8>> {
+    let msg = s.recv_bytes(0)?;
+    let id = msg.clone();
+    if s.get_rcvmore() {
+        return s.recv_bytes(0)?;
+    }
+}
+
+#[macro_export]
+/// Create a new Operation
+macro_rules! make_op {
+    ($op_type: ident) => {
+        let mut o = Operation::new();
+        o.set_Op_type(Op::$op_type);
+        o
+    };
+    ($op_type:ident, $disk_path:expr) => {
+        let mut o = Operation::new();
+        o.set_Op_type(Op::$op_type);
+        o.set_disk($disk_path);
+        o
+    };
+    ($op_type:ident, $disk_path:expr, $simulate:expr) => {
+        let mut o = Operation::new();
+        o.set_Op_type(Op::$op_type);
+        o.set_disk($disk_path);
+        o.set_simulate(simulate);
+        o
+    };
+    ($op_type:ident, $disk_path:expr, $simulate:expr, $id:expr) => {
+        let mut o = Operation::new();
+        o.set_Op_type(Op::$op_type);
+        o.set_disk($disk_path);
+        o.set_simulate(simulate);
+        if let Some(osd_id) = $id {
+            o.set_osd_id(osd_id);
+        }
+        o
+    };
+}
+
 /// get the list of JIRA tickets from disk-manager
 pub fn get_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     let mut o = Operation::new();

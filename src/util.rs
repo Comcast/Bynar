@@ -12,3 +12,11 @@ macro_rules! evaluate {
         results
     };
 }
+
+// parse object of type type_name from vec<u8> mess
+#[macro_export]
+macro_rules! get_message {
+    ($type_name:ty, $mess:expr) => {
+        parse_from_bytes::<api::service::$type_name>($mess)
+    };
+}

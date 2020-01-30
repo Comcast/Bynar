@@ -27,7 +27,7 @@ mod util;
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
-use api::service::{Op, OpOutcome, OpOutcomeResult};
+use api::service::{Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult};
 use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
@@ -51,8 +51,10 @@ use std::time::{Duration, Instant};
 // a specific operation and its outcome
 #[derive(Debug, Clone)]
 struct DiskOp {
-    pub op_type: Op,                      // operation type
-    pub description: Option<String>, // the description for a JIRA ticket if necessary (None if not Safe-to-remove/Remove-disk)
+    pub op_type: Op, // operation type
+    // the description for a JIRA ticket if necessary (None if not Safe-to-remove/Remove-disk)
+    // Or, if an add_disk request, description is the ticket_id
+    pub description: Option<String>,
     pub operaton_id: Option<u32>, // the operation id if one exists (for safe-to-remove, remove request handling)
     pub ret_val: Option<OpOutcomeResult>, //None if outcome not yet determined
 }
@@ -573,14 +575,17 @@ fn check_for_failed_hardware(
     Ok(())
 }
 
+// Actually, this function now checks the outstanding tickets, and if any of them are resolved, adds
+// an add_disk request to the message_queue
 fn add_repaired_disks(
-    config: &ConfigSettings,
-    host_info: &Host,
+    //config: &ConfigSettings,
+    //host_info: &Host,
+    message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
     pool: &Pool<ConnectionManager>,
     storage_detail_id: u32,
     simulate: bool,
 ) -> BynarResult<()> {
-    let public_key = get_public_key(&config, &host_info)?;
+    //let public_key = get_public_key(&config, &host_info)?;
 
     info!("Getting outstanding repair tickets");
     let tickets = in_progress::get_outstanding_repair_tickets(&pool, storage_detail_id)?;
@@ -589,7 +594,21 @@ fn add_repaired_disks(
     for ticket in tickets {
         match ticket_resolved(config, &ticket.ticket_id.to_string()) {
             Ok(true) => {
+                debug!("Creating add disk operation request");
+                let o = make_op!(
+                    Add,
+                    format!("{}", Path::new(&ticket.device_path).display()),
+                    simulate
+                );
+                /*let mut o = Operation::new();
+                o.set_Op_type(Op::Add);
+                o.set_disk(format!("{}", Path::new(&ticket.device_path).display()));
+                o.set_simulate(simulate);*/
+                ticket_id = Some(ticket.ticket_id.to_string());
+                message_queue.push_back((o, ticket_id, None));
                 //CALL RPC
+                // add add_disk request to message_queue
+                /*
                 debug!("Connecting to disk-manager");
                 let socket = helpers::connect(
                     &config.manager_host,
@@ -626,6 +645,7 @@ fn add_repaired_disks(
                         error!("Failed to add disk: {:?}", e);
                     }
                 };
+                */
             }
             Ok(false) => {}
             Err(e) => {
@@ -657,6 +677,71 @@ fn send_and_update(
         add_or_update_map_op(message_map, &path, disk_op)?;
     }
     Ok(())
+}
+
+// handle the return value from an add_disk request
+fn handle_add_disk_res(pool: &Pool<ConnectionManager>, outcome: OpOutcome, ticket_id: String) {
+    match outcome {
+        OpOutcome::Success => debug!("Disk added successfully. Updating database record"),
+        // Disk was either boot or something that shouldn't be added via backend
+        OpOutcome::Skipped => debug!("Disk Skipped.  Updating database record"),
+        // Disk is already in the cluster
+        OpOutcome::SkipRepeat => debug!("Disk already added.  Skipping.  Updating database record"),
+    }
+    match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
+        Ok(_) => debug!("Database updated"),
+        Err(e) => error!("Failed to resolve ticket {}.  {:?}", ticket.ticket_id, e),
+    };
+}
+
+//handle return of Operation
+fn handle_operation_result(
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    pool: &Pool<ConnectionManager>,
+    op_res: OpOutcomeResult,
+) -> BynarResult<()> {
+    match op_result.get_result() {
+        ResultType::OK => {}
+        ResultType::Err => {
+            if op_res.has_error_msg() {
+                let msg = op_res.get_error_msg();
+                match op_res.get_op_type() {
+                    Op::Add => {
+                        error!("Add disk failed : {}", msg);
+                        return Err(BynarError::from(msg));
+                    }
+                    Op::Remove => {
+                        error!("Remove disk failed : {}", msg);
+                        return Err(BynarError::from(msg));
+                    }
+                    Op::SafeToRemove => {
+                        error!("SafeToRemove disk failed : {}", msg);
+                        return Err(BynarError::from(msg));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    match op_res.get_op_type() {
+        Op::Add => {
+            let path = Path::new(&op_res.get_disk());
+            if let Some(disk_op) = get_map_op(message_map, path.to_path_buf())? {
+                if let Some(ticket_id) = disk_op.description {
+                    handle_add_disk_res(pool, op_res.get_outcome(), ticket_id: String)
+                }
+            }
+            error!(
+                "Unable to get current operation in the map for {}",
+                path.display()
+            );
+            return Err(BynarError::from(format!(
+                "Unable to get current operation in the map for {}",
+                path.display()
+            )));
+        }
+    }
 }
 
 // check if the socket is readable/writable and send/recieve message if possible
@@ -732,7 +817,25 @@ fn send_and_recieve(
         }
     }
     // can get response
-    if (events & zmq::POLLIN != 0) {}
+    if (events & zmq::POLLIN != 0) {
+        // get the message, it should be either a OpOutcomeResult, or OpJiraTicketsResult
+        // NOTE: disks is not an option since list_disks is not a request that the main bynar program makes
+        let mut message = get_messages(s)?;
+        // skip empty initial message, and keep looping until no more messages from disk-manager
+        while message.len() > 0 {
+            // get message
+            match get_message!(OpOutcomeResult, &message) {
+                Ok(outcome) => {
+                    message.drain(0..outcome.write_to_bytes()?.len());
+                }
+                Err(_) => {
+                    // must be tickets, since list_disks is never requested by bynar main program
+                    let tickets = get_message!(OpJiraTicketsResult, &message)?;
+                    message.drain(0..ticket.write_to_bytes()?.len());
+                }
+            }
+        }
+    }
     Ok(())
 }
 
