@@ -305,7 +305,7 @@ fn listen(
                                                     operation.get_disk(),
                                                     &backend_type,
                                                     config_dir,
-                                                    client_id
+                                                    client_id,
                                                 ) {
                                                     Ok(_) => {
                                                         info!("Remove disk finished");

@@ -27,7 +27,7 @@ mod util;
 use crate::create_support_ticket::{create_support_ticket, ticket_resolved};
 use crate::in_progress::*;
 use crate::test_disk::{State, StateMachine};
-use api::service::{Op, OpOutcome};
+use api::service::{Op, OpOutcome, OpOutcomeResult};
 use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
@@ -39,7 +39,9 @@ use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
+
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fs::{create_dir, read_to_string, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -49,8 +51,21 @@ use std::time::{Duration, Instant};
 // a specific operation and its outcome
 #[derive(Debug, Clone)]
 struct DiskOp {
-    op_type: Op,                // operation type
-    ret_val: Option<OpOutcome>, //None if outcome not yet determined
+    pub op_type: Op,                      // operation type
+    pub description: Option<String>, // the description for a JIRA ticket if necessary (None if not Safe-to-remove/Remove-disk)
+    pub operaton_id: Option<u32>, // the operation id if one exists (for safe-to-remove, remove request handling)
+    pub ret_val: Option<OpOutcomeResult>, //None if outcome not yet determined
+}
+
+impl DiskOp {
+    pub fn new(op: Operation, description: Option<String>, operation_id: Option<u32>) -> DiskOp {
+        DiskOp {
+            op_type: op.get_Op_type(),
+            description,
+            operation_id,
+            ret_val: None,
+        }
+    }
 }
 
 // create a message map to handle list of disk-manager requests
@@ -621,6 +636,103 @@ fn add_repaired_disks(
             }
         };
     }
+    Ok(())
+}
+
+// send a requst and update the message map
+fn send_and_update(
+    s: &Socket,
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    client_id: Vec<u8>,
+    (mess, desc, op_id): (Operation, Option<String>, Option<u32>),
+    path: &PathBuf,
+) -> BynarResult<()> {
+    trace!("Send request {:?}", mess);
+    request(s, mess, client_id)?;
+    //add or update to message_map if path != emptyyyy
+    if mess.get_disk() != "" {
+        trace!("add operation to map");
+        //check optype, make op
+        let disk_op = DiskOp::new(mess, desc, op_id);
+        add_or_update_map_op(message_map, &path, disk_op)?;
+    }
+    Ok(())
+}
+
+// check if the socket is readable/writable and send/recieve message if possible
+fn send_and_recieve(
+    s: &Socket,
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
+    client_id: Vec<u8>,
+) -> BynarResult<()> {
+    // Note, all client sent messages are Operation, while return values can be OpJiraTicketResult, Disks, or OpOutcomeResult
+    let events = match s.get_events() {
+        Err(zmq::Error::EBUSY) => {
+            debug!("Socket Busy, skip");
+            return Ok(());
+        }
+        Err(e) => {
+            error!("Get Client Socket Events errored...{:?}", e);
+            return Err(BynarError::from(e));
+        }
+        Ok(e) => e,
+    };
+    //check sendable first
+    if (events & zmq::POLLOUT) != 0 {
+        //dequeue from message_queue if it isn't empty
+        if let Some((mess, desc, op_id)) = message_queue.pop_front() {
+            // if mess.op_type() == Op::Remove, check if Safe-To-Remove in map complete
+            // if not, send to end of queue (push_back)
+            let path = Path::new(mess.get_disk()).to_path_buf();
+            //check if there was a previous request, and whether it was completed
+            if let Some(disk_op) = get_map_op(&message_map, &path.to_path_buf()) {
+                // check if Safe-to-remove returned yet
+                if let Some(val) = disk_op.ret_val {
+                    // check if mess is a Remove op
+                    if mess.op_type() == Op::Remove {
+                        // check success outcome
+                        if val.get_outcome() == OpOutcome::Success && val.get_value() {
+                            //then ok to run Op::Remove
+                            send_and_update(
+                                s,
+                                &mut message_map,
+                                client_id,
+                                (mess, desc, op_id),
+                                &path,
+                            )?;
+                        }
+                    // safe-to-remove returned false or error'd so we should not remove but let manual handling
+                    // delete the remove request in this case (in otherwords, do nothing)
+                    } else {
+                        // not remove request, since previous request is complete, run next request
+                        // this technically shouldn't happen though, so print an error!
+                        error!(
+                            "Previous request {:?} has finished, but hasn't been reset",
+                            disk_op.op_type
+                        );
+                        send_and_update(
+                            s,
+                            &mut message_map,
+                            client_id,
+                            (mess, desc, op_id),
+                            &path,
+                        )?;
+                    }
+                } else {
+                    // we haven't gotten response from previous request yet, push request to back of queue
+                    message_queue.push_back((mess, desc, op_id));
+                }
+            } else {
+                // safe to run the op.  In the case of Remove op, it shouldn't be possible to NOT
+                // have a safe-to-remove run before (it's always safe-to-remove then remove)
+                // however since the remove operation will run safe-to-remove anyways, it's fine to just run
+                send_and_update(s, &mut message_map, client_id, (mess, desc, op_id), &path)?;
+            }
+        }
+    }
+    // can get response
+    if (events & zmq::POLLIN != 0) {}
     Ok(())
 }
 

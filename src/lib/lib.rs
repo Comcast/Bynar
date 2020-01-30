@@ -55,14 +55,30 @@ pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResu
     Ok(res)
 }
 
+/// send an operation request to the disk-manager
+pub fn request(s: &Socket, op: Operation, client_id: Vec<u8>) -> BynarResult<()> {
+    //send the id first
+    s.send(client_id, zmq::SNDMORE)?;
+    let encoded = op.write_to_bytes().unwrap();
+    debug!("Sending message");
+    s.send(&encoded, 0)?;
+    Ok(())
+}
+
+/// send an add_disk request to the disk-manager
 pub fn add_disk_request(
     s: &Socket,
     path: &Path,
     id: Option<u64>,
+    client_id: Vec<u8>,
     simulate: bool,
-) -> BynarResult<OpOutcome> {
+) -> BynarResult<()> {
+    //<OpOutcome> {
     let mut o = Operation::new();
     debug!("Creating add disk operation request");
+    //send the id first
+    s.send(client_id, zmq::SNDMORE)?;
+
     o.set_Op_type(Op::Add);
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
@@ -73,8 +89,8 @@ pub fn add_disk_request(
     let encoded = o.write_to_bytes().unwrap();
     debug!("Sending message");
     s.send(&encoded, 0)?;
-
-    debug!("Waiting for response");
+    Ok(())
+    /*debug!("Waiting for response");
     let add_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", add_response.len());
     let op_result = parse_from_bytes::<api::service::OpOutcomeResult>(&add_response)?;
@@ -90,7 +106,7 @@ pub fn add_disk_request(
                 Err(BynarError::from("Add disk failed but error_msg not set"))
             }
         }
-    }
+    }*/
 }
 
 /*
@@ -114,9 +130,13 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 }
 */
 
-pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
+/// send a list disk request to the disk-manager
+pub fn list_disks_request(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
+    //BynarResult<Vec<Disk>> {
     let mut o = Operation::new();
     debug!("Creating list operation request");
+    //send the id first
+    s.send(client_id, zmq::SNDMORE)?;
     o.set_Op_type(Op::List);
 
     debug!("Encoding as hex");
@@ -125,8 +145,8 @@ pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
 
     debug!("Sending message");
     s.send(&encoded, 0)?;
-
-    debug!("Waiting for response");
+    Ok(())
+    /*debug!("Waiting for response");
     let disks_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", disks_response.len());
     let disk_list = parse_from_bytes::<api::service::Disks>(&disks_response)?;
@@ -136,36 +156,45 @@ pub fn list_disks_request(s: &Socket) -> BynarResult<Vec<Disk>> {
         d.push(disk.clone());
     }
 
-    Ok(d)
+    Ok(d)*/
 }
 
-pub fn safe_to_remove_request(s: &Socket, path: &Path) -> BynarResult<(OpOutcome, bool)> {
+/// send safe-to-remove request to disk-manager
+pub fn safe_to_remove_request(s: &Socket, path: &Path, client_id: Vec<u8>) -> BynarResult<()> {
+    //<(OpOutcome, bool)> {
     let mut o = Operation::new();
+    //send the id first
+    s.send(client_id, zmq::SNDMORE)?;
     debug!("Creating safe to remove operation request");
     o.set_Op_type(Op::SafeToRemove);
     o.set_disk(format!("{}", path.display()));
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
     s.send(&encoded, 0)?;
-
-    debug!("Waiting for response");
+    Ok(())
+    /*debug!("Waiting for response");
     let safe_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", safe_response.len());
     let op_result = parse_from_bytes::<OpOutcomeResult>(&safe_response)?;
     match op_result.get_result() {
         ResultType::OK => Ok((op_result.get_outcome(), op_result.get_value())),
         ResultType::ERR => Err(BynarError::from(op_result.get_error_msg())),
-    }
+    }*/
 }
 
+/// Send a remove disk request to the disk_manager
 pub fn remove_disk_request(
     s: &Socket,
     path: &Path,
     id: Option<u64>,
+    client_id: Vec<u8>,
     simulate: bool,
-) -> BynarResult<OpOutcome> {
+) -> BynarResult<()> {
+    //BynarResult<OpOutcome> {
     let mut o = Operation::new();
     debug!("Creating remove operation request");
+    //send the id first
+    s.send(client_id, zmq::SNDMORE)?;
     o.set_Op_type(Op::Remove);
     o.set_disk(format!("{}", path.display()));
     o.set_simulate(simulate);
@@ -176,8 +205,8 @@ pub fn remove_disk_request(
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
     s.send(&encoded, 0)?;
-
-    debug!("Waiting for response");
+    Ok(())
+    /*debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", remove_response.len());
     let op_result = match parse_from_bytes::<api::service::OpOutcomeResult>(&remove_response) {
@@ -199,7 +228,7 @@ pub fn remove_disk_request(
                 Err(BynarError::from("Remove disk failed but error_msg not set"))
             }
         }
-    }
+    }*/
 }
 
 // default filename for daemon_output
@@ -261,15 +290,19 @@ pub struct DBConfig {
     pub dbname: String,
 }
 
-pub fn get_jira_tickets(s: &Socket) -> BynarResult<()> {
+/// get the list of JIRA tickets from disk-manager
+pub fn get_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     let mut o = Operation::new();
+    //send the id first
+    s.send(client_id, zmq::SNDMORE)?;
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
     debug!("Sending message in get_jira_tickets");
     s.send(&encoded, 0)?;
+    Ok(())
 
-    debug!("Waiting for response: get_jira_tickets");
+    /*debug!("Waiting for response: get_jira_tickets");
     let tickets_response = s.recv_bytes(0)?;
     debug!("Decoding msg len: {}", tickets_response.len());
 
@@ -297,5 +330,5 @@ pub fn get_jira_tickets(s: &Socket) -> BynarResult<()> {
                 ))
             }
         }
-    }
+    }*/
 }
