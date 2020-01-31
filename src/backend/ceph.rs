@@ -484,7 +484,7 @@ impl CephBackend {
         ceph_bluestore_tool(&lv_dev_name, &mount_point, simulate)?;
 
         let host_info = Host::new()?;
-        let gb_capacity = vg_size / 1_073_741_824;
+        //let gb_capacity = vg_size / 1_073_741_824;
         let osd_weight = 0.0;
         debug!(
             "Adding OSD {} to crushmap under host {} with weight: {}",
@@ -578,7 +578,7 @@ impl CephBackend {
         debug!("Saving ceph keyring");
         save_keyring(new_osd_id, &auth_key, None, None, simulate)?;
         let host_info = Host::new()?;
-        let gb_capacity = info.capacity / 1_073_741_824;
+        //let gb_capacity = info.capacity / 1_073_741_824;
         let osd_weight = 0.0; //gb_capacity as f64 * 0.001_f64;
         debug!(
             "Adding OSD {} to crushmap under host {} with weight: {}",
@@ -781,7 +781,10 @@ impl CephBackend {
                     match read_link(Path::new(&journal_path)) {
                         Ok(path) => return Ok(Some(path)),
                         Err(e) => {
-                            error!("Bad journal symlink.  journal no longer points to valid UUID");
+                            error!(
+                                "Bad journal symlink.  journal no longer points to valid UUID {}",
+                                e
+                            );
                             return Ok(None);
                         }
                     }
@@ -800,7 +803,7 @@ impl CephBackend {
             if let Some(parent_path) = block_utils::get_parent_devpath_from_path(&journal_path)? {
                 //check if parent device is in journal devices
                 trace!("Parent path is {}", parent_path.display());
-                let mut journal_devices = self
+                let journal_devices = self
                     .config
                     .journal_devices
                     .clone()
@@ -1356,7 +1359,7 @@ impl CephBackend {
         debug!("Gradually weighting osd: {}", osd_id);
         //set noscrub (remember to handle error by unsetting noscrub)
         self.set_noscrub(simulate)?;
-        while (self.incremental_weight_osd(osd_id, is_add, simulate)?) {
+        while self.incremental_weight_osd(osd_id, is_add, simulate)? {
             trace!("incrementally reweighting osd");
         }
         Ok(())
@@ -1514,7 +1517,7 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<
     }
     //might be a Bluestore lvm, check the ceph-volume
     let ceph_volumes = ceph_volume_list(&cluster_handle)?;
-    for (id, meta) in ceph_volumes {
+    for (_id, meta) in ceph_volumes {
         for data in meta {
             match data.metadata {
                 LvmData::Osd(data) => {

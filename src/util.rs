@@ -21,7 +21,6 @@ macro_rules! get_message {
     };
 }
 
-
 #[macro_export]
 macro_rules! poll_events {
     ($s:expr, $ret:expr) => {
@@ -36,5 +35,21 @@ macro_rules! poll_events {
             }
             Ok(e) => e,
         }
-    }
+    };
+}
+
+#[macro_export]
+macro_rules! get_op_result {
+    ($op_result:expr, $type_op:ident) => {
+        match $op_result.get_result() {
+            ResultType::OK => return Ok($op_result.get_outcome()),
+            ResultType::ERR => {
+                if $op_result.has_error_msg() {
+                    return Err(BynarError::from($op_result.get_error_msg()));
+                } else {
+                    return Err(BynarError::from("$type_op failed but error_msg not set"));
+                }
+            }
+        }
+    };
 }

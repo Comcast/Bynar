@@ -136,14 +136,14 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
         let client = VaultClient::new(endpoint.as_str(), token)?;
         client.set_secret(
             format!("{}/{}.pem", config_dir.display(), hostname),
-            String::from_utf8_lossy(keypair.public_key.as_bytes()),
+            String::from_utf8_lossy(&keypair.public_key),
         )?;
         s.set_curve_secretkey(&keypair.secret_key)?;
     } else {
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
-        f.write_all(keypair.public_key.as_bytes())?;
+        f.write_all(&keypair.public_key)?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
     debug!("Curve server: {:?}", s.is_curve_server());
@@ -220,7 +220,7 @@ fn listen(
                     Ok(e) => e as zmq::PollEvents,
                 };
                 // is the socket readable?
-                if (events & zmq::POLLIN) != 0 {
+                if events.contains(zmq::PollEvents::POLLIN) {
                     //get the id first {STREAM sockets get messages with id prepended}
                     let client_id = responder.recv_bytes(0)?; //leave as Vec<u8>, not utf8 friendly
                     trace!("Client ID {:?}", client_id);
@@ -384,7 +384,7 @@ fn listen(
                     }
                 }
                 // send completed requests (or error messages)
-                if (events & zmq::POLLOUT) != 0 {
+                if events.contains(zmq::PollEvents::POLLOUT) {
                     //check disks first, since those are faster requests than add/remove reqs
                     match recv_disk.try_recv() {
                         Ok((client_id, result)) => {
@@ -433,8 +433,7 @@ fn listen(
                                         );
                                         return Ok(());
                                     }
-                                    let config: ConfigSettings =
-                                        config_file.expect("Failed to load config");
+                                    config = config_file.expect("Failed to load config");
                                 }
                                 signal_hook::SIGINT | signal_hook::SIGCHLD => {
                                     //skip this
@@ -457,7 +456,7 @@ fn listen(
             }
             Err(_) => {}
         }
-    });
+    })?;
     Ok(())
 }
 

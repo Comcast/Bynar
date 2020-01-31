@@ -46,11 +46,11 @@ use zmq::Socket;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fs::{create_dir, read_to_string, File, OpenOptions};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use std::io::{Error, ErrorKind, Write};
 
 // a specific operation and its outcome
 #[derive(Debug, Clone)]
@@ -276,7 +276,7 @@ fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     Ok(())
 }
 
-fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<String> {
+fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Vec<u8>> {
     // If vault_endpoint and token are set we should get the key from vault
     // Otherwise we need to know where the public_key is located?
     if config.vault_endpoint.is_some() && config.vault_token.is_some() {
@@ -293,7 +293,7 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
                 .as_ref(),
             &host_info.hostname,
         )?;
-        Ok(key)
+        Ok(key.as_bytes().to_vec())
     } else {
         let p = Path::new("/etc")
             .join("bynar")
@@ -301,7 +301,9 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Stri
         if !p.exists() {
             error!("{} does not exist", p.display());
         }
-        let key = read_to_string(p)?;
+        let mut f = File::open(p)?;
+        let mut key = Vec::new();
+        f.read_to_end(&mut key)?;
         Ok(key)
     }
 }
@@ -734,6 +736,8 @@ fn handle_operation_result(
             if let Some(disk_op) = get_map_op(message_map, &path.to_path_buf())? {
                 if let Some(ticket_id) = disk_op.description {
                     handle_add_disk_res(pool, op_res.get_outcome(), ticket_id);
+                    //update result in the map (in otherwords, just set it to None)
+                    remove_map_op(message_map, &path.to_path_buf())?;
                 }
             }
             error!(
@@ -758,7 +762,7 @@ fn send_and_recieve(
     // Note, all client sent messages are Operation, while return values can be OpJiraTicketResult, Disks, or OpOutcomeResult
     let events = poll_events!(s, return Ok(()));
     //check sendable first
-    if (events as i16 & zmq::POLLOUT) != 0 {
+    if events.contains(zmq::PollEvents::POLLOUT) {
         //dequeue from message_queue if it isn't empty
         if let Some((mess, desc, op_id)) = message_queue.pop_front() {
             // if mess.op_type() == Op::Remove, check if Safe-To-Remove in map complete
@@ -811,7 +815,7 @@ fn send_and_recieve(
         }
     }
     // can get response
-    if (events as i16 & zmq::POLLIN != 0) {
+    if events.contains(zmq::PollEvents::POLLIN) {
         // get the message, it should be either a OpOutcomeResult, or OpJiraTicketsResult
         // NOTE: disks is not an option since list_disks is not a request that the main bynar program makes
         let mut message = helpers::get_messages(s)?;
@@ -1019,6 +1023,7 @@ fn main() {
     };
 
     let dur = Duration::from_secs(time);
+    let mut message_queue: VecDeque<(Operation, Option<String>, Option<u32>)> = VecDeque::new();
     'outer: loop {
         let now = Instant::now();
         match check_for_failed_disks(
@@ -1053,7 +1058,7 @@ fn main() {
         };
         match add_repaired_disks(
             &config,
-            &host_info,
+            &mut message_queue,
             &db_pool,
             host_details_mapping.storage_detail_id,
             simulate,

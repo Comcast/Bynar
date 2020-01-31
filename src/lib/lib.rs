@@ -31,7 +31,7 @@ where
     Ok(deserialized)
 }
 
-pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<Socket> {
+pub fn connect(host: &str, port: &str, server_publickey: &[u8]) -> BynarResult<Socket> {
     debug!("Starting zmq sender with version({:?})", zmq::version());
     let context = zmq::Context::new();
     let requester = context.socket(zmq::DEALER)?;
