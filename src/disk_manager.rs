@@ -424,16 +424,22 @@ fn listen(
                                     //Reload the config file
                                     debug!("Reload Config File");
                                     let config_file =
-                                        helpers::load_config(config_dir, "bynar.json");
+                                        helpers::load_config(config_dir, "disk-manager.json");
                                     if let Err(e) = config_file {
                                         error!(
                                             "Failed to load config file {}. error: {}",
-                                            config_dir.join("bynar.json").display(),
+                                            config_dir.join("disk-manager.json").display(),
                                             e
                                         );
                                         return Ok(());
                                     }
-                                    config = config_file.expect("Failed to load config");
+                                    let config: DiskManagerConfig =
+                                        config_file.expect("Failed to load config");
+                                    let _ = notify_slack(
+                                        &config,
+                                        &format!("Reload disk-manager config file"),
+                                    )
+                                    .expect("Unable to connect to slack");
                                 }
                                 signal_hook::SIGINT | signal_hook::SIGCHLD => {
                                     //skip this
@@ -447,9 +453,6 @@ fn listen(
                                 }
                                 _ => unreachable!(),
                             }
-                            let config: DiskManagerConfig =
-                                config_file.expect("Failed to load config");
-                            let _ = notify_slack(&config, &format!("Reload disk-manager config file")).expect("Unable to connect to slack");
                         }
                     }
                 }

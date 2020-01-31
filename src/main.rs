@@ -333,6 +333,7 @@ fn add_disk_to_description(
 
 fn check_for_failed_disks(
     config: &ConfigSettings,
+    message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
     host_mapping: &HostDetailsMapping,
@@ -377,7 +378,18 @@ fn check_for_failed_disks(
                             debug!("Device is already in the repair queue");
                         }
                         (false, false) => {
-                            debug!("Asking disk-manager if it's safe to remove disk");
+                            debug!("Sending Safe-to-Remove and Remove requests");
+                            let op_id = match state_machine.block_device.operation_id {
+                                None => {
+                                    error!(
+                                        "Operation not recorded for {}",
+                                        state_machine.block_device.dev_path.display()
+                                    );
+                                    0
+                                }
+                                Some(i) => i,
+                            };
+                            /*debug!("Asking disk-manager if it's safe to remove disk");
                             // CALL RPC
                             let socket = helpers::connect(
                                 &config.manager_host,
@@ -461,7 +473,7 @@ fn check_for_failed_disks(
                             let mut operation_detail =
                                 OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                             operation_detail.set_tracking_id(ticket_id);
-                            add_or_update_operation_detail(pool, &mut operation_detail)?;
+                            add_or_update_operation_detail(pool, &mut operation_detail)?;*/
                         }
                         (..) => {}
                     }
@@ -674,9 +686,9 @@ fn send_and_update(
     path: &PathBuf,
 ) -> BynarResult<()> {
     trace!("Send request {:?}", mess);
-    helpers::request(s, mess, client_id)?;
+    helpers::request(s, mess.clone(), client_id)?;
     //add or update to message_map if path != emptyyyy
-    if mess.get_disk() != "" {
+    if mess.clone().get_disk() != "" {
         trace!("add operation to map");
         //check optype, make op
         let disk_op = DiskOp::new(mess, desc, op_id);
@@ -732,7 +744,7 @@ fn handle_operation_result(
 
     match op_res.get_op_type() {
         Op::Add => {
-            let path = Path::new(&op_res.get_disk());
+            let path = Path::new(op_res.get_disk());
             if let Some(disk_op) = get_map_op(message_map, &path.to_path_buf())? {
                 if let Some(ticket_id) = disk_op.description {
                     handle_add_disk_res(pool, op_res.get_outcome(), ticket_id);
@@ -748,6 +760,10 @@ fn handle_operation_result(
                 "Unable to get current operation in the map for {}",
                 path.display()
             )));
+        }
+        _ => {
+            //need to prep other stuff
+            Ok(())
         }
     }
 }
@@ -779,7 +795,7 @@ fn send_and_recieve(
                             //then ok to run Op::Remove
                             send_and_update(
                                 s,
-                                &mut message_map,
+                                message_map,
                                 client_id,
                                 (mess, desc, op_id),
                                 &path,
@@ -796,7 +812,7 @@ fn send_and_recieve(
                         );
                         send_and_update(
                             s,
-                            &mut message_map,
+                            message_map,
                             client_id,
                             (mess, desc, op_id),
                             &path,
@@ -810,7 +826,7 @@ fn send_and_recieve(
                 // safe to run the op.  In the case of Remove op, it shouldn't be possible to NOT
                 // have a safe-to-remove run before (it's always safe-to-remove then remove)
                 // however since the remove operation will run safe-to-remove anyways, it's fine to just run
-                send_and_update(s, &mut message_map, client_id, (mess, desc, op_id), &path)?;
+                send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
             }
         }
     }
@@ -1028,6 +1044,7 @@ fn main() {
         let now = Instant::now();
         match check_for_failed_disks(
             &config,
+            &mut message_queue,
             &host_info,
             &db_pool,
             &host_details_mapping,
