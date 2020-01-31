@@ -33,12 +33,15 @@ use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
 use libc::c_int;
 use log::{debug, error, info, trace, warn};
+use protobuf::parse_from_bytes;
+use protobuf::Message as ProtobufMsg;
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use signal_hook::iterator::Signals;
 use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
+use zmq::Socket;
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -47,6 +50,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
 use std::time::{Duration, Instant};
+use std::io::{Error, ErrorKind, Write};
 
 // a specific operation and its outcome
 #[derive(Debug, Clone)]
@@ -55,7 +59,7 @@ struct DiskOp {
     // the description for a JIRA ticket if necessary (None if not Safe-to-remove/Remove-disk)
     // Or, if an add_disk request, description is the ticket_id
     pub description: Option<String>,
-    pub operaton_id: Option<u32>, // the operation id if one exists (for safe-to-remove, remove request handling)
+    pub operation_id: Option<u32>, // the operation id if one exists (for safe-to-remove, remove request handling)
     pub ret_val: Option<OpOutcomeResult>, //None if outcome not yet determined
 }
 
@@ -668,7 +672,7 @@ fn send_and_update(
     path: &PathBuf,
 ) -> BynarResult<()> {
     trace!("Send request {:?}", mess);
-    request(s, mess, client_id)?;
+    helpers::request(s, mess, client_id)?;
     //add or update to message_map if path != emptyyyy
     if mess.get_disk() != "" {
         trace!("add operation to map");
@@ -688,9 +692,9 @@ fn handle_add_disk_res(pool: &Pool<ConnectionManager>, outcome: OpOutcome, ticke
         // Disk is already in the cluster
         OpOutcome::SkipRepeat => debug!("Disk already added.  Skipping.  Updating database record"),
     }
-    match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
+    match in_progress::resolve_ticket_in_db(pool, &ticket_id) {
         Ok(_) => debug!("Database updated"),
-        Err(e) => error!("Failed to resolve ticket {}.  {:?}", ticket.ticket_id, e),
+        Err(e) => error!("Failed to resolve ticket {}.  {:?}", ticket_id, e),
     };
 }
 
@@ -700,9 +704,9 @@ fn handle_operation_result(
     pool: &Pool<ConnectionManager>,
     op_res: OpOutcomeResult,
 ) -> BynarResult<()> {
-    match op_result.get_result() {
+    match op_res.get_result() {
         ResultType::OK => {}
-        ResultType::Err => {
+        ResultType::ERR => {
             if op_res.has_error_msg() {
                 let msg = op_res.get_error_msg();
                 match op_res.get_op_type() {
@@ -727,9 +731,9 @@ fn handle_operation_result(
     match op_res.get_op_type() {
         Op::Add => {
             let path = Path::new(&op_res.get_disk());
-            if let Some(disk_op) = get_map_op(message_map, path.to_path_buf())? {
+            if let Some(disk_op) = get_map_op(message_map, &path.to_path_buf())? {
                 if let Some(ticket_id) = disk_op.description {
-                    handle_add_disk_res(pool, op_res.get_outcome(), ticket_id: String)
+                    handle_add_disk_res(pool, op_res.get_outcome(), ticket_id);
                 }
             }
             error!(
@@ -752,30 +756,20 @@ fn send_and_recieve(
     client_id: Vec<u8>,
 ) -> BynarResult<()> {
     // Note, all client sent messages are Operation, while return values can be OpJiraTicketResult, Disks, or OpOutcomeResult
-    let events = match s.get_events() {
-        Err(zmq::Error::EBUSY) => {
-            debug!("Socket Busy, skip");
-            return Ok(());
-        }
-        Err(e) => {
-            error!("Get Client Socket Events errored...{:?}", e);
-            return Err(BynarError::from(e));
-        }
-        Ok(e) => e,
-    };
+    let events = poll_events!(s, return Ok(()));
     //check sendable first
-    if (events & zmq::POLLOUT) != 0 {
+    if (events as i16 & zmq::POLLOUT) != 0 {
         //dequeue from message_queue if it isn't empty
         if let Some((mess, desc, op_id)) = message_queue.pop_front() {
             // if mess.op_type() == Op::Remove, check if Safe-To-Remove in map complete
             // if not, send to end of queue (push_back)
             let path = Path::new(mess.get_disk()).to_path_buf();
             //check if there was a previous request, and whether it was completed
-            if let Some(disk_op) = get_map_op(&message_map, &path.to_path_buf()) {
+            if let Some(disk_op) = get_map_op(&message_map, &path.to_path_buf())? {
                 // check if Safe-to-remove returned yet
                 if let Some(val) = disk_op.ret_val {
                     // check if mess is a Remove op
-                    if mess.op_type() == Op::Remove {
+                    if mess.get_Op_type() == Op::Remove {
                         // check success outcome
                         if val.get_outcome() == OpOutcome::Success && val.get_value() {
                             //then ok to run Op::Remove
@@ -817,10 +811,10 @@ fn send_and_recieve(
         }
     }
     // can get response
-    if (events & zmq::POLLIN != 0) {
+    if (events as i16 & zmq::POLLIN != 0) {
         // get the message, it should be either a OpOutcomeResult, or OpJiraTicketsResult
         // NOTE: disks is not an option since list_disks is not a request that the main bynar program makes
-        let mut message = get_messages(s)?;
+        let mut message = helpers::get_messages(s)?;
         // skip empty initial message, and keep looping until no more messages from disk-manager
         while message.len() > 0 {
             // get message
@@ -831,7 +825,7 @@ fn send_and_recieve(
                 Err(_) => {
                     // must be tickets, since list_disks is never requested by bynar main program
                     let tickets = get_message!(OpJiraTicketsResult, &message)?;
-                    message.drain(0..ticket.write_to_bytes()?.len());
+                    message.drain(0..tickets.write_to_bytes()?.len());
                 }
             }
         }

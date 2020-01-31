@@ -3,13 +3,14 @@
 use std::fs::{read_to_string, File};
 use std::path::Path;
 use std::str::FromStr;
+use std::io::{Error, ErrorKind, Write};
 
 //use disk_manager::disk_manager;
-use api::service::{Disk, OpOutcome, ResultType, OpOutcomeResult};
+use api::service::{Disk, OpOutcome, OpOutcomeResult, ResultType};
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
-use helpers::error::{BynarResult, BynarError};
+use helpers::error::{BynarError, BynarResult};
 use hostname::get_hostname;
-use log::{error, info, trace, debug};
+use log::{debug, error, info, trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
 
@@ -20,23 +21,13 @@ mod util;
 */
 
 fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
-    let client_id = s.get_identity().unwrap();
+    let client_id = s.get_identity()?;
     helpers::add_disk_request(s, path, id, client_id, simulate)?;
     //loop until socket is readable, then get the response
     loop {
-        let events = match s.get_events() {
-            Err(zmq::Error::EBUSY) => {
-                debug!("Socket Busy, skip");
-                continue;
-            }
-            Err(e) => {
-                error!("Get Client Socket Events errored...{:?}", e);
-                return Err(BynarError::from(e));
-            }
-            Ok(e) => e,
-        };
+        let events = poll_events!(s, continue);
         // got response
-        if (events & zmq::POLLIN != 0) {
+        if (events as i16 & zmq::POLLIN != 0) {
             let mut message = helpers::get_messages(s)?;
             let op_result = get_message!(OpOutcomeResult, &message)?;
             match op_result.get_result() {
@@ -44,17 +35,16 @@ fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarRe
                 ResultType::ERR => {
                     if op_result.has_error_msg() {
                         let msg = op_result.get_error_msg();
-                        error!("Add disk failed: {}", msg);
+                        //error!("Add disk failed: {}", msg);
                         return Err(BynarError::from(op_result.get_error_msg()));
                     } else {
-                        error!("Add disk failed but error_msg not set");
+                        //error!("Add disk failed but error_msg not set");
                         return Err(BynarError::from("Add disk failed but error_msg not set"));
                     }
                 }
             }
         }
     }
-    return Err(BynarError::from(format!("Failed Add_disk loop")));
 }
 
 fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
