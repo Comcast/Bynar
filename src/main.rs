@@ -98,20 +98,23 @@ fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<Disk
     let partitions = block_utils::get_block_partitions()?;
     // for each block device add its partitions to the HashMap
     // add them to HashMap
-    for device in &devices {
+    devices.iter().for_each(|device| {
         // make a new hashmap
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         disk_map.insert(device.to_path_buf(), None);
         // check if partition parent is device
-        for partition in &partitions {
-            if let Some(disk) = block_utils::get_parent_devpath_from_path(&partition)? {
-                if &disk == device {
-                    disk_map.insert(partition.to_path_buf(), None);
-                }
-            }
-        }
+        partitions
+            .iter()
+            .filter(|partition| {
+                partition
+                    .to_string_lossy()
+                    .contains(&device.to_string_lossy().to_string())
+            })
+            .for_each(|partition| {
+                disk_map.insert(partition.to_path_buf(), None);
+            });
         map.insert(device.to_path_buf(), disk_map);
-    }
+    });
     Ok(map)
 }
 
@@ -197,7 +200,7 @@ fn get_map_op(
             }
         }
     }
-     Ok(None)
+    Ok(None)
 }
 
 // replace the DiskOp associated with the input dev_path None and return the previous DiskOp
@@ -383,7 +386,19 @@ fn check_for_failed_disks(
                 match get_map_op(&message_map, &state_machine.block_device.dev_path).unwrap() {
                     Some(op) => {
                         //check if op_type == SafeToRemove || Remove
-                        !(op.op_type == Op::SafeToRemove || op.op_type == Op::Remove)
+                        if !(op.op_type == Op::SafeToRemove || op.op_type == Op::Remove) {
+                            // check if in_progress
+                            info!("Connecting to database to check if disk is in progress");
+                            in_progress::is_hardware_waiting_repair(
+                                pool,
+                                host_mapping.storage_detail_id,
+                                &state_machine.block_device.dev_path.to_string_lossy(),
+                                None,
+                            )
+                            .unwrap()
+                        } else {
+                            false
+                        }
                     }
                     None => true,
                 }
@@ -392,6 +407,14 @@ fn check_for_failed_disks(
             }
         })
         .collect();
+    //filter Fail disks in seperate vec and soft-error those
+    /*replacing.iter().for_each(
+        |disk| {
+            //add safeToRemove + Remove request to message_queue, checking if its already in first
+            // create Operation, description, and get the op_id
+            let mess: (Operation, Option<String>, Option<u32>) = (Operation::new().set_Op_type(Op::SafeToRemove), Some(description))
+        }
+    );*/
     for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
         match result {
             Ok(state_machine) => {
@@ -399,6 +422,7 @@ fn check_for_failed_disks(
                     "Disk status: /dev/{} {:?}",
                     state_machine.block_device.device.name, state_machine
                 );
+                // just use state_machine.block_device.dev_path???
                 let mut dev_path = PathBuf::from("/dev");
                 let dev_name = &state_machine.block_device.device.name;
                 dev_path.push(&dev_name);
@@ -510,6 +534,7 @@ fn check_for_failed_disks(
                                 }
                                 Some(i) => i,
                             };
+                            // update operation detials in DB
                             let mut operation_detail =
                                 OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                             operation_detail.set_tracking_id(ticket_id);
