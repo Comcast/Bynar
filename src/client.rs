@@ -322,7 +322,7 @@ fn main() {
         handle_remove_disk(&s, matches, client_id.clone());
     }
     if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
-        match handle_jira_tickets(&s, client_id.clone()) {
+        match handle_jira_tickets(&s, client_id) {
             Ok(()) => {}
             Err(e) => println!("Get JIRA tickets failed {}", e),
         };

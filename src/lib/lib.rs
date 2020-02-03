@@ -292,8 +292,7 @@ pub struct DBConfig {
 
 /// get message(s) from the socket
 pub fn get_messages(s: &Socket) -> BynarResult<Vec<u8>> {
-    let msg = s.recv_bytes(0)?;
-    let id = msg.clone();
+    let id = s.recv_bytes(0)?;
     if s.get_rcvmore()? {
         return Ok(s.recv_bytes(0)?);
     }

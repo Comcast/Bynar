@@ -212,7 +212,7 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
     }
     if config.increment < 0.0 {
         warn!("input increment < 0, flipping to positive value");
-        config.increment = config.increment * -1.0;
+        config.increment *= -1.0;
     }
     if config.increment == 0.0 {
         return Err(BynarError::from("increment is 0.0"));
@@ -220,7 +220,7 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
     if config.backfill_cap == 0 {
         return Err(BynarError::from("backfill cap is 0"));
     }
-    if config.latency_cap == 0.0 || config.latency_cap < 0.0 {
+    if config.latency_cap <= 0.0 {
         return Err(BynarError::from("latency cap is less than or equal to 0.0"));
     }
     let names = osd_pool_ls(cluster_handle)?;
@@ -1226,7 +1226,7 @@ impl CephBackend {
             ])
             .output()?;
         let output = String::from_utf8_lossy(&output_child.stdout).to_lowercase();
-        let lines: Vec<&str> = output.split("\n").collect();
+        let lines: Vec<&str> = output.split('\n').collect();
         for line in lines {
             if line.contains("average latency") {
                 let attr: Vec<&str> = line.split_whitespace().collect();
@@ -1281,10 +1281,10 @@ impl CephBackend {
                 )));
             }
         }
-        return Err(BynarError::from(format!(
+        Err(BynarError::from(format!(
             "Could not find Osd {} in crush map",
             osd_id
-        )));
+        )))
     }
 
     // incrementally weight the osd. return true if reweight ongoing, false if finished
@@ -1377,14 +1377,11 @@ impl Backend for CephBackend {
             return Ok(OpOutcome::Skipped);
         }
         // check if the osd id, if given, is already in the cluster
-        match id {
-            Some(osd_id) => {
-                if is_osd_id_in_cluster(&self.cluster_handle, osd_id) {
-                    error!("Osd ID {} is already in the cluster. Skipping", osd_id);
-                    return Ok(OpOutcome::Skipped);
-                }
+        if let Some(osd_id) = id {
+            if osd_metadata_by_id(&self.cluster_handle, osd_id).is_ok() {
+                error!("Osd ID {} is already in the cluster. Skipping", osd_id);
+                return Ok(OpOutcome::Skipped);
             }
-            None => {}
         }
         // check if the disk is already in the cluster
         if is_device_in_cluster(&self.cluster_handle, device)? {
@@ -1466,19 +1463,18 @@ impl Backend for CephBackend {
         }
         //check if manual bluestore
         let osd_config = get_osd_config_by_path(&self.config, device)?;
-        let osd_id;
-        if !osd_config.is_lvm {
+        let osd_id = if !osd_config.is_lvm {
             let mut part2: String = device.to_string_lossy().to_string();
             part2.truncate(part2.len() - 1);
             part2.push_str("2");
             let part2 = Path::new(&part2);
             debug!("CHECKING PATH {}", part2.display());
             //get the osd id
-            osd_id = get_osd_id_from_device(&self.cluster_handle, part2)?;
+            get_osd_id_from_device(&self.cluster_handle, part2)?
         } else {
             //get the osd id
-            osd_id = get_osd_id_from_device(&self.cluster_handle, device)?;
-        }
+            get_osd_id_from_device(&self.cluster_handle, device)?
+        };
         // create and send the command to check if the osd is safe to remove
         Ok((
             OpOutcome::Success,
@@ -1519,29 +1515,18 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path) -> BynarResult<
     let ceph_volumes = ceph_volume_list(&cluster_handle)?;
     for (_id, meta) in ceph_volumes {
         for data in meta {
-            match data.metadata {
-                LvmData::Osd(data) => {
-                    //check if devices contains the device path
-                    for device in data.devices {
-                        if device == path {
-                            return Ok(true);
-                        }
+            //skip other lvm types
+            if let LvmData::Osd(data) = data.metadata {
+                //check if devices contains the device path
+                for device in data.devices {
+                    if device == path {
+                        return Ok(true);
                     }
                 }
-                //skip other lvm types
-                _ => {}
             }
         }
     }
     Ok(false)
-}
-
-// Check if an osd_id is already in the cluster
-fn is_osd_id_in_cluster(cluster_handle: &Rados, osd_id: u64) -> bool {
-    match osd_metadata_by_id(cluster_handle, osd_id) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
 }
 
 /// get the osd id from the device path using the osd metadata (Needs modification for Bluestore)
@@ -1579,23 +1564,20 @@ fn get_osd_id_from_device(cluster_handle: &Rados, dev_path: &Path) -> BynarResul
     let ceph_volumes = ceph_volume_list(&cluster_handle)?;
     for (id, meta) in ceph_volumes {
         for data in meta {
-            match data.metadata {
-                LvmData::Osd(data) => {
-                    //check if devices contains the device path
-                    for device in data.devices {
-                        if device == path {
-                            return Ok(id.parse::<u64>()?);
-                        }
+            //skip other lvm types
+            if let LvmData::Osd(data) = data.metadata {
+                //check if devices contains the device path
+                for device in data.devices {
+                    if device == path {
+                        return Ok(id.parse::<u64>()?);
                     }
                 }
-                //skip other lvm types
-                _ => {}
             }
         }
     }
-    Err(BynarError::new(format!(
-        "unable to find the osd in the osd metadata"
-    )))
+    Err(BynarError::new(
+        "unable to find the osd in the osd metadata".to_string(),
+    ))
 }
 
 fn save_keyring(
@@ -2187,7 +2169,9 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
                     Some(p1) => p1.last_lba,
                     None => {
                         error!("First partition does not exist!");
-                        return Err(BynarError::from(format!("First partition does not exist!")));
+                        return Err(BynarError::from(
+                            "First partition does not exist!".to_string(),
+                        ));
                     }
                 };
                 let size = last - first_end;
@@ -2206,7 +2190,9 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
                 Some(p1) => p1.last_lba,
                 None => {
                     error!("First partition does not exist!");
-                    return Err(BynarError::from(format!("First partition does not exist!")));
+                    return Err(BynarError::from(
+                        "First partition does not exist!".to_string(),
+                    ));
                 }
             };
             let size = last - first_end;

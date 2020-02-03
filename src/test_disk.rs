@@ -1412,7 +1412,7 @@ pub fn check_all_disks(
             Ok(_) => {}
             Err(e) => {
                 error!("Add or Update Operation Error: {:?}", e);
-                return Err(BynarError::from(e));
+                return Err(e);
             }
         };
         // store the operation_id in BlockDevice struct

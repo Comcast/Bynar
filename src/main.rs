@@ -77,7 +77,7 @@ impl DiskOp {
 // create a message map to handle list of disk-manager requests
 fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>> {
     // List out currently mounted block_devices
-    let mut devices: Vec<PathBuf> = block_utils::get_block_devices()?
+    let devices: Vec<PathBuf> = block_utils::get_block_devices()?
         .into_iter()
         .filter(|b| {
             !(if let Some(p) = b.as_path().file_name() {
@@ -197,7 +197,7 @@ fn get_map_op(
             }
         }
     }
-    return Ok(None);
+     Ok(None)
 }
 
 // replace the DiskOp associated with the input dev_path None and return the previous DiskOp
@@ -227,10 +227,10 @@ fn remove_map_op(
             }
         }
     }
-    return Err(BynarError::from(format!(
+    Err(BynarError::from(format!(
         "Path {} is not in the message map",
         dev_path.display()
-    )));
+    )))
 }
 
 // get the hashmap associated with a diskpath from the op map
@@ -250,7 +250,10 @@ fn get_disk_map_op(
             return Ok(disk.clone());
         }
     }
-    Err(BynarError::from(format!("Path is not a disk in the map")))
+    Err(BynarError::from(format!(
+        "Path {} is not a disk in the map",
+        dev_path.display()
+    )))
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
@@ -333,6 +336,7 @@ fn add_disk_to_description(
 
 fn check_for_failed_disks(
     config: &ConfigSettings,
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
@@ -352,6 +356,42 @@ fn check_for_failed_disks(
     ));
 
     info!("Checking all drives");
+    let all_states = test_disk::check_all_disks(&host_info, pool, host_mapping)?;
+    // separate the states into Ok and Errors
+    let usable_states: Vec<_> = all_states
+        .iter()
+        .filter_map(|s| match s {
+            Ok(s) => Some(s),
+            Err(_) => None,
+        })
+        .collect();
+    // list of all states that have error'd out for some reason, once we've run every usable state,
+    // error out with the list of errors
+    let errored_states: Vec<_> = all_states
+        .iter()
+        .filter_map(|s| match s {
+            Ok(_) => None,
+            Err(e) => Some(e),
+        })
+        .collect();
+    //filter all the disks that are in the WaitingForReplacement state and are not currently undergoing an operation
+    let replacing: Vec<_> = usable_states
+        .iter()
+        .filter(|state_machine| {
+            if state_machine.block_device.state == State::WaitingForReplacement {
+                //check hashmap of the device path == None, or OpType != SafeToRemove || Remove
+                match get_map_op(&message_map, &state_machine.block_device.dev_path).unwrap() {
+                    Some(op) => {
+                        //check if op_type == SafeToRemove || Remove
+                        !(op.op_type == Op::SafeToRemove || op.op_type == Op::Remove)
+                    }
+                    None => true,
+                }
+            } else {
+                false
+            }
+        })
+        .collect();
     for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
         match result {
             Ok(state_machine) => {
@@ -756,10 +796,10 @@ fn handle_operation_result(
                 "Unable to get current operation in the map for {}",
                 path.display()
             );
-            return Err(BynarError::from(format!(
+            Err(BynarError::from(format!(
                 "Unable to get current operation in the map for {}",
                 path.display()
-            )));
+            )))
         }
         _ => {
             //need to prep other stuff
@@ -793,13 +833,7 @@ fn send_and_recieve(
                         // check success outcome
                         if val.get_outcome() == OpOutcome::Success && val.get_value() {
                             //then ok to run Op::Remove
-                            send_and_update(
-                                s,
-                                message_map,
-                                client_id,
-                                (mess, desc, op_id),
-                                &path,
-                            )?;
+                            send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
                         }
                     // safe-to-remove returned false or error'd so we should not remove but let manual handling
                     // delete the remove request in this case (in otherwords, do nothing)
@@ -810,13 +844,7 @@ fn send_and_recieve(
                             "Previous request {:?} has finished, but hasn't been reset",
                             disk_op.op_type
                         );
-                        send_and_update(
-                            s,
-                            message_map,
-                            client_id,
-                            (mess, desc, op_id),
-                            &path,
-                        )?;
+                        send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
                     }
                 } else {
                     // we haven't gotten response from previous request yet, push request to back of queue
@@ -836,7 +864,7 @@ fn send_and_recieve(
         // NOTE: disks is not an option since list_disks is not a request that the main bynar program makes
         let mut message = helpers::get_messages(s)?;
         // skip empty initial message, and keep looping until no more messages from disk-manager
-        while message.len() > 0 {
+        while !message.is_empty() {
             // get message
             match get_message!(OpOutcomeResult, &message) {
                 Ok(outcome) => {
@@ -955,16 +983,13 @@ fn main() {
             .args(&["-p", &pid])
             .output()
             .expect("Unable to open shell to run ps command");
-        match output.status.code() {
-            Some(0) => {
-                let out = String::from_utf8_lossy(&output.stdout);
-                if out.contains("bynar") {
-                    //skip
-                    error!("There is already a running instance of bynar! Abort!");
-                    return;
-                }
+        if let Some(0) = output.status.code() {
+            let out = String::from_utf8_lossy(&output.stdout);
+            if out.contains("bynar") {
+                //skip
+                error!("There is already a running instance of bynar! Abort!");
+                return;
             }
-            _ => {}
         }
     }
     let signals = Signals::new(&[
@@ -979,8 +1004,10 @@ fn main() {
         let outfile = format!("/var/log/{}", config.daemon_output);
         let errfile = format!("/var/log/{}", config.daemon_error);
 
-        let stdout = File::create(&outfile).expect(&format!("{} creation failed", outfile));
-        let stderr = File::create(&errfile).expect(&format!("{} creation failed", errfile));
+        let stdout =
+            File::create(&outfile).unwrap_or_else(|_| panic!("{} creation failed", outfile));
+        let stderr =
+            File::create(&errfile).unwrap_or_else(|_| panic!("{} creation failed", errfile));
 
         trace!("I'm Parent and My pid is {}", process::id());
 
@@ -1040,10 +1067,12 @@ fn main() {
 
     let dur = Duration::from_secs(time);
     let mut message_queue: VecDeque<(Operation, Option<String>, Option<u32>)> = VecDeque::new();
+    let mut message_map = create_msg_map().unwrap();
     'outer: loop {
         let now = Instant::now();
         match check_for_failed_disks(
             &config,
+            &mut message_map,
             &mut message_queue,
             &host_info,
             &db_pool,
@@ -1095,7 +1124,7 @@ fn main() {
                         signal_hook::SIGHUP => {
                             //Reload the config file
                             debug!("Reload Config File");
-                            let _ = notify_slack(
+                            notify_slack(
                                 &config,
                                 &format!("Reload config file on {}", host_info.hostname),
                             )
@@ -1107,7 +1136,7 @@ fn main() {
                                     config_dir.join("bynar.json").display(),
                                     e
                                 );
-                                let _ = notify_slack(
+                                notify_slack(
                                     &config,
                                     &format!(
                                         "Failed to load config file {}. error: {}",
@@ -1140,7 +1169,7 @@ fn main() {
         }
     }
     debug!("Bynar exited successfully");
-    let _ = notify_slack(
+    notify_slack(
         &config,
         &format!("Bynar on host  {} has stopped", host_info.hostname),
     )
