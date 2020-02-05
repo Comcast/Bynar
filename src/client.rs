@@ -29,15 +29,22 @@ fn add_disk(
     client_id: Vec<u8>,
     simulate: bool,
 ) -> BynarResult<OpOutcome> {
-    helpers::add_disk_request(s, path, id, client_id, simulate)?;
+    let mut sent = false;
     //loop until socket is readable, then get the response
     loop {
         let events = poll_events!(s, continue);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::add_disk_request(s, path, id, client_id.clone(), simulate)?;
+            sent = true;
+        }
         // got response
         if events.contains(zmq::PollEvents::POLLIN) {
             let message = helpers::get_messages(s)?;
-            let op_result = get_message!(OpOutcomeResult, &message)?;
-            get_op_result!(op_result, add_disk);
+            if !message.is_empty() {
+                let op_result = get_message!(OpOutcomeResult, &message)?;
+                get_op_result!(op_result, add_disk);
+            }
         }
     }
 }
@@ -75,16 +82,23 @@ fn remove_disk(
     client_id: Vec<u8>,
     simulate: bool,
 ) -> BynarResult<OpOutcome> {
-    helpers::remove_disk_request(s, path, id, client_id, simulate)?;
+    let mut sent = false;
 
     //loop until socket is readable, then get the response
     loop {
         let events = poll_events!(s, continue);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::remove_disk_request(s, path, id, client_id.clone(), simulate)?;
+            sent = true;
+        }
         // got response
         if events.contains(zmq::PollEvents::POLLIN) {
             let message = helpers::get_messages(s)?;
-            let op_result = get_message!(OpOutcomeResult, &message)?;
-            get_op_result!(op_result, remove_disk);
+            if !message.is_empty() {
+                let op_result = get_message!(OpOutcomeResult, &message)?;
+                get_op_result!(op_result, remove_disk);
+            }
         }
     }
 }
@@ -126,35 +140,42 @@ fn handle_list_disks(s: &Socket, client_id: Vec<u8>) {
 
 fn handle_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
-    helpers::get_jira_tickets(s, client_id)?;
+    let mut sent = false;
     //loop until socket is readable, then get the response
     loop {
         let events = poll_events!(s, continue);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::get_jira_tickets(s, client_id.clone())?;
+            sent = true;
+        }
         // got response
         if events.contains(zmq::PollEvents::POLLIN) {
             let message = helpers::get_messages(s)?;
-            let tickets = get_message!(OpJiraTicketsResult, &message)?;
-            match tickets.get_result() {
-                ResultType::OK => {
-                    debug!("got tickets successfully");
-                    let proto_jira = tickets.get_tickets();
-                    let mut _jira: Vec<JiraInfo> = Vec::new();
-                    for JiraInfo in proto_jira {
-                        debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
-                        debug!("get_server_name: {}", JiraInfo.get_server_name());
+            if !message.is_empty() {
+                let tickets = get_message!(OpJiraTicketsResult, &message)?;
+                match tickets.get_result() {
+                    ResultType::OK => {
+                        debug!("got tickets successfully");
+                        let proto_jira = tickets.get_tickets();
+                        let mut _jira: Vec<JiraInfo> = Vec::new();
+                        for JiraInfo in proto_jira {
+                            debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+                            debug!("get_server_name: {}", JiraInfo.get_server_name());
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
-                }
-                ResultType::ERR => {
-                    if tickets.has_error_msg() {
-                        let msg = tickets.get_error_msg();
-                        error!("get jira tickets failed : {}", msg);
-                        return Err(BynarError::from(tickets.get_error_msg()));
-                    } else {
-                        error!("Get jira tickets failed but error_msg not set");
-                        return Err(BynarError::from(
-                            "Get jira tickets failed but error_msg not set",
-                        ));
+                    ResultType::ERR => {
+                        if tickets.has_error_msg() {
+                            let msg = tickets.get_error_msg();
+                            error!("get jira tickets failed : {}", msg);
+                            return Err(BynarError::from(tickets.get_error_msg()));
+                        } else {
+                            error!("Get jira tickets failed but error_msg not set");
+                            return Err(BynarError::from(
+                                "Get jira tickets failed but error_msg not set",
+                            ));
+                        }
                     }
                 }
             }
