@@ -43,20 +43,27 @@ fn add_disk(
 }
 
 fn list_disks(s: &Socket, client_id: Vec<u8>) -> BynarResult<Vec<Disk>> {
-    helpers::list_disks_request(s, client_id)?;
     //loop until socket is readable, then get the response
+    let mut sent = false;
     loop {
         let events = poll_events!(s, continue);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::list_disks_request(s, client_id.clone())?;
+            sent = true;
+        }
         // got response
         if events.contains(zmq::PollEvents::POLLIN) {
             let message = helpers::get_messages(s)?;
-            let disks = get_message!(Disks, &message)?;
-            let mut d: Vec<Disk> = Vec::new();
-            for disk in disks.get_disk() {
-                d.push(disk.clone());
+            if !message.is_empty() {
+                let disks = get_message!(Disks, &message)?;
+                let mut d: Vec<Disk> = Vec::new();
+                for disk in disks.get_disk() {
+                    d.push(disk.clone());
+                }
+                println!("disk list: {:?}", d);
+                return Ok(d);
             }
-            println!("disk list: {:?}", d);
-            return Ok(d);
         }
     }
 }
@@ -312,6 +319,7 @@ fn main() {
         }
     };
     let client_id: Vec<u8> = s.get_identity().unwrap();
+    debug!("Client ID {:?}, len {}", client_id, client_id.len());
     if let Some(ref matches) = matches.subcommand_matches("add") {
         handle_add_disk(&s, matches, client_id.clone());
     }

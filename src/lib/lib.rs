@@ -34,7 +34,7 @@ where
 pub fn connect(host: &str, port: &str, server_publickey: &[u8]) -> BynarResult<Socket> {
     debug!("Starting zmq sender with version({:?})", zmq::version());
     let context = zmq::Context::new();
-    let requester = context.socket(zmq::DEALER)?;
+    let requester = context.socket(zmq::STREAM)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
     debug!("Created new keypair");
     requester.set_curve_serverkey(server_publickey)?;
@@ -44,6 +44,11 @@ pub fn connect(host: &str, port: &str, server_publickey: &[u8]) -> BynarResult<S
     assert!(requester
         .connect(&format!("tcp://{}:{}", host, port))
         .is_ok());
+    debug!("Client ID before setting {:?}", requester.get_identity());
+    /*debug!(
+        "Client ID {:?}",
+        requester.set_identity(&vec![0, 107, 139, 69, 103])
+    );*/
     debug!("Client mechanism: {:?}", requester.get_mechanism());
 
     Ok(requester)
@@ -59,7 +64,7 @@ pub fn get_vault_token(endpoint: &str, token: &str, hostname: &str) -> BynarResu
 pub fn request(s: &Socket, op: Operation, client_id: Vec<u8>) -> BynarResult<()> {
     //send the id first
     s.send(&client_id, zmq::SNDMORE)?;
-    let encoded = op.write_to_bytes().unwrap();
+    let encoded = op.write_to_bytes()?;
     debug!("Sending message");
     s.send(&encoded, 0)?;
     Ok(())
@@ -86,7 +91,7 @@ pub fn add_disk_request(
         o.set_osd_id(id);
     }
 
-    let encoded = o.write_to_bytes().unwrap();
+    let encoded = o.write_to_bytes()?;
     debug!("Sending message");
     s.send(&encoded, 0)?;
     Ok(())
@@ -133,18 +138,24 @@ pub fn check_disk_request(s: &mut Socket) -> Result<RepairResponse, String> {
 /// send a list disk request to the disk-manager
 pub fn list_disks_request(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     //BynarResult<Vec<Disk>> {
+    debug!("Printing ID {:?}", client_id);
     let mut o = Operation::new();
     debug!("Creating list operation request");
     //send the id first
-    s.send(&client_id, zmq::SNDMORE)?;
     o.set_Op_type(Op::List);
 
     debug!("Encoding as hex");
     let encoded = o.write_to_bytes()?;
-    debug!("{:?}", encoded);
-
+    debug!("Encoded value {:?}", encoded);
     debug!("Sending message");
-    s.send(&encoded, 0)?;
+
+    s.send(client_id, zmq::SNDMORE)?;
+    s.send(encoded, 0)?;
+    //(&[client_id, encoded], 0)?;
+
+    //s.send(&client_id, zmq::SNDMORE)?;
+    //s.send("Send another message", zmq::SNDMORE)?;
+    //s.send(encoded, 0)?;
     Ok(())
     /*debug!("Waiting for response");
     let disks_response = s.recv_bytes(0)?;
@@ -204,7 +215,7 @@ pub fn remove_disk_request(
 
     let encoded = o.write_to_bytes()?;
     debug!("Sending message");
-    s.send(&encoded, 0)?;
+    s.send(encoded, 0)?;
     Ok(())
     /*debug!("Waiting for response");
     let remove_response = s.recv_bytes(0)?;
@@ -334,12 +345,14 @@ macro_rules! make_op {
 
 /// get the list of JIRA tickets from disk-manager
 pub fn get_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
+    debug!("Printing ID {:?}", client_id);
     let mut o = Operation::new();
     //send the id first
     s.send(&client_id, zmq::SNDMORE)?;
     debug!("calling get_jira_tickets ");
     o.set_Op_type(Op::GetCreatedTickets);
     let encoded = o.write_to_bytes()?;
+    debug!("encoded {:?}", encoded);
     debug!("Sending message in get_jira_tickets");
     s.send(&encoded, 0)?;
     Ok(())

@@ -249,13 +249,9 @@ fn validate_config(config: &mut CephConfig, cluster_handle: &Rados) -> BynarResu
 // get the OSDConfig for a given input osd path if one exists
 fn get_osd_config_by_path(config: &CephConfig, dev_path: &Path) -> BynarResult<OsdConfig> {
     let path = dev_path.to_string_lossy().to_string();
-    let parent = match block_utils::get_parent_devpath_from_path(dev_path) {
-        Ok(Some(p)) => p.to_string_lossy().to_string(),
-        _ => path[..path.len() - 1].to_string(),
-    };
     for osdconfig in &config.osd_config {
-        // if dev_path == path given, or osdconfig is NOT an lvm and the path given is the parent path
-        if osdconfig.dev_path == path || (!osdconfig.is_lvm && osdconfig.dev_path == parent) {
+        // if dev_path == path given
+        if osdconfig.dev_path == path {
             return Ok(osdconfig.clone());
         }
     }

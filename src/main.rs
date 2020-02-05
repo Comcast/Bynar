@@ -385,20 +385,17 @@ fn check_for_failed_disks(
                 //check hashmap of the device path == None, or OpType != SafeToRemove || Remove
                 match get_map_op(&message_map, &state_machine.block_device.dev_path).unwrap() {
                     Some(op) => {
+                        // check if in_progress
+                        info!("Connecting to database to check if disk is in progress");
+                        let in_progress = in_progress::is_hardware_waiting_repair(
+                            pool,
+                            host_mapping.storage_detail_id,
+                            &state_machine.block_device.dev_path.to_string_lossy(),
+                            None,
+                        )
+                        .unwrap();
                         //check if op_type == SafeToRemove || Remove
-                        if !(op.op_type == Op::SafeToRemove || op.op_type == Op::Remove) {
-                            // check if in_progress
-                            info!("Connecting to database to check if disk is in progress");
-                            in_progress::is_hardware_waiting_repair(
-                                pool,
-                                host_mapping.storage_detail_id,
-                                &state_machine.block_device.dev_path.to_string_lossy(),
-                                None,
-                            )
-                            .unwrap()
-                        } else {
-                            false
-                        }
+                        !(op.op_type == Op::SafeToRemove || op.op_type == Op::Remove || in_progress)
                     }
                     None => true,
                 }
@@ -407,14 +404,35 @@ fn check_for_failed_disks(
             }
         })
         .collect();
-    //filter Fail disks in seperate vec and soft-error those
-    /*replacing.iter().for_each(
-        |disk| {
-            //add safeToRemove + Remove request to message_queue, checking if its already in first
-            // create Operation, description, and get the op_id
-            let mess: (Operation, Option<String>, Option<u32>) = (Operation::new().set_Op_type(Op::SafeToRemove), Some(description))
-        }
-    );*/
+    //filter Fail disks in seperate vec and soft-error those at the end before checking the errored_states
+    let failed: Vec<_> = usable_states
+        .iter()
+        .filter(|state_machine| state_machine.block_device.state == State::Fail)
+        .collect();
+
+    replacing.iter().for_each(|state_machine| {
+        //add safeToRemove + Remove request to message_queue, checking if its already in first
+        // create Operation, description, and get the op_id
+        let mut desc = description.clone();
+        add_disk_to_description(
+            &mut desc,
+            &state_machine.block_device.dev_path,
+            &state_machine,
+        );
+        let op_id = match state_machine.block_device.operation_id {
+            None => {
+                error!(
+                    "Operation not recorded for {}",
+                    state_machine.block_device.dev_path.display()
+                );
+                0
+            }
+            Some(i) => i,
+        };
+        let mut op = Operation::new();
+        op.set_Op_type(Op::SafeToRemove);
+        let mess: (Operation, Option<String>, Option<u32>) = (op, Some(desc), Some(op_id));
+    });
     for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
         match result {
             Ok(state_machine) => {

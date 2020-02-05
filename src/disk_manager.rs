@@ -189,7 +189,7 @@ fn listen(
 ) -> BynarResult<()> {
     debug!("Starting zmq listener with version({:?})", zmq::version());
     let context = zmq::Context::new();
-    let responder = context.socket(zmq::STREAM)?;
+    let responder = context.socket(zmq::SocketType::STREAM)?;
 
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
@@ -228,11 +228,15 @@ fn listen(
                     let mut msg = responder.recv_bytes(0)?;
                     debug!("Got msg len: {}", msg.len());
                     trace!("Parsing msg {:?} as hex", msg);
+                    if msg.len() == 0 {
+                        continue;
+                    }
                     while !msg.is_empty() {
-                        let operation = match parse_from_bytes::<Operation>(&msg) {
+                        let operation = match parse_from_bytes::<Operation>(&msg.clone()) {
                             Ok(bytes) => bytes,
                             Err(e) => {
                                 error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
+                                break 'outer Ok(());
                                 continue;
                             }
                         };
@@ -451,6 +455,8 @@ fn listen(
                         }
                     }
                 }
+            } else {
+                std::thread::sleep(Duration::from_millis(10));
             }
         }
     })?;
