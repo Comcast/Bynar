@@ -30,7 +30,7 @@ use crate::test_disk::{State, StateMachine};
 use api::service::{Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, Operation, ResultType};
 use clap::{crate_authors, crate_version, App, Arg};
 use daemonize::Daemonize;
-use helpers::{error::*, host_information::Host, ConfigSettings};
+use helpers::{error::*, get_first_instance, host_information::Host, ConfigSettings};
 use libc::c_int;
 use log::{debug, error, info, trace, warn};
 use protobuf::parse_from_bytes;
@@ -909,11 +909,11 @@ fn send_and_recieve(
         // skip empty initial message, and keep looping until no more messages from disk-manager
         while !message.is_empty() {
             // get message
-            match get_first_instance!(&mut message, OpOutcomeResult) {
-                Ok(outcome) => {
+            match helpers::get_first_op_result(&mut message) {
+                Some(outcome) => {
                     //message.drain(0..outcome.write_to_bytes()?.len());
                 }
-                Err(_) => {
+                None => {
                     // must be tickets, since list_disks is never requested by bynar main program
                     //let tickets = get_first_instance!(&mut message, OpJiraTicketsResult)?;
                     //message.drain(0..tickets.write_to_bytes()?.len());

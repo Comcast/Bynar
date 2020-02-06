@@ -346,16 +346,19 @@ macro_rules! make_op {
 #[macro_export]
 /// get the first instance of a message type
 macro_rules! get_first_instance {
-    ($message:expr, mess_type:ty) => {
-        let mut copy = message.clone();
+    ($message:expr, $mess_type:ty) => {{
+        let mut copy = $message.clone();
+        if copy.is_empty() {
+            return None;
+        }
         while !copy.is_empty() {
-            match parse_from_bytes::<mess_type>(&copy) {
+            match parse_from_bytes::<$mess_type>(&copy) {
                 Ok(mess) => {
                     let bytes = mess.write_to_bytes().unwrap();
                     let size = bytes.len();
                     //println!("compare {:?} with {:?}", bytes, copy);
-                    if message.starts_with(&bytes) {
-                        message.drain(0..size);
+                    if $message.starts_with(&bytes) {
+                        $message.drain(0..size);
                         return Some(mess);
                     }
                 }
@@ -369,7 +372,11 @@ macro_rules! get_first_instance {
             copy.drain((copy.len() - 1)..copy.len());
         }
         None
-    };
+    }};
+}
+
+pub fn get_first_op_result(message: &mut Vec<u8>) -> Option<OpOutcomeResult> {
+    get_first_instance!(message, OpOutcomeResult)
 }
 
 /// get the list of JIRA tickets from disk-manager
