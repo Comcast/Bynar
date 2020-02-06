@@ -1407,10 +1407,15 @@ impl Backend for CephBackend {
         let osd_config = get_osd_config_by_path(&self.config, device)?;
         let path_check;
         let mut part2: String = device.to_string_lossy().to_string();
-        part2.truncate(part2.len() - 1);
-        part2.push_str("2");
         if !osd_config.is_lvm {
-            path_check = Path::new(&part2);
+            if let Some(e) = block_utils::get_parent_devpath_from_path(device)? {
+                part2.truncate(part2.len() - 1);
+                part2.push_str("2");
+                path_check = Path::new(&part2);
+            } else {
+                part2.push_str("2");
+                path_check = Path::new(&part2);
+            }
         } else {
             path_check = device;
         }

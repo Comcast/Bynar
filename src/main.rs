@@ -858,7 +858,7 @@ fn send_and_recieve(
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
     client_id: Vec<u8>,
 ) -> BynarResult<()> {
-    // Note, all client sent messages are Operation, while return values can be OpJiraTicketResult, Disks, or OpOutcomeResult
+    // Note, all client sent messages are Operation, while return values of type OpOutcomeResult
     let events = poll_events!(s, return Ok(()));
     //check sendable first
     if events.contains(zmq::PollEvents::POLLOUT) {
@@ -909,14 +909,15 @@ fn send_and_recieve(
         // skip empty initial message, and keep looping until no more messages from disk-manager
         while !message.is_empty() {
             // get message
-            match get_message!(OpOutcomeResult, &message) {
+            match get_first_instance!(&mut message, OpOutcomeResult) {
                 Ok(outcome) => {
-                    message.drain(0..outcome.write_to_bytes()?.len());
+                    //message.drain(0..outcome.write_to_bytes()?.len());
                 }
                 Err(_) => {
                     // must be tickets, since list_disks is never requested by bynar main program
-                    let tickets = get_message!(OpJiraTicketsResult, &message)?;
-                    message.drain(0..tickets.write_to_bytes()?.len());
+                    //let tickets = get_first_instance!(&mut message, OpJiraTicketsResult)?;
+                    //message.drain(0..tickets.write_to_bytes()?.len());
+                    //Actually, this is a problem since Bynar only sends Add/SafeToRemove/Remove requests
                 }
             }
         }
