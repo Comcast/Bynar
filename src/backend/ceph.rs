@@ -1460,13 +1460,21 @@ impl Backend for CephBackend {
         //check if manual bluestore
         let osd_config = get_osd_config_by_path(&self.config, device)?;
         let osd_id = if !osd_config.is_lvm {
-            let mut part2: String = device.to_string_lossy().to_string();
-            part2.truncate(part2.len() - 1);
-            part2.push_str("2");
-            let part2 = Path::new(&part2);
-            debug!("CHECKING PATH {}", part2.display());
-            //get the osd id
-            get_osd_id_from_device(&self.cluster_handle, part2)?
+            if let Some(e) = block_utils::get_parent_devpath_from_path(device)? {
+                let mut part2: String = device.to_string_lossy().to_string();
+                part2.truncate(part2.len() - 1);
+                part2.push_str("2");
+                let part2 = Path::new(&part2);
+                debug!("CHECKING PATH {}", part2.display());
+                //get the osd id
+                get_osd_id_from_device(&self.cluster_handle, part2)?
+            } else {
+                let mut part2: String = device.to_string_lossy().to_string();
+                part2.push_str("2");
+                let part2 = Path::new(&part2);
+                debug!("CHECKING PATH {}", part2.display());
+                get_osd_id_from_device(&self.cluster_handle, part2)?
+            }
         } else {
             //get the osd id
             get_osd_id_from_device(&self.cluster_handle, device)?

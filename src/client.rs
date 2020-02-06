@@ -158,10 +158,12 @@ fn handle_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
                     ResultType::OK => {
                         debug!("got tickets successfully");
                         let proto_jira = tickets.get_tickets();
-                        let mut _jira: Vec<JiraInfo> = Vec::new();
                         for JiraInfo in proto_jira {
-                            debug!("get_ticket_id: {}", JiraInfo.get_ticket_id());
-                            debug!("get_server_name: {}", JiraInfo.get_server_name());
+                            println!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+                            println!("get_server_name: {}", JiraInfo.get_server_name());
+                        }
+                        if proto_jira.is_empty() {
+                            println!("No outstanding tickets");
                         }
                         return Ok(());
                     }

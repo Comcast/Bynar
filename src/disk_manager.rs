@@ -241,7 +241,8 @@ fn listen(
                             }
                         };
                         let client_id = client_id.clone();
-                        msg.drain(0..operation.write_to_bytes()?.len());
+                        let size = operation.write_to_bytes()?.len();
+                        msg.drain((msg.len() - size)..msg.len());
                         let send_res = send_res.clone();
                         let send_disk = send_disk.clone();
                         let send_ticket = send_ticket.clone();
