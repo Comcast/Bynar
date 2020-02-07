@@ -378,7 +378,7 @@ fn check_for_failed_disks(
         })
         .collect();
     //filter all the disks that are in the WaitingForReplacement state and are not currently undergoing an operation
-    let replacing: Vec<_> = usable_states
+    let mut replacing: Vec<_> = usable_states
         .iter()
         .filter(|state_machine| {
             if state_machine.block_device.state == State::WaitingForReplacement {
@@ -404,6 +404,24 @@ fn check_for_failed_disks(
             }
         })
         .collect();
+    // add the partition state machines? to the replacing list
+    let mut add_replacing = Vec::new();
+    for state_machine in &replacing {
+        let disks = get_disk_map_op(message_map, &state_machine.block_device.dev_path)?;
+        // uh, get list of keys in disks and filter usable list for keypath?
+        let mut add: Vec<_> = usable_states.iter().filter(|state_machine| {
+        disks.contains_key(&state_machine.block_device.dev_path) 
+        }).collect();
+        add_replacing.append(&mut add);
+    }
+    //combine with replacing, then do sort_unstable_by and dedup_rm
+    replacing.append(&mut add_replacing);
+    replacing.sort_unstable_by(|a, b| {
+        a.block_device.dev_path.partial_cmp(&b.block_device.dev_path).unwrap()
+    });
+    replacing.dedup_by(|a, b| {
+        a.block_device.dev_path.eq(&b.block_device.dev_path)
+    });
     //filter Fail disks in seperate vec and soft-error those at the end before checking the errored_states
     let failed: Vec<_> = usable_states
         .iter()
@@ -429,8 +447,10 @@ fn check_for_failed_disks(
             }
             Some(i) => i,
         };
-        let mut op = Operation::new();
-        op.set_Op_type(Op::SafeToRemove);
+        let mut op = helpers::make_op!(
+            SafeToRemove,
+            format!("{}", state_machine.block_device.dev_path.display())
+        );
         let mess: (Operation, Option<String>, Option<u32>) = (op, Some(desc), Some(op_id));
     });
     for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
