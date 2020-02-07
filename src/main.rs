@@ -359,24 +359,21 @@ fn check_for_failed_disks(
     ));
 
     info!("Checking all drives");
-    let all_states = test_disk::check_all_disks(&host_info, pool, host_mapping)?;
+    let all_states: BynarResult<Vec<_>> =
+        test_disk::check_all_disks(&host_info, pool, host_mapping)?
+            .into_iter()
+            .collect();
     // separate the states into Ok and Errors
-    let usable_states: Vec<_> = all_states
-        .iter()
-        .filter_map(|s| match s {
-            Ok(s) => Some(s),
-            Err(_) => None,
-        })
-        .collect();
-    // list of all states that have error'd out for some reason, once we've run every usable state,
-    // error out with the list of errors
-    let errored_states: Vec<_> = all_states
-        .iter()
-        .filter_map(|s| match s {
-            Ok(_) => None,
-            Err(e) => Some(e),
-        })
-        .collect();
+    let usable_states: Vec<_> = match all_states {
+        Ok(s) => s,
+        Err(e) => {
+            error!("check_all_disks failed with error: {:?}", e);
+            return Err(BynarError::new(format!(
+                "check_all_disks failed with error: {:?}",
+                e
+            )));
+        }
+    };
     //filter all the disks that are in the WaitingForReplacement state and are not currently undergoing an operation
     let mut replacing: Vec<_> = usable_states
         .iter()
@@ -409,19 +406,21 @@ fn check_for_failed_disks(
     for state_machine in &replacing {
         let disks = get_disk_map_op(message_map, &state_machine.block_device.dev_path)?;
         // uh, get list of keys in disks and filter usable list for keypath?
-        let mut add: Vec<_> = usable_states.iter().filter(|state_machine| {
-        disks.contains_key(&state_machine.block_device.dev_path) 
-        }).collect();
+        let mut add: Vec<_> = usable_states
+            .iter()
+            .filter(|state_machine| disks.contains_key(&state_machine.block_device.dev_path))
+            .collect();
         add_replacing.append(&mut add);
     }
     //combine with replacing, then do sort_unstable_by and dedup_rm
     replacing.append(&mut add_replacing);
     replacing.sort_unstable_by(|a, b| {
-        a.block_device.dev_path.partial_cmp(&b.block_device.dev_path).unwrap()
+        a.block_device
+            .dev_path
+            .partial_cmp(&b.block_device.dev_path)
+            .unwrap()
     });
-    replacing.dedup_by(|a, b| {
-        a.block_device.dev_path.eq(&b.block_device.dev_path)
-    });
+    replacing.dedup_by(|a, b| a.block_device.dev_path.eq(&b.block_device.dev_path));
     //filter Fail disks in seperate vec and soft-error those at the end before checking the errored_states
     let failed: Vec<_> = usable_states
         .iter()
@@ -462,7 +461,7 @@ fn check_for_failed_disks(
             message_queue.push_back(mess2);
         }
     });
-    for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
+    /*for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
         match result {
             Ok(state_machine) => {
                 info!(
@@ -604,7 +603,13 @@ fn check_for_failed_disks(
                 )));
             }
         };
-    }
+    }*/
+    failed.iter().for_each(|state_machine| {
+        error!(
+            "Disk {} ended in a Fail state",
+            state_machine.block_device.dev_path.display()
+        )
+    });
     Ok(())
 }
 
