@@ -451,7 +451,16 @@ fn check_for_failed_disks(
             SafeToRemove,
             format!("{}", state_machine.block_device.dev_path.display())
         );
-        let mess: (Operation, Option<String>, Option<u32>) = (op, Some(desc), Some(op_id));
+        let mess: (Operation, Option<String>, Option<u32>) = (op, Some(desc.clone()), Some(op_id));
+        let mut op2 = helpers::make_op!(
+            Remove,
+            format!("{}", state_machine.block_device.dev_path.display())
+        );
+        let mess2: (Operation, Option<String>, Option<u32>) = (op2, Some(desc), Some(op_id));
+        if !message_queue.contains(&mess) && !message_queue.contains(&mess2) {
+            message_queue.push_back(mess);
+            message_queue.push_back(mess2);
+        }
     });
     for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
         match result {
