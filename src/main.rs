@@ -809,13 +809,24 @@ fn send_and_update(
 }
 
 // handle the return value from an add_disk request
-fn handle_add_disk_res(pool: &Pool<ConnectionManager>, outcome: OpOutcome, ticket_id: String) {
-    match outcome {
+fn handle_add_disk_res(
+    pool: &Pool<ConnectionManager>,
+    outcome: &OpOutcomeResult,
+    ticket_id: String,
+) {
+    match outcome.get_outcome() {
         OpOutcome::Success => debug!("Disk added successfully. Updating database record"),
         // Disk was either boot or something that shouldn't be added via backend
         OpOutcome::Skipped => debug!("Disk Skipped.  Updating database record"),
         // Disk is already in the cluster
-        OpOutcome::SkipRepeat => debug!("Disk already added.  Skipping.  Updating database record"),
+        OpOutcome::SkipRepeat => {
+            if !outcome.has_value() {
+                debug!("Disk already added.  Skipping.  Updating database record")
+            } else {
+                debug!("Disk already undergoing an operation.  Skipping.  Do not update database record");
+                return;
+            }
+        }
     }
     match in_progress::resolve_ticket_in_db(pool, &ticket_id) {
         Ok(_) => debug!("Database updated"),
@@ -859,7 +870,7 @@ fn handle_operation_result(
             let path = Path::new(op_res.get_disk());
             if let Some(disk_op) = get_map_op(message_map, &path.to_path_buf())? {
                 if let Some(ticket_id) = disk_op.description {
-                    handle_add_disk_res(pool, op_res.get_outcome(), ticket_id);
+                    handle_add_disk_res(pool, &op_res, ticket_id);
                     //update result in the map (in otherwords, just set it to None)
                     remove_map_op(message_map, &path.to_path_buf())?;
                 }
@@ -906,11 +917,25 @@ fn handle_operation_result(
                     );
                 }
                 OpOutcome::SkipRepeat => {
-                    debug!("Disk {} already removed, skipping.", dev_path.display());
-                    let _ = notify_slack(
-                        config,
-                        &format!("Disk {} already removed, skipping.", dev_path.display()),
-                    );
+                    if op_res.has_value() {
+                        debug!(
+                            "Disk {} currently undergoing another operation, skipping",
+                            dev_path.display()
+                        );
+                        let _ = notify_slack(
+                            config,
+                            &format!(
+                                "Disk {} currently undergoing another operation, skipping",
+                                dev_path.display()
+                            ),
+                        );
+                    } else {
+                        debug!("Disk {} already removed, skipping.", dev_path.display());
+                        let _ = notify_slack(
+                            config,
+                            &format!("Disk {} already removed, skipping.", dev_path.display()),
+                        );
+                    }
                 }
             }
             //update map

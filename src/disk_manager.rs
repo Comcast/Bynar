@@ -355,6 +355,7 @@ fn listen(
                             op_res.set_outcome(OpOutcome::SkipRepeat);
                             op_res.set_op_type(operation.get_Op_type());
                             op_res.set_result(ResultType::OK);
+                            op_res.set_value(false);
                             send_res.send((client_id, op_res));
                             continue;
                         }

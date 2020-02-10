@@ -28,7 +28,7 @@ fn add_disk(
     id: Option<u64>,
     client_id: Vec<u8>,
     simulate: bool,
-) -> BynarResult<OpOutcome> {
+) -> BynarResult<OpOutcomeResult> {
     let mut sent = false;
     //loop until socket is readable, then get the response
     loop {
@@ -43,7 +43,7 @@ fn add_disk(
             let message = helpers::get_messages(s)?;
             if !message.is_empty() {
                 let op_result = get_message!(OpOutcomeResult, &message)?;
-                get_op_result!(op_result, add_disk);
+                return Ok(op_result);
             }
         }
     }
@@ -81,7 +81,7 @@ fn remove_disk(
     id: Option<u64>,
     client_id: Vec<u8>,
     simulate: bool,
-) -> BynarResult<OpOutcome> {
+) -> BynarResult<OpOutcomeResult> {
     let mut sent = false;
 
     //loop until socket is readable, then get the response
@@ -97,7 +97,7 @@ fn remove_disk(
             let message = helpers::get_messages(s)?;
             if !message.is_empty() {
                 let op_result = get_message!(OpOutcomeResult, &message)?;
-                get_op_result!(op_result, remove_disk);
+                return Ok(op_result);
             }
         }
     }
@@ -115,10 +115,16 @@ fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>, client_id: Vec<u8>) {
         None => false,
     };
     match add_disk(s, &p, id, client_id, simulate) {
-        Ok(outcome) => match outcome {
+        Ok(outcome) => match outcome.get_outcome() {
             OpOutcome::Success => println!("Adding disk successful"),
             OpOutcome::Skipped => println!("Disk cannot be added, Skipping"),
-            OpOutcome::SkipRepeat => println!("Disk already added, Skipping"),
+            OpOutcome::SkipRepeat => {
+                if outcome.has_value() {
+                    println!("Disk has an operation ongoing, Skipping")
+                } else {
+                    println!("Disk already added, Skipping")
+                }
+            }
         },
         Err(e) => {
             println!("Adding disk failed: {}", e);
@@ -197,10 +203,16 @@ fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>, client_id: Vec<u8>) 
         None => false,
     };
     match remove_disk(s, &p, id, client_id, simulate) {
-        Ok(outcome) => match outcome {
+        Ok(outcome) => match outcome.get_outcome() {
             OpOutcome::Success => println!("Removing disk successful"),
             OpOutcome::Skipped => println!("Disk cannot be removed.  Skipping"),
-            OpOutcome::SkipRepeat => println!("Disk already removed.  Skipping"),
+            OpOutcome::SkipRepeat => {
+                if outcome.has_value() {
+                    println!("Disk has an operation ongoing, Skipping")
+                } else {
+                    println!("Disk already removed, Skipping")
+                }
+            }
         },
         Err(e) => {
             println!("Removing disk failed: {}", e);
