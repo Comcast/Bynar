@@ -1179,7 +1179,7 @@ fn main() {
             }
         }
     }
-    
+
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
         signal_hook::SIGTERM,
@@ -1253,9 +1253,11 @@ fn main() {
         }
     };
     let public_key = get_public_key(&config, &host_info).unwrap();
-    let s = match helpers::connect(&config.manager_host,
+    let s = match helpers::connect(
+        &config.manager_host,
         &config.manager_port.to_string(),
-        &public_key,) {
+        &public_key,
+    ) {
         Ok(s) => s,
         Err(e) => {
             error!("Error connecting to socket: {:?}", e);
@@ -1372,7 +1374,8 @@ fn main() {
                 &db_pool,
                 &config,
                 client_id.clone(),
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
     debug!("Bynar exited successfully");

@@ -1,9 +1,10 @@
 use serde_derive::*;
 
+use std::collections::HashMap;
 use std::fs;
 use std::fs::{create_dir, read_to_string, File};
 use std::io::{Error, ErrorKind, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
 use std::str::FromStr;
@@ -38,6 +39,50 @@ use signal_hook::*;
 use simplelog::{CombinedLogger, Config, SharedLogger, TermLogger, WriteLogger};
 use slack_hook::{PayloadBuilder, Slack};
 use zmq::Socket;
+
+// Create the request map for the disk-manager
+fn create_req_map() -> BynarResult<HashMap<PathBuf, Option<Op>>> {
+    // List out currently mounted block_devices
+    let mut devices: Vec<PathBuf> = block_utils::get_block_devices()?
+        .into_iter()
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("sr")
+            } else {
+                true
+            })
+        })
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("loop")
+            } else {
+                true
+            })
+        })
+        .collect();
+    let mut partitions = block_utils::get_block_partitions()?;
+    devices.append(&mut partitions);
+    // add all devices to the HashMap (initialize the Hashmap)
+    let mut req_map: HashMap<PathBuf, Option<Op>> = HashMap::new();
+    devices.iter().for_each(|device| {
+        req_map.insert(device.to_path_buf(), None);
+    });
+    Ok(req_map)
+}
+
+// check if a disk already has a request.  Return true if an op is already running (false otherwise or if
+// op is List or GetCreatedTickets)
+fn is_op_running(req_map: &mut HashMap<PathBuf, Option<Op>>, op: Operation) -> bool {
+    // if op_type is List or GetCreatedTickets, return false
+    match op.get_Op_type() {
+        Op::List | Op::GetCreatedTickets => false,
+        _ => {
+            let disk = op.get_disk();
+            let path = PathBuf::from(disk);
+            req_map.get(&path).is_some()
+        }
+    }
+}
 
 // send a notification to slack channel (if config has webhook)
 fn notify_slack(config: &DiskManagerConfig, msg: &str) -> BynarResult<()> {
@@ -207,6 +252,9 @@ fn listen(
     let (send_disk, recv_disk) = crossbeam_channel::unbounded::<(Vec<u8>, Disks)>();
     let (send_ticket, recv_ticket) =
         crossbeam_channel::unbounded::<(Vec<u8>, OpJiraTicketsResult)>();
+
+    debug!("Create request map");
+    let mut req_map = create_req_map()?;
     pool.scope(|s| 'outer: loop {
         if let Ok(responder) = responder.try_lock() {
             let now = Instant::now();
