@@ -44,7 +44,6 @@ pub fn connect(host: &str, port: &str, server_publickey: &[u8]) -> BynarResult<S
     assert!(requester
         .connect(&format!("tcp://{}:{}", host, port))
         .is_ok());
-    debug!("Client ID before setting {:?}", requester.get_identity());
     /*debug!(
         "Client ID {:?}",
         requester.set_identity(&vec![0, 107, 139, 69, 103])

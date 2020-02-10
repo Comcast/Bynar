@@ -70,18 +70,65 @@ fn create_req_map() -> BynarResult<HashMap<PathBuf, Option<Op>>> {
     Ok(req_map)
 }
 
+#[macro_export]
+/// Get the disk path of an Operation/OpOutcomeResult (any protobuf message with a get_disk() where disk is the diskpath) as a PathBuf
+macro_rules! get_op_pathbuf {
+    ($op:expr) => {{
+        let disk = $op.get_disk();
+        PathBuf::from(disk)
+    }};
+}
+
 // check if a disk already has a request.  Return true if an op is already running (false otherwise or if
 // op is List or GetCreatedTickets)
-fn is_op_running(req_map: &mut HashMap<PathBuf, Option<Op>>, op: Operation) -> bool {
+fn is_op_running(req_map: &mut HashMap<PathBuf, Option<Op>>, op: &Operation) -> bool {
     // if op_type is List or GetCreatedTickets, return false
     match op.get_Op_type() {
         Op::List | Op::GetCreatedTickets => false,
+        _ => req_map.get(&get_op_pathbuf!(op)).is_some(),
+    }
+}
+
+macro_rules! op_running {
+    ($req_map:expr,$op:expr) => {{
+        match $op.get_Op_type() {
+            Op::List | Op::GetCreatedTickets => false,
+            _ => {
+                if let Some(o) = $req_map.get(&get_op_pathbuf!($op)) {
+                    o.is_some()
+                } else {
+                    false
+                }
+            }
+        }
+    }};
+    ($req_map:expr,$op:expr,$is_result:expr) => {{
+        match $op.get_op_type() {
+            Op::List | Op::GetCreatedTickets => $is_result, //handle List or GetCreatedTickets...
+            _ => {
+                if let Some(o) = $req_map.get(&get_op_pathbuf!($op)) {
+                    o.is_some()
+                } else {
+                    false
+                }
+            }
+        }
+    }};
+}
+
+// Note: if the operation is List or GetCreatedTickets, skip adding it to the map
+// REQUIRES: assert!(!is_op_running(req_map, op))
+// ENSURES: assert!(is_op_running(req_map, op)) (if op_type != List || GetCreatedTickets)
+fn op_insert(req_map: &mut HashMap<PathBuf, Option<Op>>, op: &Operation) {
+    assert!(!op_running!(req_map, op));
+    // if op_type is List or GetCreatedTickets, skip
+    match op.get_Op_type() {
+        Op::List | Op::GetCreatedTickets => return,
         _ => {
-            let disk = op.get_disk();
-            let path = PathBuf::from(disk);
-            req_map.get(&path).is_some()
+            req_map.insert(get_op_pathbuf!(op), Some(op.get_Op_type())); //no getting around the clone here unfortunately...
         }
     }
+    assert!(op_running!(req_map, op));
 }
 
 // send a notification to slack channel (if config has webhook)
@@ -299,6 +346,19 @@ fn listen(
                         if op_no_disk(&responder, &operation) {
                             continue;
                         }
+                        // check if op is currently running.  If so, skip it
+                        if op_running!(&mut req_map, &operation) {
+                            trace!("Operation {:?} cannot be run, disk is already running an operation", operation);
+                            //build OpOutcomeResult with SkipRepeat, send to output?
+                            let mut op_res = OpOutcomeResult::new();
+                            op_res.set_disk(operation.get_disk().to_string());
+                            op_res.set_outcome(OpOutcome::SkipRepeat);
+                            op_res.set_op_type(operation.get_Op_type());
+                            op_res.set_result(ResultType::OK);
+                            send_res.send((client_id, op_res));
+                            continue;
+                        }
+                        op_insert(&mut req_map, &operation);
                         match operation.get_Op_type() {
                             Op::Add => {
                                 let id = if operation.has_osd_id() {
@@ -457,6 +517,12 @@ fn listen(
                                 // no disks in the queue, check if any add/remove/safe-to-remove req results
                                 if let Ok((client_id, result)) = recv_res.try_recv() {
                                     // send result back to client
+                                    //check if result is SkipRepeat, if so, skipp the assert! and insert
+                                    debug!("Send {:?}", result);
+                                    if  OpOutcome::SkipRepeat != result.get_outcome() {
+                                        assert!(op_running!(req_map, &result, true));
+                                        req_map.insert(get_op_pathbuf!(&result), None); // set entry in req_map to None
+                                    }
                                     let _ = responder.send(&client_id, zmq::SNDMORE);
                                     let _ = respond_to_client(&result, &responder);
                                 }
