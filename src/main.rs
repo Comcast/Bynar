@@ -995,6 +995,8 @@ fn send_and_recieve(
     s: &Socket,
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
+    pool: &Pool<ConnectionManager>,
+    config: &ConfigSettings,
     client_id: Vec<u8>,
 ) -> BynarResult<()> {
     // Note, all client sent messages are Operation, while return values of type OpOutcomeResult
@@ -1051,12 +1053,14 @@ fn send_and_recieve(
             match helpers::get_first_op_result(&mut message) {
                 Some(outcome) => {
                     //message.drain(0..outcome.write_to_bytes()?.len());
+                    handle_operation_result(message_map, pool, outcome, config)?;
                 }
                 None => {
-                    // must be tickets, since list_disks is never requested by bynar main program
-                    //let tickets = get_first_instance!(&mut message, OpJiraTicketsResult)?;
-                    //message.drain(0..tickets.write_to_bytes()?.len());
                     //Actually, this is a problem since Bynar only sends Add/SafeToRemove/Remove requests
+                    error!("Message is not an OpOutcomeResult");
+                    return Err(BynarError::from(format!(
+                        "Message received is not an OpOutcomeResult"
+                    )));
                 }
             }
         }
@@ -1175,6 +1179,7 @@ fn main() {
             }
         }
     }
+    
     let signals = Signals::new(&[
         signal_hook::SIGHUP,
         signal_hook::SIGTERM,
@@ -1247,7 +1252,18 @@ fn main() {
             d
         }
     };
-
+    let public_key = get_public_key(&config, &host_info).unwrap();
+    let s = match helpers::connect(&config.manager_host,
+        &config.manager_port.to_string(),
+        &public_key,) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Error connecting to socket: {:?}", e);
+            return;
+        }
+    };
+    let client_id: Vec<u8> = s.get_identity().unwrap();
+    debug!("Client ID {:?}, len {}", client_id, client_id.len());
     let dur = Duration::from_secs(time);
     let mut message_queue: VecDeque<(Operation, Option<String>, Option<u32>)> = VecDeque::new();
     let mut message_map = create_msg_map().unwrap();
@@ -1300,8 +1316,8 @@ fn main() {
                 info!("Add repaired disks completed");
             }
         };
-        if daemon {
-            while now.elapsed() < dur {
+        while now.elapsed() < dur {
+            if daemon {
                 for signal in signals.pending() {
                     match signal as c_int {
                         signal_hook::SIGHUP => {
@@ -1346,9 +1362,17 @@ fn main() {
                         _ => unreachable!(),
                     }
                 }
+            } else {
+                break 'outer;
             }
-        } else {
-            break 'outer;
+            send_and_recieve(
+                &s,
+                &mut message_map,
+                &mut message_queue,
+                &db_pool,
+                &config,
+                client_id.clone(),
+            ).unwrap();
         }
     }
     debug!("Bynar exited successfully");
