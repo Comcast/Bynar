@@ -944,7 +944,8 @@ fn handle_operation_result(
                     }
                     Op::SafeToRemove => {
                         error!("SafeToRemove disk failed : {}", msg);
-                        return Err(BynarError::from(msg));
+                        // no need to error out, but update the map.  Error outcomes are expected for SafeToRemove.  
+                        // Ex. you removed a disk first before the partition.
                     }
                     _ => {}
                 }
@@ -1142,7 +1143,7 @@ fn send_and_recieve(
                         // this technically shouldn't happen though, so print an error!
                         error!(
                             "Previous request {:?} has finished, but hasn't been reset",
-                            disk_op.op_type
+                            disk_op
                         );
                         send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
                         trace!("Updated map {:?}", message_map);
