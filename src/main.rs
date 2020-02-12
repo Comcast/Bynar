@@ -149,29 +149,68 @@ fn add_or_update_map_op(
             message_map.insert(parent.to_path_buf(), disk_map);
         }
     } else {
-        //not partition
-        //parent is in the map
-        if let Some(disk) = message_map.get_mut(dev_path) {
-            if let Some(partition) = disk.clone().get(dev_path) {
-                // partition in map
+        //not partition or partition destroyed
+        if dev_path.exists() {
+            //parent is in the map
+            if let Some(disk) = message_map.get_mut(dev_path) {
+                if let Some(partition) = disk.clone().get(dev_path) {
+                    // partition in map
+                    disk.insert(dev_path.to_path_buf(), Some(op));
+                    return Ok(partition.clone());
+                }
                 disk.insert(dev_path.to_path_buf(), Some(op));
-                return Ok(partition.clone());
-            }
-            disk.insert(dev_path.to_path_buf(), Some(op));
-        } else {
-            //add to map
-            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-            disk_map.insert(dev_path.to_path_buf(), Some(op));
-            let partitions = block_utils::get_block_partitions()?;
-            // check if partition parent is device
-            for partition in &partitions {
-                if let Some(disk) = block_utils::get_parent_devpath_from_path(&partition)? {
-                    if &disk == dev_path {
-                        disk_map.insert(partition.to_path_buf(), None);
+            } else {
+                //add to map
+                let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+                disk_map.insert(dev_path.to_path_buf(), Some(op));
+                let partitions = block_utils::get_block_partitions()?;
+                // check if partition parent is device
+                for partition in &partitions {
+                    if let Some(disk) = block_utils::get_parent_devpath_from_path(&partition)? {
+                        if &disk == dev_path {
+                            disk_map.insert(partition.to_path_buf(), None);
+                        }
                     }
                 }
+                message_map.insert(dev_path.to_path_buf(), disk_map);
             }
-            message_map.insert(dev_path.to_path_buf(), disk_map);
+        } else {
+            // partition was destroyed...probably
+            // make parent path
+            let path = dev_path.to_string_lossy();
+            let path = &path[0..path.len() - 1];
+            let path = PathBuf::from(path.to_string());
+            if path.exists() {
+                //then make new entry to insert...
+                if let Some(disk) = message_map.get_mut(&path) {
+                    // we know the partition isn't in the map already...
+                    disk.insert(dev_path.to_path_buf(), Some(op));
+                } else {
+                    //add to map
+                    let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+                    disk_map.insert(path.to_path_buf(), Some(op));
+                    let partitions = block_utils::get_block_partitions()?;
+                    // check if partition parent is device
+                    for partition in &partitions {
+                        if let Some(disk) = block_utils::get_parent_devpath_from_path(&partition)? {
+                            if disk == path {
+                                disk_map.insert(partition.to_path_buf(), None);
+                            }
+                        }
+                    }
+                    message_map.insert(path.to_path_buf(), disk_map);
+                }
+            } else {
+                // path just doesn't exist, so error...
+                error!(
+                    "Path {} does not exist, nor does its parent.",
+                    dev_path.display()
+                );
+                return Err(BynarError::from(format!(
+                    "Path {} does not exist, nor does its parent.",
+                    dev_path.display()
+                )));
+            }
         }
     }
     Ok(None)
@@ -191,12 +230,26 @@ fn get_map_op(
             }
         }
     } else {
-        //not partition
-        //parent is in the map
-        if let Some(disk) = message_map.get(dev_path) {
-            if let Some(partition) = disk.get(dev_path) {
-                // partition in map
-                return Ok(partition.clone());
+        if dev_path.exists() {
+            //not partition
+            //parent is in the map
+            if let Some(disk) = message_map.get(dev_path) {
+                if let Some(partition) = disk.get(dev_path) {
+                    // partition in map
+                    return Ok(partition.clone());
+                }
+            }
+        } else {
+            // partition was destroyed...probably
+            // make parent path
+            let path = dev_path.to_string_lossy();
+            let path = &path[0..path.len() - 1];
+            let path = PathBuf::from(path.to_string());
+            if let Some(disk) = message_map.get(&path) {
+                if let Some(partition) = disk.get(dev_path) {
+                    // partition in map
+                    return Ok(partition.clone());
+                }
             }
         }
     }
@@ -220,13 +273,28 @@ fn remove_map_op(
             }
         }
     } else {
-        //not partition
-        //parent is in the map
-        if let Some(disk) = message_map.get_mut(dev_path) {
-            if let Some(partition) = disk.clone().get(dev_path) {
-                // partition in map
-                disk.insert(dev_path.to_path_buf(), None);
-                return Ok(partition.clone());
+        if dev_path.exists() {
+            //not partition
+            //parent is in the map
+            if let Some(disk) = message_map.get_mut(dev_path) {
+                if let Some(partition) = disk.clone().get(dev_path) {
+                    // partition in map
+                    disk.insert(dev_path.to_path_buf(), None);
+                    return Ok(partition.clone());
+                }
+            }
+        } else {
+            // partition was destroyed...probably
+            // make parent path
+            let path = dev_path.to_string_lossy();
+            let path = &path[0..path.len() - 1];
+            let path = PathBuf::from(path.to_string());
+            if let Some(disk) = message_map.get_mut(&path) {
+                if let Some(partition) = disk.clone().get(dev_path) {
+                    // partition in map
+                    disk.insert(dev_path.to_path_buf(), None);
+                    return Ok(partition.clone());
+                }
             }
         }
     }
@@ -238,7 +306,7 @@ fn remove_map_op(
 
 // get the hashmap associated with a diskpath from the op map
 fn get_disk_map_op(
-    message_map: &HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     dev_path: &PathBuf,
 ) -> BynarResult<HashMap<PathBuf, Option<DiskOp>>> {
     if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
@@ -247,10 +315,20 @@ fn get_disk_map_op(
             return Ok(disk.clone());
         }
     } else {
-        //not partition
         //parent is in the map
-        if let Some(disk) = message_map.get(dev_path) {
-            return Ok(disk.clone());
+        if dev_path.exists() {
+            if let Some(disk) = message_map.get(dev_path) {
+                return Ok(disk.clone());
+            }
+        } else {
+            // partition was destroyed...probably
+            // make parent path
+            let path = dev_path.to_string_lossy();
+            let path = &path[0..path.len() - 1];
+            let path = PathBuf::from(path.to_string());
+            if let Some(disk) = message_map.get(&path) {
+                return Ok(disk.clone());
+            }
         }
     }
     Err(BynarError::from(format!(
@@ -404,6 +482,15 @@ fn check_for_failed_disks(
     // add the partition state machines? to the replacing list
     let mut add_replacing = Vec::new();
     for state_machine in &replacing {
+        if !state_machine.block_device.dev_path.exists() {
+            //partition was deleted
+            //add partition to the map
+            add_or_update_map_op(
+                message_map,
+                &state_machine.block_device.dev_path,
+                DiskOp::new(Operation::new(), None, None),
+            )?;
+        }
         let disks = get_disk_map_op(message_map, &state_machine.block_device.dev_path)?;
         // uh, get list of keys in disks and filter usable list for keypath?
         let mut add: Vec<_> = usable_states
@@ -873,6 +960,7 @@ fn handle_operation_result(
                     handle_add_disk_res(pool, &op_res, ticket_id);
                     //update result in the map (in otherwords, just set it to None)
                     remove_map_op(message_map, &path.to_path_buf())?;
+                    return Ok(());
                 }
             }
             error!(
@@ -891,6 +979,7 @@ fn handle_operation_result(
                 current_op.ret_val = Some(op_res);
                 //push op back into map
                 add_or_update_map_op(message_map, &dev_path, current_op)?;
+                return Ok(());
             }
             //otherwise error....
             return Err(BynarError::from(format!(
@@ -997,6 +1086,7 @@ fn handle_operation_result(
                         OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                     operation_detail.set_tracking_id(ticket_id);
                     add_or_update_operation_detail(pool, &mut operation_detail)?;
+                    return Ok(());
                 }
                 return Err(BynarError::from(format!(
                     "Disk {} is missing the current operation",
@@ -1043,6 +1133,7 @@ fn send_and_recieve(
                         if val.get_outcome() == OpOutcome::Success && val.get_value() {
                             //then ok to run Op::Remove
                             send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
+                            trace!("Updated map {:?}", message_map);
                         }
                     // safe-to-remove returned false or error'd so we should not remove but let manual handling
                     // delete the remove request in this case (in otherwords, do nothing)
@@ -1054,6 +1145,7 @@ fn send_and_recieve(
                             disk_op.op_type
                         );
                         send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
+                        trace!("Updated map {:?}", message_map);
                     }
                 } else {
                     // we haven't gotten response from previous request yet, push request to back of queue
@@ -1064,6 +1156,7 @@ fn send_and_recieve(
                 // have a safe-to-remove run before (it's always safe-to-remove then remove)
                 // however since the remove operation will run safe-to-remove anyways, it's fine to just run
                 send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
+                trace!("Updated map {:?}", message_map);
             }
         }
     }
@@ -1078,6 +1171,7 @@ fn send_and_recieve(
             match helpers::get_first_op_result(&mut message) {
                 Some(outcome) => {
                     //message.drain(0..outcome.write_to_bytes()?.len());
+                    trace!("Sent map {:?}", message_map);
                     handle_operation_result(message_map, pool, outcome, config)?;
                 }
                 None => {
@@ -1343,6 +1437,8 @@ fn main() {
                 info!("Add repaired disks completed");
             }
         };
+        debug!("Current Request Map {:?}", message_map);
+        debug!("Current Message Queue {:?}", message_queue);
         while now.elapsed() < dur {
             if daemon {
                 for signal in signals.pending() {
@@ -1402,6 +1498,8 @@ fn main() {
             )
             .unwrap();
         }
+        debug!("Request Map after looping {:?}", message_map);
+        debug!("Message Queue after looping {:?}", message_queue);
     }
     debug!("Bynar exited successfully");
     notify_slack(
