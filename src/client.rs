@@ -43,7 +43,20 @@ fn add_disk(
             let message = helpers::get_messages(s)?;
             if !message.is_empty() {
                 let op_result = get_message!(OpOutcomeResult, &message)?;
-                return Ok(op_result);
+                match op_result.get_result() {
+                    ResultType::OK => {
+                        return Ok(op_result);
+                    }
+                    ResultType::ERR => {
+                        if op_result.has_error_msg() {
+                            let msg = op_result.get_error_msg();
+                            return Err(BynarError::from(op_result.get_error_msg()));
+                        } else {
+                            error!("error_msg not set");
+                            return Err(BynarError::from("error_msg not set"));
+                        }
+                    }
+                }
             }
         }
     }
@@ -97,7 +110,20 @@ fn remove_disk(
             let message = helpers::get_messages(s)?;
             if !message.is_empty() {
                 let op_result = get_message!(OpOutcomeResult, &message)?;
-                return Ok(op_result);
+                match op_result.get_result() {
+                    ResultType::OK => {
+                        return Ok(op_result);
+                    }
+                    ResultType::ERR => {
+                        if op_result.has_error_msg() {
+                            let msg = op_result.get_error_msg();
+                            return Err(BynarError::from(op_result.get_error_msg()));
+                        } else {
+                            error!("error_msg not set");
+                            return Err(BynarError::from("error_msg not set"));
+                        }
+                    }
+                }
             }
         }
     }
