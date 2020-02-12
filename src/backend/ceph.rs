@@ -874,10 +874,18 @@ impl CephBackend {
         let mut part1: String = dev_path.to_string_lossy().to_string();
         part1.push_str("1");
         let part1 = Path::new(&part1);
-        block_utils::unmount_device(&part1)?;
+        let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
+        // check if the device path exists (partition may have been deleted)
+        if part1.exists() {
+            // check if the osd_dir is mounted (might not be if partitions have been deleted)
+            if block_utils::is_mounted(&osd_dir)? {
+                // unmount the partition
+                debug!("Unmount {}", part1.display());
+                block_utils::unmount_device(&part1)?;
+            }
+        }
 
         // remove the osd directory
-        let osd_dir = Path::new("/var/lib/ceph/osd/").join(&format!("ceph-{}", osd_id));
         if osd_dir.exists() {
             debug!("Cleaning up /var/lib/ceph/osd/ceph-{}", osd_id);
             match remove_dir_all(osd_dir) {
