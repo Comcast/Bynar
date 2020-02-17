@@ -75,9 +75,12 @@ impl DiskOp {
 }
 
 // create a message map to handle list of disk-manager requests
-fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>> {
+fn create_msg_map(
+    pool: &Pool<ConnectionManager>,
+    host_mapping: &HostDetailsMapping,
+) -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>> {
     // List out currently mounted block_devices
-    let devices: Vec<PathBuf> = block_utils::get_block_devices()?
+    let mut devices: Vec<PathBuf> = block_utils::get_block_devices()?
         .into_iter()
         .filter(|b| {
             !(if let Some(p) = b.as_path().file_name() {
@@ -94,8 +97,29 @@ fn create_msg_map() -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<Disk
             })
         })
         .collect();
+    let db_devices: Vec<PathBuf> =
+        in_progress::get_devices_from_db(pool, host_mapping.storage_detail_id)?
+            .into_iter()
+            .map(|(id, name, path)| path)
+            .collect();
     let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-    let partitions = block_utils::get_block_partitions()?;
+
+    let partitions: Vec<PathBuf> = db_devices
+        .clone()
+        .into_iter()
+        .filter(|p| match block_utils::is_disk(p) {
+            Err(_) => p.to_string_lossy().chars().last().unwrap().is_digit(10),
+            Ok(b) => b,
+        })
+        .collect();
+    let mut disks: Vec<PathBuf> = db_devices
+        .into_iter()
+        .filter(|p| match block_utils::is_disk(p) {
+            Err(_) => !p.to_string_lossy().chars().last().unwrap().is_digit(10),
+            Ok(b) => b,
+        })
+        .collect();
+    devices.append(&mut disks);
     // for each block device add its partitions to the HashMap
     // add them to HashMap
     devices.iter().for_each(|device| {
@@ -183,12 +207,17 @@ fn add_or_update_map_op(
             if path.exists() {
                 //then make new entry to insert...
                 if let Some(disk) = message_map.get_mut(&path) {
-                    // we know the partition isn't in the map already...
-                    disk.insert(dev_path.to_path_buf(), Some(op));
+                    // check if the partition is in the map
+                    if let Some(partition) = disk.clone().get(dev_path) {
+                        // partition in map
+                        disk.insert(dev_path.to_path_buf(), Some(op));
+                        return Ok(partition.clone());
+                    }
+                    disk.insert(dev_path.to_path_buf(), None);
                 } else {
                     //add to map
                     let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-                    disk_map.insert(path.to_path_buf(), Some(op));
+                    disk_map.insert(path.to_path_buf(), None);
                     let partitions = block_utils::get_block_partitions()?;
                     // check if partition parent is device
                     for partition in &partitions {
@@ -495,7 +524,31 @@ fn check_for_failed_disks(
         // uh, get list of keys in disks and filter usable list for keypath?
         let mut add: Vec<_> = usable_states
             .iter()
-            .filter(|state_machine| disks.contains_key(&state_machine.block_device.dev_path))
+            .filter(|state_machine| {
+                if disks.contains_key(&state_machine.block_device.dev_path) {
+                    //check hashmap of the device path == None, or OpType != SafeToRemove || Remove
+                    match get_map_op(&message_map, &state_machine.block_device.dev_path).unwrap() {
+                        Some(op) => {
+                            // check if in_progress
+                            info!("Connecting to database to check if disk is in progress");
+                            let in_progress = in_progress::is_hardware_waiting_repair(
+                                pool,
+                                host_mapping.storage_detail_id,
+                                &state_machine.block_device.dev_path.to_string_lossy(),
+                                None,
+                            )
+                            .unwrap();
+                            //check if op_type == SafeToRemove || Remove
+                            !(op.op_type == Op::SafeToRemove
+                                || op.op_type == Op::Remove
+                                || in_progress)
+                        }
+                        None => true,
+                    }
+                } else {
+                    false
+                }
+            })
             .collect();
         add_replacing.append(&mut add);
     }
@@ -515,7 +568,7 @@ fn check_for_failed_disks(
         .collect();
 
     replacing.iter().for_each(|state_machine| {
-        //add safeToRemove + Remove request to message_queue, checking if its already in first
+        // add safeToRemove + Remove request to message_queue, checking if its already in first
         // create Operation, description, and get the op_id
         let mut desc = description.clone();
         add_disk_to_description(
@@ -924,6 +977,7 @@ fn handle_add_disk_res(
 //handle return of Operation
 fn handle_operation_result(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    host_info: &Host,
     pool: &Pool<ConnectionManager>,
     op_res: OpOutcomeResult,
     config: &ConfigSettings,
@@ -940,11 +994,14 @@ fn handle_operation_result(
                     }
                     Op::Remove => {
                         error!("Remove disk failed : {}", msg);
-                        return Err(BynarError::from(msg));
+                        // return Err(BynarError::from(msg));
+                        // no need to error out, but update the map.  Error outcomes are also expected for Remove,
+                        // since remove might be run on the disk and the partition...or the input path is not in the
+                        // config file
                     }
                     Op::SafeToRemove => {
                         error!("SafeToRemove disk failed : {}", msg);
-                        // no need to error out, but update the map.  Error outcomes are expected for SafeToRemove.  
+                        // no need to error out, but update the map.  Error outcomes are expected for SafeToRemove.
                         // Ex. you removed a disk first before the partition.
                     }
                     _ => {}
@@ -982,10 +1039,84 @@ fn handle_operation_result(
                 add_or_update_map_op(message_map, &dev_path, current_op)?;
                 return Ok(());
             }
+            // check if allll the other paths in disk are SafeToRemove (and not Success)
+            // check if all ops in the disk have finished
+            let disk = get_disk_map_op(message_map, &dev_path)?;
+            let mut all_finished = true;
+            disk.iter().for_each(|(k, v)| {
+                //check if value finished
+                if let Some(val) = v {
+                    if let Some(ret) = &val.ret_val {
+                        if ret.get_outcome() != OpOutcome::Success
+                            && (ret.get_op_type() == Op::SafeToRemove
+                                || ret.get_op_type() == Op::Remove)
+                        {
+                            all_finished = false;
+                        }
+                    }
+                }
+            });
+            // if so, notify slack
+            if all_finished {
+                debug!("safe to remove: false");
+                let _ = notify_slack(
+                    config,
+                    &format!(
+                        "Need to remove disk {} but it's not safe \
+                         on host: {}. I need a human.  Filing a ticket",
+                        dev_path.display(),
+                        host_info.hostname,
+                    ),
+                );
+                // get the path of the disk
+                let path =
+                    if let Some(parent) = block_utils::get_parent_devpath_from_path(&dev_path)? {
+                        parent
+                    } else {
+                        dev_path
+                    };
+                // get the current op associated with the disk
+                if let Some(current_op) = get_map_op(message_map, &path)? {
+                    let description = match current_op.description {
+                        Some(d) => d,
+                        None => {
+                            return Err(BynarError::from(format!(
+                                "Disk {} on host {} is missing a description",
+                                path.display(),
+                                host_info.hostname
+                            )))
+                        }
+                    };
+                    let op_id = match current_op.operation_id {
+                        None => {
+                            error!("Operation not recorded for {}", path.display());
+                            0
+                        }
+                        Some(i) => i,
+                    };
+                    //open JIRA ticket+ notify slack
+                    debug!("Creating support ticket");
+                    let ticket_id =
+                        create_support_ticket(config, "Bynar: Dead disk", &description)?;
+                    debug!("Recording ticket id {} in database", ticket_id);
+                    // update operation detials in DB
+                    let mut operation_detail =
+                        OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                    operation_detail.set_tracking_id(ticket_id);
+                    add_or_update_operation_detail(pool, &mut operation_detail)?;
+                    return Ok(());
+                }
+                return Err(BynarError::from(format!(
+                    "Disk {} on host {} is missing the current operation",
+                    path.display(),
+                    host_info.hostname
+                )));
+            }
             //otherwise error....
             return Err(BynarError::from(format!(
-                "{} does not have a currently running operation!",
-                dev_path.display()
+                "{} on host {} does not have a currently running operation!",
+                dev_path.display(),
+                host_info.hostname
             )));
         }
         Op::Remove => {
@@ -993,37 +1124,62 @@ fn handle_operation_result(
             let dev_path = PathBuf::from(op_res.get_disk());
             match op_res.get_outcome() {
                 OpOutcome::Success => {
-                    debug!("Disk {} removal successful", dev_path.display());
+                    debug!(
+                        "Disk {} on host {} removal successful",
+                        dev_path.display(),
+                        host_info.hostname
+                    );
                     let _ = notify_slack(
                         config,
-                        &format!("Disk {} removal successful", dev_path.display()),
+                        &format!(
+                            "Disk {} on host {} removal successful",
+                            dev_path.display(),
+                            host_info.hostname
+                        ),
                     );
                 }
                 OpOutcome::Skipped => {
-                    debug!("Disk {} skipped, disk is not removable", dev_path.display());
+                    debug!(
+                        "Disk {} on host {} skipped, disk is not removable",
+                        dev_path.display(),
+                        host_info.hostname
+                    );
                     let _ = notify_slack(
                         config,
-                        &format!("Disk {} skipped, disk is not removable", dev_path.display()),
+                        &format!(
+                            "Disk {} on host {} skipped, disk is not removable",
+                            dev_path.display(),
+                            host_info.hostname
+                        ),
                     );
                 }
                 OpOutcome::SkipRepeat => {
                     if op_res.has_value() {
                         debug!(
-                            "Disk {} currently undergoing another operation, skipping",
-                            dev_path.display()
+                            "Disk {} on host {} currently undergoing another operation, skipping",
+                            dev_path.display(),
+                            host_info.hostname
                         );
                         let _ = notify_slack(
                             config,
                             &format!(
-                                "Disk {} currently undergoing another operation, skipping",
-                                dev_path.display()
+                                "Disk {} on host {} currently undergoing another operation, skipping",
+                                dev_path.display(),  host_info.hostname
                             ),
                         );
                     } else {
-                        debug!("Disk {} already removed, skipping.", dev_path.display());
+                        debug!(
+                            "Disk {} on host {} already removed, skipping.",
+                            dev_path.display(),
+                            host_info.hostname
+                        );
                         let _ = notify_slack(
                             config,
-                            &format!("Disk {} already removed, skipping.", dev_path.display()),
+                            &format!(
+                                "Disk {} on host {} already removed, skipping.",
+                                dev_path.display(),
+                                host_info.hostname
+                            ),
                         );
                     }
                 }
@@ -1035,8 +1191,9 @@ fn handle_operation_result(
                 add_or_update_map_op(message_map, &dev_path, current_op)?;
             } else {
                 return Err(BynarError::from(format!(
-                    "{} does not have a currently running operation!",
-                    dev_path.display()
+                    "{} on host {} does not have a currently running operation!",
+                    dev_path.display(),
+                    host_info.hostname
                 )));
             }
             // check if all ops in the disk have finished
@@ -1052,6 +1209,14 @@ fn handle_operation_result(
             });
             //if all finished open ticket+ notify slack
             if all_finished {
+                let _ = notify_slack(
+                    &config,
+                    &format!(
+                        "Filing a ticket for Host: {}. Drive {} needs removal",
+                        host_info.hostname,
+                        dev_path.display(),
+                    ),
+                );
                 // get the path of the disk
                 let path =
                     if let Some(parent) = block_utils::get_parent_devpath_from_path(&dev_path)? {
@@ -1111,6 +1276,7 @@ fn send_and_recieve(
     s: &Socket,
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
+    host_info: &Host,
     pool: &Pool<ConnectionManager>,
     config: &ConfigSettings,
     client_id: Vec<u8>,
@@ -1143,13 +1309,14 @@ fn send_and_recieve(
                         // this technically shouldn't happen though, so print an error!
                         error!(
                             "Previous request {:?} has finished, but hasn't been reset",
-                            disk_op
+                            disk_op.op_type
                         );
                         send_and_update(s, message_map, client_id, (mess, desc, op_id), &path)?;
                         trace!("Updated map {:?}", message_map);
                     }
                 } else {
                     // we haven't gotten response from previous request yet, push request to back of queue
+                    trace!("Have not gotten response yet, push back request {:?}", mess);
                     message_queue.push_back((mess, desc, op_id));
                 }
             } else {
@@ -1173,7 +1340,7 @@ fn send_and_recieve(
                 Some(outcome) => {
                     //message.drain(0..outcome.write_to_bytes()?.len());
                     trace!("Sent map {:?}", message_map);
-                    handle_operation_result(message_map, pool, outcome, config)?;
+                    handle_operation_result(message_map, host_info, pool, outcome, config)?;
                 }
                 None => {
                     //Actually, this is a problem since Bynar only sends Add/SafeToRemove/Remove requests
@@ -1388,7 +1555,7 @@ fn main() {
     debug!("Client ID {:?}, len {}", client_id, client_id.len());
     let dur = Duration::from_secs(time);
     let mut message_queue: VecDeque<(Operation, Option<String>, Option<u32>)> = VecDeque::new();
-    let mut message_map = create_msg_map().unwrap();
+    let mut message_map = create_msg_map(&db_pool, &host_details_mapping).unwrap();
     'outer: loop {
         let now = Instant::now();
         match check_for_failed_disks(
@@ -1489,18 +1656,24 @@ fn main() {
             } else {
                 break 'outer;
             }
-            send_and_recieve(
+            match send_and_recieve(
                 &s,
                 &mut message_map,
                 &mut message_queue,
+                &host_info,
                 &db_pool,
                 &config,
                 client_id.clone(),
-            )
-            .unwrap();
+            ) {
+                Err(e) => {
+                    error!("Send or Receive messages faile with error: {}", e);
+                    break 'outer;
+                }
+                _ => info!("Send and Recieve successfully ran"),
+            };
+            debug!("Message Queue after looping {:?}", message_queue);
         }
         debug!("Request Map after looping {:?}", message_map);
-        debug!("Message Queue after looping {:?}", message_queue);
     }
     debug!("Bynar exited successfully");
     notify_slack(
