@@ -1096,29 +1096,14 @@ fn handle_operation_result(
                     };
                     //open JIRA ticket+ notify slack
                     debug!("Creating support ticket");
-                    // temporarily disable error out
-                    match create_support_ticket(config, "Bynar: Dead disk", &description) {
-                        Ok(ticket_id) => {
-                            debug!("Recording ticket id {} in database", ticket_id);
-                            // update operation detials in DB
-                            let mut operation_detail =
-                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                            operation_detail.set_tracking_id(ticket_id);
-                            add_or_update_operation_detail(pool, &mut operation_detail)?;
-                        }
-                        Err(e) => {
-                            let _ =
-                                notify_slack(config, &format!("Unable to create ticket {:?}", e));
-                        }
-                    }
-                    /*let ticket_id =
+                    let ticket_id =
                         create_support_ticket(config, "Bynar: Dead disk", &description)?;
                     debug!("Recording ticket id {} in database", ticket_id);
                     // update operation detials in DB
                     let mut operation_detail =
                         OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                     operation_detail.set_tracking_id(ticket_id);
-                    add_or_update_operation_detail(pool, &mut operation_detail)?;*/
+                    add_or_update_operation_detail(pool, &mut operation_detail)?;
                     return Ok(());
                 }
                 return Err(BynarError::from(format!(
@@ -1259,22 +1244,6 @@ fn handle_operation_result(
                     };
                     //open JIRA ticket+ notify slack
                     debug!("Creating support ticket");
-                    match create_support_ticket(config, "Bynar: Dead disk", &description) {
-                        Ok(ticket_id) => {
-                            debug!("Recording ticket id {} in database", ticket_id);
-                            // update operation detials in DB
-                            let mut operation_detail =
-                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                            operation_detail.set_tracking_id(ticket_id);
-                            add_or_update_operation_detail(pool, &mut operation_detail)?;
-                        }
-                        Err(e) => {
-                            let _ =
-                                notify_slack(config, &format!("Unable to create ticket {:?}", e));
-                        }
-                    }
-                    // temporarily disable ticket erroring out
-                    /*
                     let ticket_id =
                         create_support_ticket(config, "Bynar: Dead disk", &description)?;
                     debug!("Recording ticket id {} in database", ticket_id);
@@ -1282,7 +1251,7 @@ fn handle_operation_result(
                     let mut operation_detail =
                         OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                     operation_detail.set_tracking_id(ticket_id);
-                    add_or_update_operation_detail(pool, &mut operation_detail)?;*/
+                    add_or_update_operation_detail(pool, &mut operation_detail)?;
                     return Ok(());
                 }
                 return Err(BynarError::from(format!(
