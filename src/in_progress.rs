@@ -17,7 +17,7 @@ use std::time::Duration;
 #[cfg(test)]
 mod tests {
     use super::super::ConfigSettings;
-    use block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
+    use block_utils::{Device, DeviceType, FilesystemType, MediaType, ScsiInfo};
     use simplelog::{Config, TermLogger};
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
@@ -56,6 +56,7 @@ mod tests {
                 id: Some(drive_uuid),
                 name: dev_name,
                 media_type: MediaType::Rotational,
+                device_type: DeviceType::Disk,
                 capacity: 26214400,
                 fs_type: FilesystemType::Xfs,
                 serial_number: Some("123456".into()),

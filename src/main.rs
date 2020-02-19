@@ -1096,14 +1096,29 @@ fn handle_operation_result(
                     };
                     //open JIRA ticket+ notify slack
                     debug!("Creating support ticket");
-                    let ticket_id =
+                    // temporarily disable error out
+                    match create_support_ticket(config, "Bynar: Dead disk", &description) {
+                        Ok(ticket_id) => {
+                            debug!("Recording ticket id {} in database", ticket_id);
+                            // update operation detials in DB
+                            let mut operation_detail =
+                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                            operation_detail.set_tracking_id(ticket_id);
+                            add_or_update_operation_detail(pool, &mut operation_detail)?;
+                        }
+                        Err(e) => {
+                            let _ =
+                                notify_slack(config, &format!("Unable to create ticket {:?}", e));
+                        }
+                    }
+                    /*let ticket_id =
                         create_support_ticket(config, "Bynar: Dead disk", &description)?;
                     debug!("Recording ticket id {} in database", ticket_id);
                     // update operation detials in DB
                     let mut operation_detail =
                         OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                     operation_detail.set_tracking_id(ticket_id);
-                    add_or_update_operation_detail(pool, &mut operation_detail)?;
+                    add_or_update_operation_detail(pool, &mut operation_detail)?;*/
                     return Ok(());
                 }
                 return Err(BynarError::from(format!(
@@ -1181,7 +1196,7 @@ fn handle_operation_result(
                                 host_info.hostname
                             ),
                         );
-                    }
+                }
                 }
             }
             //update map
@@ -1244,6 +1259,22 @@ fn handle_operation_result(
                     };
                     //open JIRA ticket+ notify slack
                     debug!("Creating support ticket");
+                    match create_support_ticket(config, "Bynar: Dead disk", &description) {
+                        Ok(ticket_id) => {
+                            debug!("Recording ticket id {} in database", ticket_id);
+                            // update operation detials in DB
+                            let mut operation_detail =
+                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                            operation_detail.set_tracking_id(ticket_id);
+                            add_or_update_operation_detail(pool, &mut operation_detail)?;
+                        }
+                        Err(e) => {
+                            let _ =
+                                notify_slack(config, &format!("Unable to create ticket {:?}", e));
+                        }
+                    }
+                    // temporarily disable ticket erroring out
+                    /*
                     let ticket_id =
                         create_support_ticket(config, "Bynar: Dead disk", &description)?;
                     debug!("Recording ticket id {} in database", ticket_id);
@@ -1251,7 +1282,7 @@ fn handle_operation_result(
                     let mut operation_detail =
                         OperationDetail::new(op_id, OperationType::WaitingForReplacement);
                     operation_detail.set_tracking_id(ticket_id);
-                    add_or_update_operation_detail(pool, &mut operation_detail)?;
+                    add_or_update_operation_detail(pool, &mut operation_detail)?;*/
                     return Ok(());
                 }
                 return Err(BynarError::from(format!(
@@ -1681,4 +1712,52 @@ fn main() {
         &format!("Bynar on host  {} has stopped", host_info.hostname),
     )
     .expect("Unable to connect to slack");
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // This tests the filter(s) used to get a list of devices
+    fn test_filter_block_devices() {
+        let dev = block_utils::get_block_devices().unwrap();
+        //print the list of devices
+        println!("Devices before filtering: \n{:#?}", dev);
+        
+        let devices: Vec<PathBuf> = dev.into_iter().filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("sr")
+            } else {
+                true
+            })
+        })
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("loop")
+            } else {
+                true
+            })
+        })
+        .collect();
+
+        println!("Devices after filtering: \n{:#?}", devices);
+        //double check there are no paths that start with sr or loop
+        assert_eq!(None, devices.into_iter().find(|b| {
+            if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("loop") || p.to_string_lossy().starts_with("sr")
+            }else {
+                true
+            }
+        }))
+    }
+
+    #[test]
+    // Note: this isn't testing the actual function, since we can't do that, 
+    // this is testing the expected behavior of parts inside the function assuming certain call result
+    fn test_create_msg_map(){
+        let devices = block_utils.get_block_devices().unwrap();
+    }
 }

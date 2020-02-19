@@ -163,6 +163,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -219,6 +220,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -274,6 +276,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: DiskType::
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -775,8 +778,8 @@ impl Transition for Scan {
             (false, _) => match run_smart_checks(&Path::new(&device.dev_path)) {
                 Ok(stat) => {
                     device.smart_passed = stat;
-                    // If the device is a Disk, then end the state machine here.
-                    if device.device.device_type == DeviceType::Disk {
+                    // If the device is a Disk, and is not mounted then end the state machine here.
+                    if device.device.device_type == DeviceType::Disk && !block_utils::is_mounted(&device.dev_path)? {
                         if stat {
                             debug!("Disk is healthy");
                             return State::Good;
