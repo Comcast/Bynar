@@ -163,7 +163,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
-                device_type: DeviceType::Partition,
+                device_type: super::DeviceType::Disk,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -220,7 +220,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
-                device_type: DeviceType::Partition,
+                device_type: super::DeviceType::Disk,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -276,7 +276,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
-                device_type: DiskType::
+                device_type: super::DeviceType::Disk,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -323,6 +323,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: super::DeviceType::Disk,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -779,7 +780,7 @@ impl Transition for Scan {
                 Ok(stat) => {
                     device.smart_passed = stat;
                     // If the device is a Disk, and is not mounted then end the state machine here.
-                    if device.device.device_type == DeviceType::Disk && !block_utils::is_mounted(&device.dev_path)? {
+                    if device.device.device_type == DeviceType::Disk && !block_utils::is_mounted(&device.dev_path).unwrap() {
                         if stat {
                             debug!("Disk is healthy");
                             return State::Good;

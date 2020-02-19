@@ -1719,6 +1719,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use block_utils::*;
 
     #[test]
     // This tests the filter(s) used to get a list of devices
@@ -1757,7 +1758,48 @@ mod tests {
     #[test]
     // Note: this isn't testing the actual function, since we can't do that, 
     // this is testing the expected behavior of parts inside the function assuming certain call result
-    fn test_create_msg_map(){
-        let devices = block_utils.get_block_devices().unwrap();
+    fn test_create_msg_map_no_partitions(){
+        let devices: Vec<PathBuf> = block_utils::get_block_devices().unwrap().into_iter()
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("sr")
+            } else {
+                true
+            })
+        })
+        .filter(|b| {
+            !(if let Some(p) = b.as_path().file_name() {
+                p.to_string_lossy().starts_with("loop")
+            } else {
+                true
+            })
+        })
+        .collect();
+        println!("List of devices: \n{:#?}", devices);
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = Vec::new();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            disk_map.insert(device.to_path_buf(), None);
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    disk_map.insert(partition.to_path_buf(), None);
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Created Hashmap: \n{:#?}", map);
+
+        // check that for every device in devices, there is a hashmap 
+        // in the map with just the device in it (there should be no partitions)
+        
     }
 }
