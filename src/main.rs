@@ -1714,8 +1714,6 @@ fn main() {
     .expect("Unable to connect to slack");
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1800,6 +1798,173 @@ mod tests {
 
         // check that for every device in devices, there is a hashmap 
         // in the map with just the device in it (there should be no partitions)
-        
+        devices.iter().for_each(|path| {
+            let sub_map = map.get(&path.to_path_buf());
+            assert!(sub_map.is_some());
+            let sub_map = sub_map.unwrap(); //this should be safe
+            assert_eq!(1, sub_map.len());
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+    }
+
+    #[test]
+    // Note: this isn't testing the actual function, since we can't do that, 
+    // this is testing the expected behavior of parts inside the function assuming certain call result
+    fn test_create_msg_map_with_partitions(){
+        // since we want to test specifically the partitions we need an explicit device list 
+        let devices: Vec<PathBuf> = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdb"), PathBuf::from("/dev/sdc"), PathBuf::from("/dev/sdd")].to_vec();
+        println!("List of devices: \n{:#?}", devices);
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2"), PathBuf::from("/dev/sdc1"), PathBuf::from("/dev/sdd1"), PathBuf::from("/dev/sdd2"), PathBuf::from("/dev/sdd3")].to_vec();
+        println!("List of partitions: \n{:#?}", partitions);
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            disk_map.insert(device.to_path_buf(), None);
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    disk_map.insert(partition.to_path_buf(), None);
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Created Hashmap: \n{:#?}", map);
+
+        // check that for every device in devices, there is a hashmap 
+        // in the map with the device and all its partitions
+        let sda_map = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")].to_vec();
+        let sdb_map = [PathBuf::from("/dev/sdb")].to_vec();
+        let sdc_map = [PathBuf::from("/dev/sdc"), PathBuf::from("/dev/sdc1")].to_vec();
+        let sdd_map = [PathBuf::from("/dev/sdd"), PathBuf::from("/dev/sdd1"), PathBuf::from("/dev/sdd2"), PathBuf::from("/dev/sdd3")].to_vec();
+         
+        //test sda
+        let sub_map = map.get(&PathBuf::from("/dev/sda"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(3, sub_map.len());
+        sda_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+
+        //test sdb
+        let sub_map = map.get(&PathBuf::from("/dev/sdb"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(1, sub_map.len());
+        sdb_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+
+        //test sdc
+        let sub_map = map.get(&PathBuf::from("/dev/sdc"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(2, sub_map.len());
+        sdc_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+
+        //test sdd
+        let sub_map = map.get(&PathBuf::from("/dev/sdd"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(4, sub_map.len());
+        sdd_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+    }
+
+
+    #[test]
+    // Note: this isn't testing the actual function, since we can't do that, 
+    // this is testing the expected behavior of parts inside the function assuming certain call result
+    fn test_create_msg_map_with_db(){
+        // since we want to test specifically the partitions we need an explicit device list 
+        let mut devices: Vec<PathBuf> = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdb"), PathBuf::from("/dev/sdd")].to_vec();
+        println!("List of devices: \n{:#?}", devices);
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let db_devices: Vec<PathBuf> = [PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2"), PathBuf::from("/dev/sdc"), PathBuf::from("/dev/sdc1"), PathBuf::from("/dev/sdd1"), PathBuf::from("/dev/sdd2"), PathBuf::from("/dev/sdd3")].to_vec();
+        let partitions: Vec<PathBuf> = db_devices.clone().into_iter().filter(|p| {
+            p.to_string_lossy().chars().last().unwrap().is_digit(10)
+        }).collect();
+        let mut disks: Vec<PathBuf> = db_devices.into_iter().filter(|p| {
+            !p.to_string_lossy().chars().last().unwrap().is_digit(10)
+        }).collect();
+        println!("List of DB partitions {:#?}", partitions);
+        assert_eq!([PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2"), PathBuf::from("/dev/sdc1"), PathBuf::from("/dev/sdd1"), PathBuf::from("/dev/sdd2"), PathBuf::from("/dev/sdd3")].to_vec(), partitions);
+
+        println!("List of DB disks {:?}", disks);
+        assert_eq!([PathBuf::from("/dev/sdc")].to_vec(), disks);
+
+        devices.append(&mut disks);
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            disk_map.insert(device.to_path_buf(), None);
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    disk_map.insert(partition.to_path_buf(), None);
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Created Hashmap: \n{:#?}", map);
+
+        // check that for every device in devices, there is a hashmap 
+        // in the map with the device and all its partitions
+        let sda_map = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")].to_vec();
+        let sdb_map = [PathBuf::from("/dev/sdb")].to_vec();
+        let sdc_map = [PathBuf::from("/dev/sdc"), PathBuf::from("/dev/sdc1")].to_vec();
+        let sdd_map = [PathBuf::from("/dev/sdd"), PathBuf::from("/dev/sdd1"), PathBuf::from("/dev/sdd2"), PathBuf::from("/dev/sdd3")].to_vec();
+         
+        //test sda
+        let sub_map = map.get(&PathBuf::from("/dev/sda"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(3, sub_map.len());
+        sda_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+
+        //test sdb
+        let sub_map = map.get(&PathBuf::from("/dev/sdb"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(1, sub_map.len());
+        sdb_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+
+        //test sdc
+        let sub_map = map.get(&PathBuf::from("/dev/sdc"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(2, sub_map.len());
+        sdc_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
+
+        //test sdd
+        let sub_map = map.get(&PathBuf::from("/dev/sdd"));
+        assert!(sub_map.is_some());
+        let sub_map = sub_map.unwrap(); //this should be safe
+        assert_eq!(4, sub_map.len());
+        sdd_map.iter().for_each(|path| {
+            assert!(sub_map.get(&path.to_path_buf()).is_some());
+        });
     }
 }
