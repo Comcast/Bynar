@@ -780,7 +780,9 @@ impl Transition for Scan {
                 Ok(stat) => {
                     device.smart_passed = stat;
                     // If the device is a Disk, and is not mounted then end the state machine here.
-                    if device.device.device_type == DeviceType::Disk && !block_utils::is_mounted(&device.dev_path).unwrap() {
+                    if device.device.device_type == DeviceType::Disk
+                        && !block_utils::is_mounted(&device.dev_path).unwrap()
+                    {
                         if stat {
                             debug!("Disk is healthy");
                             return State::Good;
@@ -1447,7 +1449,7 @@ pub fn check_all_disks(
             .cloned();
         debug!("thread {} scsi_info: {:?}", process::id(), scsi_info);
         //Update device here? Create new device?
-        if let Some((i, opt)) = scsi_info.clone() {
+        if let Some((i, _opt)) = scsi_info.clone() {
             device.scsi_info = i;
         }
         debug!("thread {} device: {:?}", process::id(), device);
