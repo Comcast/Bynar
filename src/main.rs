@@ -1963,7 +1963,7 @@ mod tests {
         disk_map.insert(PathBuf::from("/dev/sda"), None);
         map.insert(PathBuf::from("/dev/sda"), disk_map);
 
-        println!("Initial Map: {:#?}", map);
+        println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sda1");
         let op = Operation::new();
         let disk_op = DiskOp::new(op, Some("test".to_string()), None);
@@ -1977,7 +1977,7 @@ mod tests {
         }
         disk.insert(insert_path.to_path_buf(), Some(disk_op));
 
-        println!("New Map: {:#?}", map);
+        println!("New Map: \n{:#?}", map);
         assert!(map.get(&parent).unwrap().get(&insert_path).is_some());
     }
 
@@ -1994,7 +1994,7 @@ mod tests {
         disk_map.insert(PathBuf::from("/dev/sda1"), Some(disk_op));
         map.insert(PathBuf::from("/dev/sda"), disk_map);
 
-        println!("Initial Map: {:#?}", map);
+        println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sda1");
         let op = Operation::new();
         let disk_op = DiskOp::new(op, Some("test".to_string()), None);
@@ -2017,7 +2017,7 @@ mod tests {
         } else {
             panic!("/dev/sda1 should be in the map");
         }
-        println!("New Map: {:#?}", map);
+        println!("New Map: \n{:#?}", map);
         assert!(
             map.get(&parent)
                 .unwrap()
@@ -2039,7 +2039,7 @@ mod tests {
         disk_map.insert(PathBuf::from("/dev/sda"), None);
         map.insert(PathBuf::from("/dev/sda"), disk_map);
 
-        println!("Initial Map: {:#?}", map);
+        println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sdb1");
         let op = Operation::new();
         let disk_op = DiskOp::new(op, Some("test".to_string()), None);
@@ -2058,7 +2058,7 @@ mod tests {
             });
         disk_map.insert(insert_path.to_path_buf(), Some(disk_op));
         map.insert(parent.to_path_buf(), disk_map);
-        println!("New Map: {:#?}", map);
+        println!("New Map: \n{:#?}", map);
         assert!(map.get(&parent).is_some());
         assert!(map.get(&parent).unwrap().get(&insert_path).is_some());
         assert!(map
@@ -2076,7 +2076,7 @@ mod tests {
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         map.insert(PathBuf::from("/dev/sda"), disk_map);
 
-        println!("Initial Map: {:#?}", map);
+        println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sda");
         let op = Operation::new();
         let disk_op = DiskOp::new(op, Some("test".to_string()), None);
@@ -2104,7 +2104,7 @@ mod tests {
         disk_map.insert(PathBuf::from("/dev/sda"), Some(disk_op));
         map.insert(PathBuf::from("/dev/sda"), disk_map);
 
-        println!("Initial Map: {:#?}", map);
+        println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sda");
         let op = Operation::new();
         let disk_op = DiskOp::new(op, Some("test".to_string()), None);
@@ -2127,7 +2127,7 @@ mod tests {
         } else {
             panic!("/dev/sda should be in the map");
         }
-        println!("New Map: {:#?}", map);
+        println!("New Map: \n{:#?}", map);
         assert!(
             map.get(&parent)
                 .unwrap()
@@ -2149,7 +2149,7 @@ mod tests {
         disk_map.insert(PathBuf::from("/dev/sda"), None);
         map.insert(PathBuf::from("/dev/sda"), disk_map);
 
-        println!("Initial Map: {:#?}", map);
+        println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sdb");
         let op = Operation::new();
         let disk_op = DiskOp::new(op, Some("test".to_string()), None);
@@ -2168,7 +2168,7 @@ mod tests {
             });
         disk_map.insert(insert_path.to_path_buf(), Some(disk_op));
         map.insert(parent.to_path_buf(), disk_map);
-        println!("New Map: {:#?}", map);
+        println!("New Map: \n{:#?}", map);
         assert!(map.get(&parent).is_some());
         assert!(map.get(&parent).unwrap().get(&insert_path).is_some());
         assert!(map
@@ -2180,7 +2180,7 @@ mod tests {
 
     #[test]
     // test if getting the parent from a deleted partition path works
-    fn test_get_parent_from_deleted_partition() {
+    fn test_get_request_keys_deleted() {
         let path = PathBuf::from("/dev/sdc2");
         let hd_path = PathBuf::from("/dev/hda12");
         let nvme_path = PathBuf::from("/dev/nvme0n1p3"); // test this one once nvme implemented
@@ -2195,5 +2195,78 @@ mod tests {
             str_path = str_path[0..str_path.len() - 1].to_string();
         }
         assert_eq!("/dev/hda".to_string(), str_path);
+    }
+
+    #[test]
+    // test get_map_op function
+    fn test_get_map_op() {
+        //make map
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+        let insert_path = PathBuf::from("/dev/sda1");
+        let op = Operation::new();
+        let disk_op = DiskOp::new(op, Some("test".to_string()), None);
+
+        let parent = PathBuf::from("/dev/sda");
+        assert!(map.get(&parent).is_none());
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new(); // we know map doesn't have this
+        disk_map.insert(parent.to_path_buf(), None);
+        disk_map.insert(insert_path.to_path_buf(), Some(disk_op));
+        map.insert(parent.to_path_buf(), disk_map);
+        println!("Map: \n{:#?}", map);
+
+        assert!(get_map_op(&map, &PathBuf::from("/dev/sda")).unwrap().is_none());
+        assert!(get_map_op(&map, &PathBuf::from("/dev/sda1")).unwrap().is_some());
+    }
+
+    #[test]
+    // test remove_map_op function
+    fn test_remove_map_op() {
+        //make map
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+        let insert_path = PathBuf::from("/dev/sda1");
+        let op = Operation::new();
+        let disk_op = DiskOp::new(op, Some("test".to_string()), None);
+
+        let parent = PathBuf::from("/dev/sda");
+        assert!(map.get(&parent).is_none());
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new(); // we know map doesn't have this
+        disk_map.insert(parent.to_path_buf(), None);
+        disk_map.insert(insert_path.to_path_buf(), Some(disk_op));
+        map.insert(parent.to_path_buf(), disk_map);
+        println!("Map: \n{:#?}", map);
+
+        assert!(map.get(&parent).unwrap().get(&insert_path).unwrap().is_some());
+        remove_map_op(&mut map, &insert_path);
+        assert!(map.get(&parent).unwrap().get(&insert_path).unwrap().is_none());
+        println!("After Removal: \n{:#?}", map);
+    }
+
+    #[test]
+    // test get_disk_map_op
+    fn test_get_disk_map_op(){
+        //make map
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+        let insert_path = PathBuf::from("/dev/sda1");
+        let op = Operation::new();
+        let disk_op = DiskOp::new(op, Some("test".to_string()), None);
+
+        let parent = PathBuf::from("/dev/sda");
+        assert!(map.get(&parent).is_none());
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new(); // we know map doesn't have this
+        disk_map.insert(parent.to_path_buf(), None);
+        disk_map.insert(insert_path.to_path_buf(), Some(disk_op));
+        map.insert(parent.to_path_buf(), disk_map);
+        println!("Map: \n{:#?}", map);
+
+        let req_disk_map = get_disk_map_op(&mut map, &insert_path).unwrap();
+        assert_eq!(2, req_disk_map.len());
+        assert!(req_disk_map.get(&insert_path).is_some());
+        assert!(req_disk_map.get(&insert_path).unwrap().is_some());
+        assert!(req_disk_map.get(&parent).is_some());
+        assert!(req_disk_map.get(&parent).unwrap().is_none());
+
     }
 }
