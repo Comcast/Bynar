@@ -142,48 +142,52 @@ fn create_msg_map(
     Ok(map)
 }
 
+// given a path, return a parent-child, or parent-parent tuple to
+// look through the request map with, or error
+fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
+    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
+        Ok((parent, dev_path))
+    } else {
+        if dev_path.exists() {
+            Ok((dev_path.to_path_buf(), dev_path))
+        } else {
+            // partition was destroyed...probably
+            // make parent path
+            let mut str_path = dev_path.to_string_lossy().to_string();
+            while str_path.chars().last().unwrap().is_digit(10) {
+                str_path = str_path[0..str_path.len() - 1].to_string();
+            }
+            let path = PathBuf::from(str_path.to_string());
+            if path.exists() {
+                Ok((path, dev_path)) // partition probably
+            } else {
+                if str_path.starts_with("/dev/sd")
+                    || str_path.starts_with("/dev/hd")
+                    || str_path.starts_with("/dev/nvme")
+                {
+                    Ok((dev_path.to_path_buf(), dev_path)) // disk...probably
+                } else {
+                    // path just doesn't exist, so error...
+                    error!(
+                        "Path {} does not exist, nor does its parent.",
+                        dev_path.display()
+                    );
+                    return Err(BynarError::from(format!(
+                        "Path {} does not exist, nor does its parent.",
+                        dev_path.display()
+                    )));
+                }
+            }
+        }
+    }
+}
 // add or update an operation to the message map.  If an operation is already ongoing, update op and return the old operation
 fn add_or_update_map_op(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     dev_path: &PathBuf,
     op: Option<DiskOp>,
 ) -> BynarResult<Option<DiskOp>> {
-    let (parent, dev_path) =
-        if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
-            (parent, dev_path)
-        } else {
-            if dev_path.exists() {
-                (dev_path.to_path_buf(), dev_path)
-            } else {
-                // partition was destroyed...probably
-                // make parent path
-                let mut str_path = dev_path.to_string_lossy().to_string();
-                while str_path.chars().last().unwrap().is_digit(10) {
-                    str_path = str_path[0..str_path.len() - 1].to_string();
-                }
-                let path = PathBuf::from(str_path.to_string());
-                if path.exists() {
-                    (path, dev_path) // partition probably
-                } else {
-                    if str_path.starts_with("/dev/sd")
-                        || str_path.starts_with("/dev/hd")
-                        || str_path.starts_with("/dev/nvme")
-                    {
-                        (dev_path.to_path_buf(), dev_path) // disk...probably
-                    } else {
-                        // path just doesn't exist, so error...
-                        error!(
-                            "Path {} does not exist, nor does its parent.",
-                            dev_path.display()
-                        );
-                        return Err(BynarError::from(format!(
-                            "Path {} does not exist, nor does its parent.",
-                            dev_path.display()
-                        )));
-                    }
-                }
-            }
-        };
+    let (parent, dev_path) = get_request_keys(dev_path)?;
     if let Some(disk) = message_map.get_mut(&parent) {
         if let Some(partition) = disk.clone().get(dev_path) {
             // partition in map
@@ -192,10 +196,14 @@ fn add_or_update_map_op(
         }
         if &parent == dev_path {
             // if exists Some(disk) then dev_path should also exist (since creation) of entry in map requires it
-            error!("Map is missing the disk entry but disk {} exists in the map", parent.display());
+            error!(
+                "Map is missing the disk entry but disk {} exists in the map",
+                parent.display()
+            );
             return Err(BynarError::from(format!(
-                "Map is missing the disk entry but disk {} exists in the map", parent.display()
-            )))
+                "Map is missing the disk entry but disk {} exists in the map",
+                parent.display()
+            )));
         }
         disk.insert(dev_path.to_path_buf(), op);
     } else {
@@ -225,36 +233,12 @@ fn get_map_op(
     message_map: &HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     dev_path: &PathBuf,
 ) -> BynarResult<Option<DiskOp>> {
-    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
-        //parent is in the map
-        if let Some(disk) = message_map.get(&parent) {
-            if let Some(partition) = disk.get(dev_path) {
-                // partition in map
-                return Ok(partition.clone());
-            }
-        }
-    } else {
-        if dev_path.exists() {
-            //not partition
-            //parent is in the map
-            if let Some(disk) = message_map.get(dev_path) {
-                if let Some(partition) = disk.get(dev_path) {
-                    // partition in map
-                    return Ok(partition.clone());
-                }
-            }
-        } else {
-            // partition was destroyed...probably
-            // make parent path
-            let path = dev_path.to_string_lossy();
-            let path = &path[0..path.len() - 1];
-            let path = PathBuf::from(path.to_string());
-            if let Some(disk) = message_map.get(&path) {
-                if let Some(partition) = disk.get(dev_path) {
-                    // partition in map
-                    return Ok(partition.clone());
-                }
-            }
+    let (parent, dev_path) = get_request_keys(dev_path)?;
+    //parent is in the map
+    if let Some(disk) = message_map.get(&parent) {
+        if let Some(partition) = disk.get(dev_path) {
+            // partition in map
+            return Ok(partition.clone());
         }
     }
     Ok(None)
@@ -266,40 +250,15 @@ fn remove_map_op(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     dev_path: &PathBuf,
 ) -> BynarResult<Option<DiskOp>> {
-    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
-        //parent is in the map
-        if let Some(disk) = message_map.get_mut(&parent) {
-            if let Some(partition) = disk.clone().get(dev_path) {
-                //set point as None
-                disk.insert(dev_path.to_path_buf(), None);
-                // partition in map
-                return Ok(partition.clone());
-            }
-        }
-    } else {
-        if dev_path.exists() {
-            //not partition
-            //parent is in the map
-            if let Some(disk) = message_map.get_mut(dev_path) {
-                if let Some(partition) = disk.clone().get(dev_path) {
-                    // partition in map
-                    disk.insert(dev_path.to_path_buf(), None);
-                    return Ok(partition.clone());
-                }
-            }
-        } else {
-            // partition was destroyed...probably
-            // make parent path
-            let path = dev_path.to_string_lossy();
-            let path = &path[0..path.len() - 1];
-            let path = PathBuf::from(path.to_string());
-            if let Some(disk) = message_map.get_mut(&path) {
-                if let Some(partition) = disk.clone().get(dev_path) {
-                    // partition in map
-                    disk.insert(dev_path.to_path_buf(), None);
-                    return Ok(partition.clone());
-                }
-            }
+    let (parent, dev_path) = get_request_keys(dev_path)?;
+
+    //parent is in the map
+    if let Some(disk) = message_map.get_mut(&parent) {
+        if let Some(partition) = disk.clone().get(dev_path) {
+            //set point as None
+            disk.insert(dev_path.to_path_buf(), None);
+            // partition in map
+            return Ok(partition.clone());
         }
     }
     Err(BynarError::from(format!(
@@ -313,27 +272,10 @@ fn get_disk_map_op(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     dev_path: &PathBuf,
 ) -> BynarResult<HashMap<PathBuf, Option<DiskOp>>> {
-    if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
-        //parent is in the map
-        if let Some(disk) = message_map.get(&parent) {
-            return Ok(disk.clone());
-        }
-    } else {
-        //parent is in the map
-        if dev_path.exists() {
-            if let Some(disk) = message_map.get(dev_path) {
-                return Ok(disk.clone());
-            }
-        } else {
-            // partition was destroyed...probably
-            // make parent path
-            let path = dev_path.to_string_lossy();
-            let path = &path[0..path.len() - 1];
-            let path = PathBuf::from(path.to_string());
-            if let Some(disk) = message_map.get(&path) {
-                return Ok(disk.clone());
-            }
-        }
+    let (parent, _) = get_request_keys(dev_path)?;
+    //parent is in the map
+    if let Some(disk) = message_map.get(&parent) {
+        return Ok(disk.clone());
     }
     Err(BynarError::from(format!(
         "Path {} is not a disk in the map",
@@ -2133,7 +2075,7 @@ mod tests {
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         map.insert(PathBuf::from("/dev/sda"), disk_map);
-        
+
         println!("Initial Map: {:#?}", map);
         let insert_path = PathBuf::from("/dev/sda");
         let op = Operation::new();
@@ -2142,11 +2084,10 @@ mod tests {
         let parent = PathBuf::from("/dev/sda");
         assert!(map.get(&parent).is_some());
         assert!(map.get(&parent).unwrap().get(&insert_path).is_none());
-        if parent == insert_path{
+        if parent == insert_path {
             //success, error behavior is in here, in the actual function
             println!("Function would error here");
-        }
-        else{
+        } else {
             panic!("These should be equivalent...");
         }
     }
@@ -2235,5 +2176,24 @@ mod tests {
             .unwrap()
             .get(&PathBuf::from("/dev/sdb"))
             .is_some());
+    }
+
+    #[test]
+    // test if getting the parent from a deleted partition path works
+    fn test_get_parent_from_deleted_partition() {
+        let path = PathBuf::from("/dev/sdc2");
+        let hd_path = PathBuf::from("/dev/hda12");
+        let nvme_path = PathBuf::from("/dev/nvme0n1p3"); // test this one once nvme implemented
+        let mut str_path = path.to_string_lossy().to_string();
+        while str_path.chars().last().unwrap().is_digit(10) {
+            str_path = str_path[0..str_path.len() - 1].to_string();
+        }
+        assert_eq!("/dev/sdc".to_string(), str_path);
+
+        let mut str_path = hd_path.to_string_lossy().to_string();
+        while str_path.chars().last().unwrap().is_digit(10) {
+            str_path = str_path[0..str_path.len() - 1].to_string();
+        }
+        assert_eq!("/dev/hda".to_string(), str_path);
     }
 }
