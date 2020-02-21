@@ -388,7 +388,7 @@ fn check_for_failed_disks(
             .into_iter()
             .collect();
     // separate the states into Ok and Errors
-    let usable_states: Vec<_> = match all_states {
+    let usable_states: Vec<StateMachine> = match all_states {
         Ok(s) => s,
         Err(e) => {
             error!("check_all_disks failed with error: {:?}", e);
@@ -2537,5 +2537,297 @@ mod tests {
         println!("Replacing: {:#?}", replacing);
         let empty: Vec<PathBuf> = [].to_vec();
         assert_eq!(replacing, empty);
+    }
+
+    #[test]
+    // test adding related partitions/disks to list
+    // map all nones
+    fn test_add_related_paths_none() {
+        // init the map
+        let devices: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            disk_map.insert(device.to_path_buf(), None);
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    disk_map.insert(partition.to_path_buf(), None);
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Initial Hashmap: \n{:#?}", map);
+
+        let states: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        // create list of "replacing paths"
+        let mut replacing = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec();
+        println!("Initial Replacing: {:#?}", replacing);
+        // test adding paths
+        let mut add_replacing = Vec::new();
+        replacing.iter().for_each(|path| {
+            let parent = if path == &PathBuf::from("/dev/sdc1") {
+                PathBuf::from("/dev/sdc")
+            } else {
+                path.to_path_buf()
+            };
+            let disks = map.get(&parent).unwrap();
+            let mut add: Vec<_> = states
+                .iter()
+                .filter(|state| {
+                    if disks.contains_key(&state.to_path_buf()) {
+                        match map.get(&parent).unwrap().get(&state.to_path_buf()).unwrap() {
+                            Some(op) => panic!("all items in map should be NONE"),
+                            None => true,
+                        }
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            add_replacing.append(&mut add);
+        });
+
+        println!("Added values: {:#?}", add_replacing);
+        let paths = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+        ];
+        paths.iter().for_each(|path| {
+            assert!(add_replacing.contains(&path));
+        });
+    }
+
+    #[test]
+    // test adding related partitions/disks to list
+    // map all Add
+    fn test_add_related_paths_add() {
+        let devices: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            let op = Operation::new();
+            let disk_op = DiskOp::new(op, None, None);
+            disk_map.insert(device.to_path_buf(), Some(disk_op));
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    let op = Operation::new();
+                    let disk_op = DiskOp::new(op, None, None);
+                    disk_map.insert(partition.to_path_buf(), Some(disk_op));
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Initial Hashmap: \n{:#?}", map);
+        let states: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        // create list of "replacing paths"
+        let mut replacing = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec();
+        println!("Initial Replacing: {:#?}", replacing);
+        // test adding paths
+        let mut add_replacing = Vec::new();
+        replacing.iter().for_each(|path| {
+            let parent = if path == &PathBuf::from("/dev/sdc1") {
+                PathBuf::from("/dev/sdc")
+            } else {
+                path.to_path_buf()
+            };
+            let disks = map.get(&parent).unwrap();
+            let in_progress = path == &PathBuf::from("/dev/sdc");
+            let mut add: Vec<_> = states
+                .iter()
+                .filter(|state| {
+                    if disks.contains_key(&state.to_path_buf()) {
+                        match map.get(&parent).unwrap().get(&state.to_path_buf()).unwrap() {
+                            Some(op) => {
+                                !(op.op_type == Op::SafeToRemove
+                                    || op.op_type == Op::Remove
+                                    || in_progress)
+                            }
+                            None => panic!("all items in map should be SOME"),
+                        }
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            add_replacing.append(&mut add);
+        });
+
+        println!("Added values: {:#?}", add_replacing);
+        let paths = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sdc1"),
+        ];
+        paths.iter().for_each(|path| {
+            assert!(add_replacing.contains(&path));
+        });
+    }
+
+    #[test]
+    // test adding related partitions/disks to list
+    // map all SafeToRemove or Removes
+    fn test_add_related_paths_empty() {
+        let devices: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            let mut op = Operation::new();
+            if !(device == &PathBuf::from("/dev/sda")) {
+                op.set_Op_type(Op::SafeToRemove);
+            }
+            let disk_op = DiskOp::new(op, None, None);
+            disk_map.insert(device.to_path_buf(), Some(disk_op));
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    let mut op = Operation::new();
+                    if !(partition == &PathBuf::from("/dev/sdc1")) {
+                        op.set_Op_type(Op::Remove);
+                    }
+                    let disk_op = DiskOp::new(op, None, None);
+                    disk_map.insert(partition.to_path_buf(), Some(disk_op));
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Initial Hashmap: \n{:#?}", map);
+        let states: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        // create list of "replacing paths"
+        let mut replacing = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec();
+        println!("Initial Replacing: {:#?}", replacing);
+        // test adding paths
+        let mut add_replacing = Vec::new();
+        replacing.iter().for_each(|path| {
+            let parent = if path == &PathBuf::from("/dev/sdc1") {
+                PathBuf::from("/dev/sdc")
+            } else {
+                path.to_path_buf()
+            };
+            let disks = map.get(&parent).unwrap();
+            let in_progress = path == &PathBuf::from("/dev/sdc");
+            let mut add: Vec<_> = states
+                .iter()
+                .filter(|state| {
+                    if disks.contains_key(&state.to_path_buf()) {
+                        match map.get(&parent).unwrap().get(&state.to_path_buf()).unwrap() {
+                            Some(op) => {
+                                !(op.op_type == Op::SafeToRemove
+                                    || op.op_type == Op::Remove
+                                    || in_progress)
+                            }
+                            None => panic!("all items in map should be SOME"),
+                        }
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            add_replacing.append(&mut add);
+        });
+
+        println!("Added values: {:#?}", add_replacing);
+        let paths = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")];
+        paths.iter().for_each(|path| {
+            assert!(add_replacing.contains(&path));
+        });
     }
 }
