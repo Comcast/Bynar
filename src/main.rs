@@ -2215,8 +2215,12 @@ mod tests {
         map.insert(parent.to_path_buf(), disk_map);
         println!("Map: \n{:#?}", map);
 
-        assert!(get_map_op(&map, &PathBuf::from("/dev/sda")).unwrap().is_none());
-        assert!(get_map_op(&map, &PathBuf::from("/dev/sda1")).unwrap().is_some());
+        assert!(get_map_op(&map, &PathBuf::from("/dev/sda"))
+            .unwrap()
+            .is_none());
+        assert!(get_map_op(&map, &PathBuf::from("/dev/sda1"))
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -2237,15 +2241,25 @@ mod tests {
         map.insert(parent.to_path_buf(), disk_map);
         println!("Map: \n{:#?}", map);
 
-        assert!(map.get(&parent).unwrap().get(&insert_path).unwrap().is_some());
+        assert!(map
+            .get(&parent)
+            .unwrap()
+            .get(&insert_path)
+            .unwrap()
+            .is_some());
         remove_map_op(&mut map, &insert_path);
-        assert!(map.get(&parent).unwrap().get(&insert_path).unwrap().is_none());
+        assert!(map
+            .get(&parent)
+            .unwrap()
+            .get(&insert_path)
+            .unwrap()
+            .is_none());
         println!("After Removal: \n{:#?}", map);
     }
 
     #[test]
     // test get_disk_map_op
-    fn test_get_disk_map_op(){
+    fn test_get_disk_map_op() {
         //make map
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
@@ -2267,6 +2281,261 @@ mod tests {
         assert!(req_disk_map.get(&insert_path).unwrap().is_some());
         assert!(req_disk_map.get(&parent).is_some());
         assert!(req_disk_map.get(&parent).unwrap().is_none());
+    }
 
+    #[test]
+    // check filter disks that are Waiting for Replacement with map having None
+    // no in progress check since all paths should have None
+    fn test_get_replacing_vec_none() {
+        let devices: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            disk_map.insert(device.to_path_buf(), None);
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    disk_map.insert(partition.to_path_buf(), None);
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Initial Hashmap: \n{:#?}", map);
+        let states: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        // Testing, assuming /dev/sda and /dev/sdc1 are in "WaitingForReplacement" state
+        // no need to make in progress a variable since all map objects are None
+        let replacing: Vec<_> = states
+            .into_iter()
+            .filter(|path| {
+                if path == &PathBuf::from("/dev/sda") || path == &PathBuf::from("/dev/sdc1") {
+                    // the two "Waiting for Replacement" states
+                    //simulate get_map_op
+                    let parent = if path == &PathBuf::from("/dev/sdc1") {
+                        PathBuf::from("/dev/sdc")
+                    } else {
+                        path.to_path_buf()
+                    };
+                    let op = map.get(&parent).unwrap().get(path).unwrap();
+                    match op {
+                        Some(op) => panic!("Should be None"),
+                        None => true,
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        println!("Replacing: {:#?}", replacing);
+        assert_eq!(
+            replacing,
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec()
+        );
+    }
+    #[test]
+    // check filter disks that are Waiting for Replacement with map having Add
+    // in progress yes or no
+    fn test_get_replacing_vec_add() {
+        let devices: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            let op = Operation::new();
+            let disk_op = DiskOp::new(op, None, None);
+            disk_map.insert(device.to_path_buf(), Some(disk_op));
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    let op = Operation::new();
+                    let disk_op = DiskOp::new(op, None, None);
+                    disk_map.insert(partition.to_path_buf(), Some(disk_op));
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Initial Hashmap: \n{:#?}", map);
+        let states: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        // Testing, assuming /dev/sda and /dev/sdc1 are in "WaitingForReplacement" state
+        // in progress is now variable...
+        let replacing: Vec<_> = states
+            .into_iter()
+            .filter(|path| {
+                if path == &PathBuf::from("/dev/sda") || path == &PathBuf::from("/dev/sdc1") {
+                    // the two "Waiting for Replacement" states
+                    //simulate get_map_op
+                    let parent = if path == &PathBuf::from("/dev/sdc1") {
+                        PathBuf::from("/dev/sdc")
+                    } else {
+                        path.to_path_buf()
+                    };
+                    let in_progress = path == &PathBuf::from("/dev/sdc1"); //sdc1 in progress, sda is not
+                    let op = map.get(&parent).unwrap().get(path).unwrap();
+                    match op {
+                        Some(op) => {
+                            !(op.op_type == Op::SafeToRemove
+                                || op.op_type == Op::Remove
+                                || in_progress)
+                        }
+                        None => panic!("Should be Some"),
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        println!("Replacing: {:#?}", replacing);
+        assert_eq!(replacing, [PathBuf::from("/dev/sda")]);
+    }
+    #[test]
+    // check filter disks that are Waiting for Replacement with map having SafeToRemove || Remove
+    fn test_get_replacing_vec_exists() {
+        let devices: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
+        let partitions: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec();
+        devices.iter().for_each(|device| {
+            // make a new hashmap
+            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+            let mut op = Operation::new();
+            if device == &PathBuf::from("/dev/sda") {
+                op.set_Op_type(Op::SafeToRemove);
+            }
+            let disk_op = DiskOp::new(op, None, None);
+            disk_map.insert(device.to_path_buf(), Some(disk_op));
+            // check if partition parent is device
+            partitions
+                .iter()
+                .filter(|partition| {
+                    partition
+                        .to_string_lossy()
+                        .contains(&device.to_string_lossy().to_string())
+                })
+                .for_each(|partition| {
+                    let mut op = Operation::new();
+                    if partition == &PathBuf::from("/dev/sdc1") {
+                        op.set_Op_type(Op::Remove);
+                    }
+                    let disk_op = DiskOp::new(op, None, None);
+                    disk_map.insert(partition.to_path_buf(), Some(disk_op));
+                });
+            map.insert(device.to_path_buf(), disk_map);
+        });
+
+        println!("Initial Hashmap: \n{:#?}", map);
+        let states: Vec<PathBuf> = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec();
+        // Testing, assuming /dev/sda and /dev/sdc1 are in "WaitingForReplacement" state
+        // in progress is now variable...
+        let replacing: Vec<PathBuf> = states
+            .into_iter()
+            .filter(|path| {
+                if path == &PathBuf::from("/dev/sda") || path == &PathBuf::from("/dev/sdc1") {
+                    // the two "Waiting for Replacement" states
+                    //simulate get_map_op
+                    let parent = if path == &PathBuf::from("/dev/sdc1") {
+                        PathBuf::from("/dev/sdc")
+                    } else {
+                        path.to_path_buf()
+                    };
+                    let in_progress = path == &PathBuf::from("/dev/sdc1"); //sdc1 in progress, sda is not
+                    let op = map.get(&parent).unwrap().get(path).unwrap();
+                    match op {
+                        Some(op) => {
+                            !(op.op_type == Op::SafeToRemove
+                                || op.op_type == Op::Remove
+                                || in_progress)
+                        }
+                        None => panic!("Should be Some"),
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        println!("Replacing: {:#?}", replacing);
+        let empty: Vec<PathBuf> = [].to_vec();
+        assert_eq!(replacing, empty);
     }
 }
