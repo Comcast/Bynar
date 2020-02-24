@@ -1544,8 +1544,29 @@ mod tests {
     use super::*;
     use block_utils::*;
 
-    // ------------------- Test create_msg_map ------------------
+    // list of devices to use in some test functions
+    fn get_devices() -> Vec<PathBuf> {
+        [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sdb"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdd"),
+        ]
+        .to_vec()
+    }
 
+    //list of partitions to use in some test functions
+    fn get_partitions() -> Vec<PathBuf> {
+        [
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc1"),
+            PathBuf::from("/dev/sdd1"),
+            PathBuf::from("/dev/sdd2"),
+            PathBuf::from("/dev/sdd3"),
+        ]
+        .to_vec()
+    }
     #[test]
     // This tests the filter(s) used to get a list of devices
     fn test_filter_block_devices() {
@@ -1644,24 +1665,10 @@ mod tests {
     // this is testing the expected behavior of parts inside the function assuming certain call result
     fn test_create_msg_map_with_partitions() {
         // since we want to test specifically the partitions we need an explicit device list
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
+        let devices: Vec<PathBuf> = get_devices();
         println!("List of devices: \n{:#?}", devices);
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
+        let partitions: Vec<PathBuf> = get_partitions();
         println!("List of partitions: \n{:#?}", partitions);
         devices.iter().for_each(|device| {
             // make a new hashmap
@@ -1738,9 +1745,7 @@ mod tests {
     // this is testing the expected behavior of parts inside the function assuming certain call result
     fn test_create_msg_map_with_db() {
         // since we want to test specifically the partitions we need an explicit device list
-        let mut devices: Vec<PathBuf> =
-            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdb"), PathBuf::from("/dev/sdd")]
-                .to_vec();
+        let mut devices: Vec<PathBuf> = get_devices();
         println!("List of devices: \n{:#?}", devices);
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let db_devices: Vec<PathBuf> = [
@@ -1850,15 +1855,20 @@ mod tests {
         });
     }
 
-    // ----------- Test the add_or_update_map_op function -------------
-    #[test]
-    // test if, given a partition path that is not in the map (but the parent is)
-    // add the partition to the map with the given operation
-    fn test_add_or_update_map_op_partition_add() {
+    // create empty map with just /dev/sda for testing
+    fn empty_sda_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>{
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         disk_map.insert(PathBuf::from("/dev/sda"), None);
         map.insert(PathBuf::from("/dev/sda"), disk_map);
+        map
+    }
+
+    #[test]
+    // test if, given a partition path that is not in the map (but the parent is)
+    // add the partition to the map with the given operation
+    fn test_add_or_update_map_op_partition_add() {
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = empty_sda_map();
 
         println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sda1");
@@ -1885,8 +1895,7 @@ mod tests {
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         disk_map.insert(PathBuf::from("/dev/sda"), None);
-        let mut op = Operation::new();
-        op.set_Op_type(Op::Remove);
+        let mut op = helpers::make_op!(Remove);
         let disk_op = DiskOp::new(op, Some("test update".to_string()), Some(0));
         disk_map.insert(PathBuf::from("/dev/sda1"), Some(disk_op));
         map.insert(PathBuf::from("/dev/sda"), disk_map);
@@ -1919,10 +1928,7 @@ mod tests {
     // test if, given a partition path that is not in the map and whose parent is not
     // in the map, insert the partition + parent disk into the map
     fn test_add_or_update_map_op_partition_insert() {
-        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-        disk_map.insert(PathBuf::from("/dev/sda"), None);
-        map.insert(PathBuf::from("/dev/sda"), disk_map);
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = empty_sda_map();
 
         println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sdb1");
@@ -1979,8 +1985,7 @@ mod tests {
     fn test_add_or_update_map_op_parent_update() {
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-        let mut op = Operation::new();
-        op.set_Op_type(Op::Remove);
+        let mut op = helpers::make_op!(Remove);
         let disk_op = DiskOp::new(op, Some("test update".to_string()), Some(0));
         disk_map.insert(PathBuf::from("/dev/sda"), Some(disk_op));
         map.insert(PathBuf::from("/dev/sda"), disk_map);
@@ -2013,10 +2018,7 @@ mod tests {
     // test if, given a disk path that is not in the disk map nor the req map
     // create a new disk map with the disk path and insert into the req map
     fn test_add_or_update_map_op_parent_insert() {
-        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-        disk_map.insert(PathBuf::from("/dev/sda"), None);
-        map.insert(PathBuf::from("/dev/sda"), disk_map);
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = empty_sda_map();
 
         println!("Initial Map: \n{:#?}", map);
         let insert_path = PathBuf::from("/dev/sdb");
@@ -2134,27 +2136,11 @@ mod tests {
         assert!(req_disk_map.get(&parent).unwrap().is_none());
     }
 
-    #[test]
-    // check filter disks that are Waiting for Replacement with map having None
-    // no in progress check since all paths should have None
-    fn test_get_replacing_vec_none() {
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
+    // create empty map for testing with None values
+    fn create_none_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>{
+        let devices: Vec<PathBuf> = get_devices();
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
+        let partitions: Vec<PathBuf> = get_partitions();
         devices.iter().for_each(|device| {
             // make a new hashmap
             let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
@@ -2170,6 +2156,13 @@ mod tests {
                 });
             map.insert(device.to_path_buf(), disk_map);
         });
+        map
+    }
+    #[test]
+    // check filter disks that are Waiting for Replacement with map having None
+    // no in progress check since all paths should have None
+    fn test_get_replacing_vec_none() {
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = create_none_map();
 
         println!("Initial Hashmap: \n{:#?}", map);
         let states: Vec<PathBuf> = [
@@ -2208,27 +2201,12 @@ mod tests {
         println!("Replacing: {:#?}", replacing);
         assert_eq!(replacing, [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec());
     }
-    #[test]
-    // check filter disks that are Waiting for Replacement with map having Add
-    // in progress yes or no
-    fn test_get_replacing_vec_add() {
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
+
+    // create initial map for testing Add
+    fn create_add_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> {
+        let devices: Vec<PathBuf> = get_devices();
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
+        let partitions: Vec<PathBuf> = get_partitions();
         devices.iter().for_each(|device| {
             // make a new hashmap
             let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
@@ -2248,6 +2226,14 @@ mod tests {
                 });
             map.insert(device.to_path_buf(), disk_map);
         });
+        map
+    }
+
+    #[test]
+    // check filter disks that are Waiting for Replacement with map having Add
+    // in progress yes or no
+    fn test_get_replacing_vec_add() {
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = create_add_map();
 
         println!("Initial Hashmap: \n{:#?}", map);
         let states: Vec<PathBuf> = [
@@ -2294,23 +2280,9 @@ mod tests {
     #[test]
     // check filter disks that are Waiting for Replacement with map having SafeToRemove || Remove
     fn test_get_replacing_vec_exists() {
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
+        let devices: Vec<PathBuf> = get_devices();
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
+        let partitions: Vec<PathBuf> = get_partitions();
         devices.iter().for_each(|device| {
             // make a new hashmap
             let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
@@ -2386,38 +2358,7 @@ mod tests {
     // map all nones
     fn test_add_related_paths_none() {
         // init the map
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
-        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
-        devices.iter().for_each(|device| {
-            // make a new hashmap
-            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-            disk_map.insert(device.to_path_buf(), None);
-            // check if partition parent is device
-            partitions
-                .iter()
-                .filter(|partition| {
-                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
-                })
-                .for_each(|partition| {
-                    disk_map.insert(partition.to_path_buf(), None);
-                });
-            map.insert(device.to_path_buf(), disk_map);
-        });
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = create_none_map();
 
         println!("Initial Hashmap: \n{:#?}", map);
 
@@ -2476,42 +2417,7 @@ mod tests {
     // test adding related partitions/disks to list
     // map all Add
     fn test_add_related_paths_add() {
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
-        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
-        devices.iter().for_each(|device| {
-            // make a new hashmap
-            let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
-            let op = Operation::new();
-            let disk_op = DiskOp::new(op, None, None);
-            disk_map.insert(device.to_path_buf(), Some(disk_op));
-            // check if partition parent is device
-            partitions
-                .iter()
-                .filter(|partition| {
-                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
-                })
-                .for_each(|partition| {
-                    let op = Operation::new();
-                    let disk_op = DiskOp::new(op, None, None);
-                    disk_map.insert(partition.to_path_buf(), Some(disk_op));
-                });
-            map.insert(device.to_path_buf(), disk_map);
-        });
+        let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = create_add_map();
 
         println!("Initial Hashmap: \n{:#?}", map);
         let states: Vec<PathBuf> = [
@@ -2573,23 +2479,9 @@ mod tests {
     // test adding related partitions/disks to list
     // map all SafeToRemove or Removes
     fn test_add_related_paths_empty() {
-        let devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdc"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
+        let devices = get_devices();
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
-        let partitions: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-            PathBuf::from("/dev/sdc1"),
-            PathBuf::from("/dev/sdd1"),
-            PathBuf::from("/dev/sdd2"),
-            PathBuf::from("/dev/sdd3"),
-        ]
-        .to_vec();
+        let partitions: Vec<PathBuf> = get_partitions();
         devices.iter().for_each(|device| {
             // make a new hashmap
             let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
