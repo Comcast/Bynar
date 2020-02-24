@@ -337,20 +337,13 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
                         .takes_value(true),
                 ),
         )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
+        .arg(Arg::with_name("v").short("v").multiple(true).help("Sets the level of verbosity"))
         .get_matches()
 }
 
 fn main() {
-    let server_key = format!(
-        "/etc/bynar/{}.pem",
-        get_hostname().unwrap_or_else(|| "ecpubkey".to_string())
-    );
+    let server_key =
+        format!("/etc/bynar/{}.pem", get_hostname().unwrap_or_else(|| "ecpubkey".to_string()));
     let matches = get_cli_args(&server_key);
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default

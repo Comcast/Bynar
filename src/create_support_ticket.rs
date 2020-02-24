@@ -13,30 +13,18 @@ pub fn create_support_ticket(
 ) -> BynarResult<String> {
     let issue_description = CreateIssue {
         fields: Fields {
-            assignee: Assignee {
-                name: settings.jira_ticket_assignee.clone(),
-            },
-            components: vec![Component {
-                name: "Ceph".into(),
-            }],
+            assignee: Assignee { name: settings.jira_ticket_assignee.clone() },
+            components: vec![Component { name: "Ceph".into() }],
             description: description.into(),
-            issuetype: IssueType {
-                id: settings.jira_issue_type.clone(),
-            },
-            priority: Priority {
-                id: settings.jira_priority.clone(),
-            },
-            project: Project {
-                key: settings.jira_project_id.clone(),
-            },
+            issuetype: IssueType { id: settings.jira_issue_type.clone() },
+            priority: Priority { id: settings.jira_priority.clone() },
+            project: Project { key: settings.jira_project_id.clone() },
             summary: title.into(),
         },
     };
     let jira: Jira = match settings.proxy {
         Some(ref url) => {
-            let client = reqwest::Client::builder()
-                .proxy(reqwest::Proxy::all(url)?)
-                .build()?;
+            let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(url)?).build()?;
             Jira::from_client(
                 settings.jira_host.to_string(),
                 Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),
@@ -50,10 +38,7 @@ pub fn create_support_ticket(
     };
     let issue = Issues::new(&jira);
 
-    debug!(
-        "Creating JIRA ticket with information: {:?}",
-        issue_description
-    );
+    debug!("Creating JIRA ticket with information: {:?}", issue_description);
     let results = issue.create(issue_description)?;
     Ok(results.id)
 }
@@ -62,9 +47,7 @@ pub fn create_support_ticket(
 pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> BynarResult<bool> {
     let jira: Jira = match settings.proxy {
         Some(ref url) => {
-            let client = reqwest::Client::builder()
-                .proxy(reqwest::Proxy::all(url)?)
-                .build()?;
+            let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(url)?).build()?;
             Jira::from_client(
                 settings.jira_host.to_string(),
                 Credentials::Basic(settings.jira_user.clone(), settings.jira_password.clone()),

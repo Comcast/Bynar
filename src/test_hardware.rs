@@ -63,14 +63,8 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
             disk_drives.push(redfish.get_physical_drive(disk_id as u64, controller_id as u64)?);
         }
     }
-    let controller_results = array_controllers
-        .into_iter()
-        .map(evaluate_storage)
-        .collect();
-    let enclosure_results = storage_enclosures
-        .into_iter()
-        .map(evaluate_storage)
-        .collect();
+    let controller_results = array_controllers.into_iter().map(evaluate_storage).collect();
+    let enclosure_results = storage_enclosures.into_iter().map(evaluate_storage).collect();
     let disk_drive_results = disk_drives.into_iter().map(evaluate_storage).collect();
     let manager = redfish.get_manager_status()?;
     let manager_result = evaluate_manager(&manager);

@@ -41,15 +41,8 @@ pub fn connect(host: &str, port: &str, server_publickey: &[u8]) -> BynarResult<S
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
     debug!("Connecting to tcp://{}:{}", host, port);
-    assert!(requester
-        .connect(&format!("tcp://{}:{}", host, port))
-        .is_ok());
-    /*debug!(
-        "Client ID {:?}",
-        requester.set_identity(&vec![0, 107, 139, 69, 103])
-    );*/
+    assert!(requester.connect(&format!("tcp://{}:{}", host, port)).is_ok());
     debug!("Client mechanism: {:?}", requester.get_mechanism());
-
     Ok(requester)
 }
 

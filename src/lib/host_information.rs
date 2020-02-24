@@ -39,10 +39,7 @@ impl Host {
         let region = get_region_from_hostname(&hostname)?;
         let storage_type = get_storage_type()?;
 
-        debug!(
-            "ip {}, region {}, storage_type {}",
-            ip, region, storage_type
-        );
+        debug!("ip {}, region {}, storage_type {}", ip, region, storage_type);
         let server_type = server_type()?;
         let serial_number = server_serial()?;
         debug!("Gathering raid info");
@@ -170,9 +167,7 @@ fn server_type() -> BynarResult<String> {
         let buff = read_to_string(path)?;
         return Ok(buff.trim().into());
     }
-    Err(BynarError::from(
-        "/sys/class/dmi/id/product_name does not exist",
-    ))
+    Err(BynarError::from("/sys/class/dmi/id/product_name does not exist"))
 }
 
 fn server_serial() -> BynarResult<String> {

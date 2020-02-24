@@ -134,18 +134,10 @@ fn op_insert(req_map: &mut HashMap<PathBuf, Option<Op>>, op: &Operation) {
 // send a notification to slack channel (if config has webhook)
 fn notify_slack(config: &DiskManagerConfig, msg: &str) -> BynarResult<()> {
     let c = config.clone();
-    let slack = Slack::new(
-        c.slack_webhook
-            .expect("slack webhook option is None")
-            .as_ref(),
-    )?;
+    let slack = Slack::new(c.slack_webhook.expect("slack webhook option is None").as_ref())?;
     let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
     let bot_name = c.slack_botname.unwrap_or_else(|| "".to_string());
-    let p = PayloadBuilder::new()
-        .text(msg)
-        .channel(slack_channel)
-        .username(bot_name)
-        .build()?;
+    let p = PayloadBuilder::new().text(msg).channel(slack_channel).username(bot_name).build()?;
 
     let res = slack.send(&p);
     match res {
@@ -221,10 +213,7 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
         }
         let endpoint = config.vault_endpoint.unwrap();
         let token = config.vault_token.unwrap();
-        debug!(
-            "Connecting to vault to save the public key to /bynar/{}.pem",
-            hostname
-        );
+        debug!("Connecting to vault to save the public key to /bynar/{}.pem", hostname);
         let client = VaultClient::new(endpoint.as_str(), token)?;
         client.set_secret(
             format!("{}/{}.pem", config_dir.display(), hostname),
@@ -286,9 +275,7 @@ fn listen(
     debug!("Listening on tcp://{}:5555", listen_address);
     // Fail to start if this fails
     setup_curve(&responder, config_dir, vault)?;
-    assert!(responder
-        .bind(&format!("tcp://{}:5555", listen_address))
-        .is_ok());
+    assert!(responder.bind(&format!("tcp://{}:5555", listen_address)).is_ok());
 
     debug!("Building thread pool");
     //Note, for now we are using 16 threads by default
@@ -634,9 +621,8 @@ fn get_disks() -> BynarResult<Vec<Disk>> {
 
     debug!("Gathering udev info on block devices");
     // Gather info on all devices and skip Loopback devices
-    let device_info: Vec<Device> = block_utils::get_all_device_info(devices.as_slice())?
-        .into_iter()
-        .collect();
+    let device_info: Vec<Device> =
+        block_utils::get_all_device_info(devices.as_slice())?.into_iter().collect();
     debug!("Device info found: {:?}", device_info);
 
     debug!("Gathering partition info");
@@ -873,18 +859,8 @@ fn main() {
                 .takes_value(true)
                 .required(false),
         )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
-        .arg(
-            Arg::with_name("daemon")
-                .help("Run Bynar as a daemon")
-                .long("daemon")
-                .required(false),
-        )
+        .arg(Arg::with_name("v").short("v").multiple(true).help("Sets the level of verbosity"))
+        .arg(Arg::with_name("daemon").help("Run Bynar as a daemon").long("daemon").required(false))
         .get_matches();
     let daemon = matches.is_present("daemon");
     let level = match matches.occurrences_of("v") {
@@ -907,16 +883,9 @@ fn main() {
     //Sanity check
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
-        warn!(
-            "Config directory {} doesn't exist. Creating",
-            config_dir.display()
-        );
+        warn!("Config directory {} doesn't exist. Creating", config_dir.display());
         if let Err(e) = create_dir(config_dir) {
-            error!(
-                "Unable to create directory {}: {}",
-                config_dir.display(),
-                e.to_string()
-            );
+            error!("Unable to create directory {}: {}", config_dir.display(), e.to_string());
             return;
         }
     }
@@ -1026,10 +995,7 @@ fn main() {
             println!("Finished");
             notify_slack(
                 &config,
-                &format!(
-                    "Disk-Manager Exited Successfully on host {}",
-                    host_info.hostname
-                ),
+                &format!("Disk-Manager Exited Successfully on host {}", host_info.hostname),
             )
             .expect("Unable to connect to slack");
         }
@@ -1037,10 +1003,7 @@ fn main() {
             println!("Error: {:?}", e);
             notify_slack(
                 &config,
-                &format!(
-                    "Disk-Manager Errored out on host {} with {:?}",
-                    host_info.hostname, e
-                ),
+                &format!("Disk-Manager Errored out on host {} with {:?}", host_info.hostname, e),
             )
             .expect("Unable to connect to slack");
         }

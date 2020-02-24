@@ -65,12 +65,7 @@ struct DiskOp {
 
 impl DiskOp {
     pub fn new(op: Operation, description: Option<String>, operation_id: Option<u32>) -> DiskOp {
-        DiskOp {
-            op_type: op.get_Op_type(),
-            description,
-            operation_id,
-            ret_val: None,
-        }
+        DiskOp { op_type: op.get_Op_type(), description, operation_id, ret_val: None }
     }
 }
 
@@ -130,9 +125,7 @@ fn create_msg_map(
         partitions
             .iter()
             .filter(|partition| {
-                partition
-                    .to_string_lossy()
-                    .contains(&device.to_string_lossy().to_string())
+                partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
             })
             .for_each(|partition| {
                 disk_map.insert(partition.to_path_buf(), None);
@@ -168,10 +161,7 @@ fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
                     Ok((dev_path.to_path_buf(), dev_path)) // disk...probably
                 } else {
                     // path just doesn't exist, so error...
-                    error!(
-                        "Path {} does not exist, nor does its parent.",
-                        dev_path.display()
-                    );
+                    error!("Path {} does not exist, nor does its parent.", dev_path.display());
                     return Err(BynarError::from(format!(
                         "Path {} does not exist, nor does its parent.",
                         dev_path.display()
@@ -196,10 +186,7 @@ fn add_or_update_map_op(
         }
         if &parent == dev_path {
             // if exists Some(disk) then dev_path should also exist (since creation) of entry in map requires it
-            error!(
-                "Map is missing the disk entry but disk {} exists in the map",
-                parent.display()
-            );
+            error!("Map is missing the disk entry but disk {} exists in the map", parent.display());
             return Err(BynarError::from(format!(
                 "Map is missing the disk entry but disk {} exists in the map",
                 parent.display()
@@ -215,9 +202,7 @@ fn add_or_update_map_op(
         partitions
             .iter()
             .filter(|partition| {
-                partition
-                    .to_string_lossy()
-                    .contains(&parent.to_string_lossy().to_string())
+                partition.to_string_lossy().contains(&parent.to_string_lossy().to_string())
             })
             .for_each(|partition| {
                 disk_map.insert(partition.to_path_buf(), None);
@@ -261,10 +246,7 @@ fn remove_map_op(
             return Ok(partition.clone());
         }
     }
-    Err(BynarError::from(format!(
-        "Path {} is not in the message map",
-        dev_path.display()
-    )))
+    Err(BynarError::from(format!("Path {} is not in the message map", dev_path.display())))
 }
 
 // get the hashmap associated with a diskpath from the op map
@@ -277,26 +259,15 @@ fn get_disk_map_op(
     if let Some(disk) = message_map.get(&parent) {
         return Ok(disk.clone());
     }
-    Err(BynarError::from(format!(
-        "Path {} is not a disk in the map",
-        dev_path.display()
-    )))
+    Err(BynarError::from(format!("Path {} is not a disk in the map", dev_path.display())))
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let c = config.clone();
-    let slack = Slack::new(
-        c.slack_webhook
-            .expect("slack webhook option is None")
-            .as_ref(),
-    )?;
+    let slack = Slack::new(c.slack_webhook.expect("slack webhook option is None").as_ref())?;
     let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
     let bot_name = c.slack_botname.unwrap_or_else(|| "".to_string());
-    let p = PayloadBuilder::new()
-        .text(msg)
-        .channel(slack_channel)
-        .username(bot_name)
-        .build()?;
+    let p = PayloadBuilder::new().text(msg).channel(slack_channel).username(bot_name).build()?;
 
     let res = slack.send(&p);
     match res {
@@ -311,23 +282,13 @@ fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Vec<
     // Otherwise we need to know where the public_key is located?
     if config.vault_endpoint.is_some() && config.vault_token.is_some() {
         let key = helpers::get_vault_token(
-            config
-                .vault_endpoint
-                .as_ref()
-                .expect("vault endpoint is None")
-                .as_ref(),
-            config
-                .vault_token
-                .as_ref()
-                .expect("vault_token is None")
-                .as_ref(),
+            config.vault_endpoint.as_ref().expect("vault endpoint is None").as_ref(),
+            config.vault_token.as_ref().expect("vault_token is None").as_ref(),
             &host_info.hostname,
         )?;
         Ok(key.as_bytes().to_vec())
     } else {
-        let p = Path::new("/etc")
-            .join("bynar")
-            .join(format!("{}.pem", host_info.hostname));
+        let p = Path::new("/etc").join("bynar").join(format!("{}.pem", host_info.hostname));
         if !p.exists() {
             error!("{} does not exist", p.display());
         }
@@ -355,10 +316,8 @@ fn add_disk_to_description(
         state_machine.block_device.scsi_info.id,
         state_machine.block_device.scsi_info.lun
     ));
-    description.push_str(&format!(
-        "\nDisk vendor: {:?}",
-        state_machine.block_device.scsi_info.vendor
-    ));
+    description
+        .push_str(&format!("\nDisk vendor: {:?}", state_machine.block_device.scsi_info.vendor));
 }
 
 fn check_for_failed_disks(
@@ -384,18 +343,13 @@ fn check_for_failed_disks(
 
     info!("Checking all drives");
     let all_states: BynarResult<Vec<_>> =
-        test_disk::check_all_disks(&host_info, pool, host_mapping)?
-            .into_iter()
-            .collect();
+        test_disk::check_all_disks(&host_info, pool, host_mapping)?.into_iter().collect();
     // separate the states into Ok and Errors
     let usable_states: Vec<StateMachine> = match all_states {
         Ok(s) => s,
         Err(e) => {
             error!("check_all_disks failed with error: {:?}", e);
-            return Err(BynarError::new(format!(
-                "check_all_disks failed with error: {:?}",
-                e
-            )));
+            return Err(BynarError::new(format!("check_all_disks failed with error: {:?}", e)));
         }
     };
     //filter all the disks that are in the WaitingForReplacement state and are not currently undergoing an operation
@@ -468,10 +422,7 @@ fn check_for_failed_disks(
     //combine with replacing, then do sort_unstable_by and dedup_rm
     replacing.append(&mut add_replacing);
     replacing.sort_unstable_by(|a, b| {
-        a.block_device
-            .dev_path
-            .partial_cmp(&b.block_device.dev_path)
-            .unwrap()
+        a.block_device.dev_path.partial_cmp(&b.block_device.dev_path).unwrap()
     });
     replacing.dedup_by(|a, b| a.block_device.dev_path.eq(&b.block_device.dev_path));
     //filter Fail disks in seperate vec and soft-error those at the end before checking the errored_states
@@ -484,11 +435,7 @@ fn check_for_failed_disks(
         // add safeToRemove + Remove request to message_queue, checking if its already in first
         // create Operation, description, and get the op_id
         let mut desc = description.clone();
-        add_disk_to_description(
-            &mut desc,
-            &state_machine.block_device.dev_path,
-            &state_machine,
-        );
+        add_disk_to_description(&mut desc, &state_machine.block_device.dev_path, &state_machine);
         let op_id = match state_machine.block_device.operation_id {
             None => {
                 error!(
@@ -504,10 +451,8 @@ fn check_for_failed_disks(
             format!("{}", state_machine.block_device.dev_path.display())
         );
         let mess: (Operation, Option<String>, Option<u32>) = (op, Some(desc.clone()), Some(op_id));
-        let op2 = helpers::make_op!(
-            Remove,
-            format!("{}", state_machine.block_device.dev_path.display())
-        );
+        let op2 =
+            helpers::make_op!(Remove, format!("{}", state_machine.block_device.dev_path.display()));
         let mess2: (Operation, Option<String>, Option<u32>) = (op2, Some(desc), Some(op_id));
         if !message_queue.contains(&mess) && !message_queue.contains(&mess2) {
             message_queue.push_back(mess);
@@ -658,10 +603,7 @@ fn check_for_failed_disks(
         };
     }*/
     failed.iter().for_each(|state_machine| {
-        error!(
-            "Disk {} ended in a Fail state",
-            state_machine.block_device.dev_path.display()
-        )
+        error!("Disk {} ended in a Fail state", state_machine.block_device.dev_path.display())
     });
     Ok(())
 }
@@ -677,9 +619,7 @@ fn evaluate(
             match e {
                 // This is the error we're after
                 BynarError::HardwareError(HardwareError {
-                    ref name,
-                    ref serial_number,
-                    ..
+                    ref name, ref serial_number, ..
                 }) => {
                     let serial = serial_number.as_ref().map(|s| &**s);
                     let in_progress = in_progress::is_hardware_waiting_repair(
@@ -831,10 +771,7 @@ fn add_repaired_disks(
             }
             Ok(false) => {}
             Err(e) => {
-                error!(
-                    "Error getting resolved ticket status for {}.  {:?}",
-                    &ticket.ticket_id, e
-                );
+                error!("Error getting resolved ticket status for {}.  {:?}", &ticket.ticket_id, e);
             }
         };
     }
@@ -934,10 +871,7 @@ fn handle_operation_result(
                     return Ok(());
                 }
             }
-            error!(
-                "Unable to get current operation in the map for {}",
-                path.display()
-            );
+            error!("Unable to get current operation in the map for {}", path.display());
             Err(BynarError::from(format!(
                 "Unable to get current operation in the map for {}",
                 path.display()
@@ -1324,18 +1258,8 @@ fn main() {
                 .long("simulate")
                 .required(false),
         )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
-        .arg(
-            Arg::with_name("daemon")
-                .help("Run Bynar as a daemon")
-                .long("daemon")
-                .required(false),
-        )
+        .arg(Arg::with_name("v").short("v").multiple(true).help("Sets the level of verbosity"))
+        .arg(Arg::with_name("daemon").help("Run Bynar as a daemon").long("daemon").required(false))
         .arg(
             Arg::with_name("time")
                 .help("Time in seconds between Bynar runs")
@@ -1366,16 +1290,9 @@ fn main() {
     ));
     let config_dir = Path::new(matches.value_of("configdir").unwrap());
     if !config_dir.exists() {
-        warn!(
-            "Config directory {} doesn't exist. Creating",
-            config_dir.display()
-        );
+        warn!("Config directory {} doesn't exist. Creating", config_dir.display());
         if let Err(e) = create_dir(config_dir) {
-            error!(
-                "Unable to create directory {}: {}",
-                config_dir.display(),
-                e.to_string()
-            );
+            error!("Unable to create directory {}: {}", config_dir.display(), e.to_string());
             return;
         }
     }
@@ -1484,17 +1401,15 @@ fn main() {
         }
     };
     let public_key = get_public_key(&config, &host_info).unwrap();
-    let s = match helpers::connect(
-        &config.manager_host,
-        &config.manager_port.to_string(),
-        &public_key,
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Error connecting to socket: {:?}", e);
-            return;
-        }
-    };
+    let s =
+        match helpers::connect(&config.manager_host, &config.manager_port.to_string(), &public_key)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Error connecting to socket: {:?}", e);
+                return;
+            }
+        };
     let client_id: Vec<u8> = s.get_identity().unwrap();
     debug!("Client ID {:?}, len {}", client_id, client_id.len());
     let dur = Duration::from_secs(time);
@@ -1620,11 +1535,8 @@ fn main() {
         debug!("Request Map after looping {:?}", message_map);
     }
     debug!("Bynar exited successfully");
-    notify_slack(
-        &config,
-        &format!("Bynar on host  {} has stopped", host_info.hostname),
-    )
-    .expect("Unable to connect to slack");
+    notify_slack(&config, &format!("Bynar on host  {} has stopped", host_info.hostname))
+        .expect("Unable to connect to slack");
 }
 
 #[cfg(test)]
@@ -1706,9 +1618,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     disk_map.insert(partition.to_path_buf(), None);
@@ -1761,9 +1671,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     disk_map.insert(partition.to_path_buf(), None);
@@ -1775,12 +1683,9 @@ mod tests {
 
         // check that for every device in devices, there is a hashmap
         // in the map with the device and all its partitions
-        let sda_map = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-        ]
-        .to_vec();
+        let sda_map =
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")]
+                .to_vec();
         let sdb_map = [PathBuf::from("/dev/sdb")].to_vec();
         let sdc_map = [PathBuf::from("/dev/sdc"), PathBuf::from("/dev/sdc1")].to_vec();
         let sdd_map = [
@@ -1833,12 +1738,9 @@ mod tests {
     // this is testing the expected behavior of parts inside the function assuming certain call result
     fn test_create_msg_map_with_db() {
         // since we want to test specifically the partitions we need an explicit device list
-        let mut devices: Vec<PathBuf> = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sdb"),
-            PathBuf::from("/dev/sdd"),
-        ]
-        .to_vec();
+        let mut devices: Vec<PathBuf> =
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdb"), PathBuf::from("/dev/sdd")]
+                .to_vec();
         println!("List of devices: \n{:#?}", devices);
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let db_devices: Vec<PathBuf> = [
@@ -1886,9 +1788,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     disk_map.insert(partition.to_path_buf(), None);
@@ -1900,12 +1800,9 @@ mod tests {
 
         // check that for every device in devices, there is a hashmap
         // in the map with the device and all its partitions
-        let sda_map = [
-            PathBuf::from("/dev/sda"),
-            PathBuf::from("/dev/sda1"),
-            PathBuf::from("/dev/sda2"),
-        ]
-        .to_vec();
+        let sda_map =
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")]
+                .to_vec();
         let sdb_map = [PathBuf::from("/dev/sdb")].to_vec();
         let sdc_map = [PathBuf::from("/dev/sdc"), PathBuf::from("/dev/sdc1")].to_vec();
         let sdd_map = [
@@ -2001,13 +1898,7 @@ mod tests {
 
         let parent = PathBuf::from("/dev/sda");
         assert!(
-            map.get(&parent)
-                .unwrap()
-                .get(&insert_path)
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .op_type
+            map.get(&parent).unwrap().get(&insert_path).unwrap().as_ref().unwrap().op_type
                 == Op::Remove
         );
         let disk = map.get_mut(&parent).unwrap(); // we know map should have this
@@ -2019,13 +1910,7 @@ mod tests {
         }
         println!("New Map: \n{:#?}", map);
         assert!(
-            map.get(&parent)
-                .unwrap()
-                .get(&insert_path)
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .op_type
+            map.get(&parent).unwrap().get(&insert_path).unwrap().as_ref().unwrap().op_type
                 == Op::Add
         );
     }
@@ -2061,11 +1946,7 @@ mod tests {
         println!("New Map: \n{:#?}", map);
         assert!(map.get(&parent).is_some());
         assert!(map.get(&parent).unwrap().get(&insert_path).is_some());
-        assert!(map
-            .get(&parent)
-            .unwrap()
-            .get(&PathBuf::from("/dev/sdb2"))
-            .is_some());
+        assert!(map.get(&parent).unwrap().get(&PathBuf::from("/dev/sdb2")).is_some());
     }
 
     #[test]
@@ -2111,13 +1992,7 @@ mod tests {
 
         let parent = PathBuf::from("/dev/sda");
         assert!(
-            map.get(&parent)
-                .unwrap()
-                .get(&insert_path)
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .op_type
+            map.get(&parent).unwrap().get(&insert_path).unwrap().as_ref().unwrap().op_type
                 == Op::Remove
         );
         let disk = map.get_mut(&parent).unwrap(); // we know map should have this
@@ -2129,13 +2004,7 @@ mod tests {
         }
         println!("New Map: \n{:#?}", map);
         assert!(
-            map.get(&parent)
-                .unwrap()
-                .get(&insert_path)
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .op_type
+            map.get(&parent).unwrap().get(&insert_path).unwrap().as_ref().unwrap().op_type
                 == Op::Add
         );
     }
@@ -2171,11 +2040,7 @@ mod tests {
         println!("New Map: \n{:#?}", map);
         assert!(map.get(&parent).is_some());
         assert!(map.get(&parent).unwrap().get(&insert_path).is_some());
-        assert!(map
-            .get(&parent)
-            .unwrap()
-            .get(&PathBuf::from("/dev/sdb"))
-            .is_some());
+        assert!(map.get(&parent).unwrap().get(&PathBuf::from("/dev/sdb")).is_some());
     }
 
     #[test]
@@ -2215,12 +2080,8 @@ mod tests {
         map.insert(parent.to_path_buf(), disk_map);
         println!("Map: \n{:#?}", map);
 
-        assert!(get_map_op(&map, &PathBuf::from("/dev/sda"))
-            .unwrap()
-            .is_none());
-        assert!(get_map_op(&map, &PathBuf::from("/dev/sda1"))
-            .unwrap()
-            .is_some());
+        assert!(get_map_op(&map, &PathBuf::from("/dev/sda")).unwrap().is_none());
+        assert!(get_map_op(&map, &PathBuf::from("/dev/sda1")).unwrap().is_some());
     }
 
     #[test]
@@ -2241,19 +2102,9 @@ mod tests {
         map.insert(parent.to_path_buf(), disk_map);
         println!("Map: \n{:#?}", map);
 
-        assert!(map
-            .get(&parent)
-            .unwrap()
-            .get(&insert_path)
-            .unwrap()
-            .is_some());
+        assert!(map.get(&parent).unwrap().get(&insert_path).unwrap().is_some());
         remove_map_op(&mut map, &insert_path);
-        assert!(map
-            .get(&parent)
-            .unwrap()
-            .get(&insert_path)
-            .unwrap()
-            .is_none());
+        assert!(map.get(&parent).unwrap().get(&insert_path).unwrap().is_none());
         println!("After Removal: \n{:#?}", map);
     }
 
@@ -2312,9 +2163,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     disk_map.insert(partition.to_path_buf(), None);
@@ -2357,10 +2206,7 @@ mod tests {
             .collect();
 
         println!("Replacing: {:#?}", replacing);
-        assert_eq!(
-            replacing,
-            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec()
-        );
+        assert_eq!(replacing, [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec());
     }
     #[test]
     // check filter disks that are Waiting for Replacement with map having Add
@@ -2393,9 +2239,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     let op = Operation::new();
@@ -2480,9 +2324,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     let mut op = Operation::new();
@@ -2569,9 +2411,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     disk_map.insert(partition.to_path_buf(), None);
@@ -2663,9 +2503,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     let op = Operation::new();
@@ -2765,9 +2603,7 @@ mod tests {
             partitions
                 .iter()
                 .filter(|partition| {
-                    partition
-                        .to_string_lossy()
-                        .contains(&device.to_string_lossy().to_string())
+                    partition.to_string_lossy().contains(&device.to_string_lossy().to_string())
                 })
                 .for_each(|partition| {
                     let mut op = Operation::new();
@@ -2829,5 +2665,33 @@ mod tests {
         paths.iter().for_each(|path| {
             assert!(add_replacing.contains(&path));
         });
+    }
+
+    #[test]
+    // remove all duplicates from the replacing vector
+    fn test_remove_duplicates() {
+        let mut replacing = [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sdc1")].to_vec();
+        let mut paths = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+        ]
+        .to_vec();
+        replacing.append(&mut paths);
+        println!("Appended: {:#?}", replacing);
+        replacing.sort_unstable_by(|a, b| a.partial_cmp(&b.to_path_buf()).unwrap());
+        replacing.dedup_by(|a, b| a == b);
+        let compare = [
+            PathBuf::from("/dev/sda"),
+            PathBuf::from("/dev/sda1"),
+            PathBuf::from("/dev/sda2"),
+            PathBuf::from("/dev/sdc"),
+            PathBuf::from("/dev/sdc1"),
+        ]
+        .to_vec();
+        println!("Sorted and unique: {:#?}", replacing);
+        assert_eq!(compare, replacing);
     }
 }
