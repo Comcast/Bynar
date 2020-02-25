@@ -884,9 +884,14 @@ fn handle_operation_result(
                 current_op.ret_val = Some(op_res);
                 //push op back into map
                 add_or_update_map_op(message_map, &dev_path, Some(current_op))?;
-                return Ok(());
+            } else {
+                return Err(BynarError::from(format!(
+                    "{} on host {} does not have a currently running operation!",
+                    dev_path.display(),
+                    host_info.hostname
+                )));
             }
-            // check if allll the other paths in disk are SafeToRemove (and not Success)
+            // check if all the other paths in disk are SafeToRemove (and not Success)
             // check if all ops in the disk have finished
             let disk = get_disk_map_op(message_map, &dev_path)?;
             let mut all_finished = true;
@@ -894,13 +899,17 @@ fn handle_operation_result(
                 //check if value finished
                 if let Some(val) = v {
                     if let Some(ret) = &val.ret_val {
-                        if ret.get_outcome() != OpOutcome::Success
+                        if !(ret.get_outcome() != OpOutcome::Success
                             && (ret.get_op_type() == Op::SafeToRemove
-                                || ret.get_op_type() == Op::Remove)
+                                || ret.get_op_type() == Op::Remove))
                         {
                             all_finished = false;
                         }
+                    } else {
+                        all_finished = false;
                     }
+                } else {
+                    all_finished = false;
                 }
             });
             // if so, notify slack
@@ -1856,7 +1865,7 @@ mod tests {
     }
 
     // create empty map with just /dev/sda for testing
-    fn empty_sda_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>{
+    fn empty_sda_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> {
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         disk_map.insert(PathBuf::from("/dev/sda"), None);
@@ -2137,7 +2146,7 @@ mod tests {
     }
 
     // create empty map for testing with None values
-    fn create_none_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>{
+    fn create_none_map() -> HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> {
         let devices: Vec<PathBuf> = get_devices();
         let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
         let partitions: Vec<PathBuf> = get_partitions();
@@ -2585,5 +2594,102 @@ mod tests {
         .to_vec();
         println!("Sorted and unique: {:#?}", replacing);
         assert_eq!(compare, replacing);
+    }
+
+    #[test]
+    // test all finished check where disk_map is all finished and mixed Remove/SafeToRemove
+    fn test_all_finished_mixed() {
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+
+        let disk_paths =
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")]
+                .to_vec();
+        disk_paths.iter().for_each(|path| {
+            let mut safe_to_rem = OpOutcomeResult::new();
+            let mut op = Operation::new();
+            safe_to_rem.set_outcome(OpOutcome::Skipped);
+            if path == &PathBuf::from("/dev/sda") {
+                safe_to_rem.set_op_type(Op::Remove);
+                op.set_Op_type(Op::Remove);
+            } else {
+                safe_to_rem.set_op_type(Op::SafeToRemove);
+                op.set_Op_type(Op::SafeToRemove);
+            }
+            let mut disk_op = DiskOp::new(op, None, None);
+            disk_op.ret_val = Some(safe_to_rem);
+            disk_map.insert(path.to_path_buf(), Some(disk_op));
+        });
+        println!("Initial Disk Map: {:#?}", disk_map);
+
+        let mut all_finished = true;
+        disk_map.iter().for_each(|(k, v)| {
+            //check if value finished
+            if let Some(val) = v {
+                if let Some(ret) = &val.ret_val {
+                    if !(ret.get_outcome() != OpOutcome::Success
+                        && (ret.get_op_type() == Op::SafeToRemove
+                            || ret.get_op_type() == Op::Remove))
+                    {
+                        all_finished = false;
+                    }
+                } else {
+                    all_finished = false;
+                }
+            } else {
+                all_finished = false;
+            }
+        });
+        assert!(all_finished);
+    }
+
+    #[test]
+    // test all finished check where disk_map is not finished
+    fn test_all_finished_mixed_fail() {
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+
+        let disk_paths =
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")]
+                .to_vec();
+        disk_paths.iter().for_each(|path| {
+            let mut safe_to_rem = OpOutcomeResult::new();
+            let mut op = Operation::new();
+            if path == &PathBuf::from("/dev/sda2") {
+                safe_to_rem.set_outcome(OpOutcome::Success);
+            } else {
+                safe_to_rem.set_outcome(OpOutcome::Skipped);
+            }
+            if path == &PathBuf::from("/dev/sda") {
+                safe_to_rem.set_op_type(Op::Remove);
+                op.set_Op_type(Op::Remove);
+            } else {
+                safe_to_rem.set_op_type(Op::SafeToRemove);
+                op.set_Op_type(Op::SafeToRemove);
+            }
+            let mut disk_op = DiskOp::new(op, None, None);
+            disk_op.ret_val = Some(safe_to_rem);
+            disk_map.insert(path.to_path_buf(), Some(disk_op));
+        });
+        println!("Initial Disk Map: {:#?}", disk_map);
+
+        let mut all_finished = true;
+        disk_map.iter().for_each(|(k, v)| {
+            //check if value finished
+            if let Some(val) = v {
+                if let Some(ret) = &val.ret_val {
+                    if !(ret.get_outcome() != OpOutcome::Success
+                        && (ret.get_op_type() == Op::SafeToRemove
+                            || ret.get_op_type() == Op::Remove))
+                    {
+                        all_finished = false;
+                    }
+                } else {
+                    all_finished = false;
+                }
+            } else {
+                all_finished = false;
+            }
+        });
+        assert!(!all_finished);
     }
 }
