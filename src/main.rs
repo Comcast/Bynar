@@ -925,12 +925,7 @@ fn handle_operation_result(
                     ),
                 );
                 // get the path of the disk
-                let path =
-                    if let Some(parent) = block_utils::get_parent_devpath_from_path(&dev_path)? {
-                        parent
-                    } else {
-                        dev_path
-                    };
+                let path = get_request_keys(&dev_path)?.0;
                 // get the current op associated with the disk
                 if let Some(current_op) = get_map_op(message_map, &path)? {
                     let description = match current_op.description {
@@ -1089,12 +1084,8 @@ fn handle_operation_result(
                     ),
                 );
                 // get the path of the disk
-                let path =
-                    if let Some(parent) = block_utils::get_parent_devpath_from_path(&dev_path)? {
-                        parent
-                    } else {
-                        dev_path
-                    };
+                let path = get_request_keys(&dev_path)?.0;
+
                 // get the current op associated with the disk
                 if let Some(current_op) = get_map_op(message_map, &path)? {
                     let description = match current_op.description {
