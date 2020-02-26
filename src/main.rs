@@ -79,14 +79,7 @@ fn create_msg_map(
         .into_iter()
         .filter(|b| {
             !(if let Some(p) = b.as_path().file_name() {
-                p.to_string_lossy().starts_with("sr")
-            } else {
-                true
-            })
-        })
-        .filter(|b| {
-            !(if let Some(p) = b.as_path().file_name() {
-                p.to_string_lossy().starts_with("loop")
+                (p.to_string_lossy().starts_with("sr") || p.to_string_lossy().starts_with("loop"))
             } else {
                 true
             })
@@ -193,9 +186,8 @@ fn add_or_update_map_op(
         //add to map
         let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
         disk_map.insert(parent.to_path_buf(), None);
-        let partitions = block_utils::get_block_partitions()?;
         // check if partition parent is device
-        partitions
+        block_utils::get_block_partitions()?
             .iter()
             .filter(|partition| {
                 partition.to_string_lossy().contains(&parent.to_string_lossy().to_string())
@@ -232,7 +224,6 @@ fn remove_map_op(
     dev_path: &PathBuf,
 ) -> BynarResult<Option<DiskOp>> {
     let (parent, dev_path) = get_request_keys(dev_path)?;
-
     //parent is in the map
     if let Some(disk) = message_map.get_mut(&parent) {
         if let Some(partition) = disk.clone().get(dev_path) {
@@ -453,149 +444,6 @@ fn check_for_failed_disks(
             message_queue.push_back(mess2);
         }
     });
-    /*for result in test_disk::check_all_disks(&host_info, pool, host_mapping)? {
-        match result {
-            Ok(state_machine) => {
-                info!(
-                    "Disk status: /dev/{} {:?}",
-                    state_machine.block_device.device.name, state_machine
-                );
-                // just use state_machine.block_device.dev_path???
-                let mut dev_path = PathBuf::from("/dev");
-                let dev_name = &state_machine.block_device.device.name;
-                dev_path.push(&dev_name);
-
-                if state_machine.block_device.state == State::WaitingForReplacement {
-                    add_disk_to_description(&mut description, &dev_path, &state_machine);
-                    trace!("Description: {}", description);
-                    info!("Connecting to database to check if disk is in progress");
-                    let in_progress = in_progress::is_hardware_waiting_repair(
-                        pool,
-                        host_mapping.storage_detail_id,
-                        &dev_name,
-                        None,
-                    )?;
-                    match (simulate, in_progress) {
-                        (false, true) => {
-                            debug!("Device is already in the repair queue");
-                        }
-                        (false, false) => {
-                            debug!("Sending Safe-to-Remove and Remove requests");
-                            let op_id = match state_machine.block_device.operation_id {
-                                None => {
-                                    error!(
-                                        "Operation not recorded for {}",
-                                        state_machine.block_device.dev_path.display()
-                                    );
-                                    0
-                                }
-                                Some(i) => i,
-                            };
-                            /*debug!("Asking disk-manager if it's safe to remove disk");
-                            // CALL RPC
-                            let socket = helpers::connect(
-                                &config.manager_host,
-                                &config.manager_port.to_string(),
-                                &public_key,
-                            )?;
-                            match (
-                                helpers::safe_to_remove_request(&socket, &dev_path),
-                                config.slack_webhook.is_some(),
-                            ) {
-                                (Ok((OpOutcome::Success, true)), true) => {
-                                    debug!("safe to remove: true");
-                                    //Ok to remove the disk
-                                    let _ = notify_slack(
-                                        config,
-                                        &format!(
-                                            "Removing disk: {} on host: {}",
-                                            dev_path.display(),
-                                            host_info.hostname
-                                        ),
-                                    );
-
-                                    match helpers::remove_disk_request(
-                                        &socket, &dev_path, None, false,
-                                    ) {
-                                        Ok(outcome) => match outcome {
-                                            OpOutcome::Success => debug!("Disk removal successful"),
-                                            OpOutcome::Skipped => {
-                                                debug!("Disk skipped, disk is not removable")
-                                            }
-                                            OpOutcome::SkipRepeat => {
-                                                debug!("Disk already removed, skipping.")
-                                            }
-                                        },
-                                        Err(e) => {
-                                            error!("Disk removal failed: {}", e);
-                                        }
-                                    };
-                                }
-                                (Ok((_, false)), true) => {
-                                    debug!("safe to remove: false");
-                                    let _ = notify_slack(
-                                        config,
-                                        &format!(
-                                            "Need to remove disk {} but it's not safe \
-                                             on host: {}. I need a human.  Filing a ticket",
-                                            dev_path.display(),
-                                            host_info.hostname,
-                                        ),
-                                    );
-                                }
-                                (Err(err), true) => {
-                                    //Not ok to remove the disk but we need to
-                                    let _ = notify_slack(
-                                        &config,
-                                        &format!(
-                                            "Need to remove disk {} but can't tell if it's \
-                                             safe on host: {}. Error: {:?}.  Filing a ticket",
-                                            dev_path.display(),
-                                            host_info.hostname,
-                                            err
-                                        ),
-                                    );
-                                }
-                                (..) => {}
-                            };
-                            debug!("Creating support ticket");
-                            let ticket_id =
-                                create_support_ticket(config, "Bynar: Dead disk", &description)?;
-                            debug!("Recording ticket id {} in database", ticket_id);
-                            let op_id = match state_machine.block_device.operation_id {
-                                None => {
-                                    error!(
-                                        "Operation not recorded for {}",
-                                        state_machine.block_device.dev_path.display()
-                                    );
-                                    0
-                                }
-                                Some(i) => i,
-                            };
-                            // update operation detials in DB
-                            let mut operation_detail =
-                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                            operation_detail.set_tracking_id(ticket_id);
-                            add_or_update_operation_detail(pool, &mut operation_detail)?;*/
-                        }
-                        (..) => {}
-                    }
-                // Handle the ones that ended up stuck in Fail
-                } else if state_machine.block_device.state == State::Fail {
-                    error!("Disk {} ended in a Fail state", dev_path.display(),);
-                } else {
-                    // The rest should be State::Good ?
-                }
-            }
-            Err(e) => {
-                error!("check_all_disks failed with error: {:?}", e);
-                return Err(BynarError::new(format!(
-                    "check_all_disks failed with error: {:?}",
-                    e
-                )));
-            }
-        };
-    }*/
     failed.iter().for_each(|state_machine| {
         error!("Disk {} ended in a Fail state", state_machine.block_device.dev_path.display())
     });
@@ -722,46 +570,6 @@ fn add_repaired_disks(
                 );
                 let tid = Some(ticket.ticket_id.to_string());
                 message_queue.push_back((op, tid, None));
-                //CALL RPC
-                // add add_disk request to message_queue
-                /*
-                debug!("Connecting to disk-manager");
-                let socket = helpers::connect(
-                    &config.manager_host,
-                    &config.manager_port.to_string(),
-                    &public_key,
-                )?;
-
-                match helpers::add_disk_request(
-                    &socket,
-                    &Path::new(&ticket.device_path),
-                    None,
-                    simulate,
-                ) {
-                    Ok(outcome) => {
-                        match outcome {
-                            OpOutcome::Success => {
-                                debug!("Disk added successfully. Updating database record")
-                            }
-                            // Disk was either boot or something that shouldn't be added via backend
-                            OpOutcome::Skipped => debug!("Disk Skipped.  Updating database record"),
-                            // Disk is already in the cluster
-                            OpOutcome::SkipRepeat => {
-                                debug!("Disk already added.  Skipping.  Updating database record")
-                            }
-                        }
-                        match in_progress::resolve_ticket_in_db(pool, &ticket.ticket_id) {
-                            Ok(_) => debug!("Database updated"),
-                            Err(e) => {
-                                error!("Failed to resolve ticket {}.  {:?}", ticket.ticket_id, e)
-                            }
-                        };
-                    }
-                    Err(e) => {
-                        error!("Failed to add disk: {:?}", e);
-                    }
-                };
-                */
             }
             Ok(false) => {}
             Err(e) => {
@@ -818,6 +626,119 @@ fn handle_add_disk_res(
     };
 }
 
+//update map with operation result
+fn update_map_result(
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    host_info: &Host,
+    dev_path: &PathBuf,
+    op_res: OpOutcomeResult,
+) -> BynarResult<()> {
+    if let Some(mut current_op) = get_map_op(message_map, &dev_path)? {
+        current_op.ret_val = Some(op_res);
+        //push op back into map
+        add_or_update_map_op(message_map, &dev_path, Some(current_op))?;
+        Ok(())
+    } else {
+        Err(BynarError::from(format!(
+            "{} on host {} does not have a currently running operation!",
+            dev_path.display(),
+            host_info.hostname
+        )))
+    }
+}
+
+// check if all operations on a disk have finished (assuming SafeToRemove/Remove operations)
+fn is_all_finished(
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    dev_path: &PathBuf,
+) -> BynarResult<bool> {
+    // check if all the other paths in disk are SafeToRemove (and not Success)
+    // check if all ops in the disk have finished
+    let disk = get_disk_map_op(message_map, &dev_path)?;
+    let mut all_finished = true;
+    disk.iter().for_each(|(_, v)| {
+        //check if value finished
+        if let Some(val) = v {
+            if let Some(ret) = &val.ret_val {
+                if !(ret.get_outcome() != OpOutcome::Success
+                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove))
+                {
+                    all_finished = false;
+                }
+            } else {
+                all_finished = false;
+            }
+        } else {
+            all_finished = false;
+        }
+    });
+    Ok(all_finished)
+}
+
+// Open a ticket
+fn open_jira_ticket(
+    message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
+    host_info: &Host,
+    pool: &Pool<ConnectionManager>,
+    config: &ConfigSettings,
+    dev_path: &PathBuf,
+) -> BynarResult<()> {
+    // get the path of the disk
+    let path = get_request_keys(&dev_path)?.0;
+    // get the current op associated with the disk
+    if let Some(current_op) = get_map_op(message_map, &path)? {
+        let description = match current_op.description {
+            Some(d) => d,
+            None => {
+                return Err(BynarError::from(format!(
+                    "Disk {} on host {} is missing a description",
+                    path.display(),
+                    host_info.hostname
+                )))
+            }
+        };
+        let op_id = match current_op.operation_id {
+            None => {
+                error!("Operation not recorded for {}", path.display());
+                0
+            }
+            Some(i) => i,
+        };
+        //open JIRA ticket+ notify slack
+        debug!("Creating support ticket");
+        // temporarily disable error out
+        match create_support_ticket(config, "Bynar: Dead disk", &description) {
+            Ok(ticket_id) => {
+                debug!("Recording ticket id {} in database", ticket_id);
+                // update operation details in DB
+                let mut operation_detail =
+                    OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+                operation_detail.set_tracking_id(ticket_id);
+                add_or_update_operation_detail(pool, &mut operation_detail)?;
+            }
+            Err(e) => {
+                let _ = notify_slack(config, &format!("Unable to create ticket {:?}", e));
+            }
+        }
+        /*
+        let ticket_id =
+            create_support_ticket(config, "Bynar: Dead disk", &description)?;
+        debug!("Recording ticket id {} in database", ticket_id);
+        // update operation detials in DB
+        let mut operation_detail =
+            OperationDetail::new(op_id, OperationType::WaitingForReplacement);
+        operation_detail.set_tracking_id(ticket_id);
+        add_or_update_operation_detail(pool, &mut operation_detail)?;
+        */
+        return Ok(());
+    }
+    return Err(BynarError::from(format!(
+        "Disk {} on host {} is missing the current operation",
+        path.display(),
+        host_info.hostname
+    )));
+}
+
 //handle return of Operation
 fn handle_operation_result(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
@@ -826,88 +747,49 @@ fn handle_operation_result(
     op_res: OpOutcomeResult,
     config: &ConfigSettings,
 ) -> BynarResult<()> {
-    match op_res.get_result() {
-        ResultType::OK => {}
-        ResultType::ERR => {
-            if op_res.has_error_msg() {
-                let msg = op_res.get_error_msg();
-                match op_res.get_op_type() {
-                    Op::Add => {
-                        error!("Add disk failed : {}", msg);
-                        return Err(BynarError::from(msg));
-                    }
-                    Op::Remove => {
-                        error!("Remove disk failed : {}", msg);
-                        // return Err(BynarError::from(msg));
-                        // no need to error out, but update the map.  Error outcomes are also expected for Remove,
-                        // since remove might be run on the disk and the partition...or the input path is not in the
-                        // config file
-                    }
-                    Op::SafeToRemove => {
-                        error!("SafeToRemove disk failed : {}", msg);
-                        // no need to error out, but update the map.  Error outcomes are expected for SafeToRemove.
-                        // Ex. you removed a disk first before the partition.
-                    }
-                    _ => {}
-                }
+    if let (ResultType::ERR, true) = (op_res.get_result(), op_res.has_error_msg()) {
+        let msg = op_res.get_error_msg();
+        match op_res.get_op_type() {
+            Op::Add => {
+                error!("Add disk failed : {}", msg);
+                return Err(BynarError::from(msg));
             }
+            Op::Remove => {
+                error!("Remove disk failed : {}", msg);
+                // no need to error out, but update the map.  Error outcomes are also expected for Remove,
+                // since remove might be run on the disk and the partition...or the input path is not in the config file
+            }
+            Op::SafeToRemove => {
+                error!("SafeToRemove disk failed : {}", msg);
+                // no need to error out, but update the map.  Error outcomes are expected for SafeToRemove.
+                // Ex. you removed a disk first before the partition.
+            }
+            _ => {}
         }
     }
 
+    let dev_path = PathBuf::from(op_res.get_disk());
     match op_res.get_op_type() {
         Op::Add => {
-            let path = Path::new(op_res.get_disk());
-            if let Some(disk_op) = get_map_op(message_map, &path.to_path_buf())? {
+            if let Some(disk_op) = get_map_op(message_map, &dev_path.to_path_buf())? {
                 if let Some(ticket_id) = disk_op.description {
                     handle_add_disk_res(pool, &op_res, ticket_id);
                     //update result in the map (in otherwords, just set it to None)
-                    remove_map_op(message_map, &path.to_path_buf())?;
+                    remove_map_op(message_map, &dev_path.to_path_buf())?;
                     return Ok(());
                 }
             }
-            error!("Unable to get current operation in the map for {}", path.display());
+            error!("Unable to get current operation in the map for {}", dev_path.display());
             Err(BynarError::from(format!(
                 "Unable to get current operation in the map for {}",
-                path.display()
+                dev_path.display()
             )))
         }
         Op::SafeToRemove => {
             // get the op from map, update it with outcome, handle errors as necessary (just store in map)
-            let dev_path = PathBuf::from(op_res.get_disk());
-            if let Some(mut current_op) = get_map_op(message_map, &dev_path)? {
-                current_op.ret_val = Some(op_res);
-                //push op back into map
-                add_or_update_map_op(message_map, &dev_path, Some(current_op))?;
-            } else {
-                return Err(BynarError::from(format!(
-                    "{} on host {} does not have a currently running operation!",
-                    dev_path.display(),
-                    host_info.hostname
-                )));
-            }
-            // check if all the other paths in disk are SafeToRemove (and not Success)
-            // check if all ops in the disk have finished
-            let disk = get_disk_map_op(message_map, &dev_path)?;
-            let mut all_finished = true;
-            disk.iter().for_each(|(_, v)| {
-                //check if value finished
-                if let Some(val) = v {
-                    if let Some(ret) = &val.ret_val {
-                        if !(ret.get_outcome() != OpOutcome::Success
-                            && (ret.get_op_type() == Op::SafeToRemove
-                                || ret.get_op_type() == Op::Remove))
-                        {
-                            all_finished = false;
-                        }
-                    } else {
-                        all_finished = false;
-                    }
-                } else {
-                    all_finished = false;
-                }
-            });
+            update_map_result(message_map, host_info, &dev_path, op_res)?;
             // if so, notify slack
-            if all_finished {
+            if is_all_finished(message_map, &dev_path)? {
                 debug!("safe to remove: false");
                 let _ = notify_slack(
                     config,
@@ -918,59 +800,7 @@ fn handle_operation_result(
                         host_info.hostname,
                     ),
                 );
-                // get the path of the disk
-                let path = get_request_keys(&dev_path)?.0;
-                // get the current op associated with the disk
-                if let Some(current_op) = get_map_op(message_map, &path)? {
-                    let description = match current_op.description {
-                        Some(d) => d,
-                        None => {
-                            return Err(BynarError::from(format!(
-                                "Disk {} on host {} is missing a description",
-                                path.display(),
-                                host_info.hostname
-                            )))
-                        }
-                    };
-                    let op_id = match current_op.operation_id {
-                        None => {
-                            error!("Operation not recorded for {}", path.display());
-                            0
-                        }
-                        Some(i) => i,
-                    };
-                    //open JIRA ticket+ notify slack
-                    debug!("Creating support ticket");
-                    // temporarily disable error out
-                    match create_support_ticket(config, "Bynar: Dead disk", &description) {
-                        Ok(ticket_id) => {
-                            debug!("Recording ticket id {} in database", ticket_id);
-                            // update operation detials in DB
-                            let mut operation_detail =
-                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                            operation_detail.set_tracking_id(ticket_id);
-                            add_or_update_operation_detail(pool, &mut operation_detail)?;
-                        }
-                        Err(e) => {
-                            let _ =
-                                notify_slack(config, &format!("Unable to create ticket {:?}", e));
-                        }
-                    }
-                    /*let ticket_id =
-                        create_support_ticket(config, "Bynar: Dead disk", &description)?;
-                    debug!("Recording ticket id {} in database", ticket_id);
-                    // update operation detials in DB
-                    let mut operation_detail =
-                        OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                    operation_detail.set_tracking_id(ticket_id);
-                    add_or_update_operation_detail(pool, &mut operation_detail)?;*/
-                    return Ok(());
-                }
-                return Err(BynarError::from(format!(
-                    "Disk {} on host {} is missing the current operation",
-                    path.display(),
-                    host_info.hostname
-                )));
+                open_jira_ticket(message_map, host_info, pool, config, &dev_path)?;
             }
             //otherwise error....
             Err(BynarError::from(format!(
@@ -981,7 +811,6 @@ fn handle_operation_result(
         }
         Op::Remove => {
             //check if successful or not and send to slack
-            let dev_path = PathBuf::from(op_res.get_disk());
             match op_res.get_outcome() {
                 OpOutcome::Success => {
                     debug!(
@@ -1045,30 +874,9 @@ fn handle_operation_result(
                 }
             }
             //update map
-            if let Some(mut current_op) = get_map_op(message_map, &dev_path)? {
-                current_op.ret_val = Some(op_res);
-                //push op back into map
-                add_or_update_map_op(message_map, &dev_path, Some(current_op))?;
-            } else {
-                return Err(BynarError::from(format!(
-                    "{} on host {} does not have a currently running operation!",
-                    dev_path.display(),
-                    host_info.hostname
-                )));
-            }
-            // check if all ops in the disk have finished
-            let disk = get_disk_map_op(message_map, &dev_path)?;
-            let mut all_finished = true;
-            disk.iter().for_each(|(_, v)| {
-                //check if value finished
-                if let Some(val) = v {
-                    if val.ret_val.is_none() {
-                        all_finished = false;
-                    }
-                }
-            });
+            update_map_result(message_map, host_info, &dev_path, op_res)?;
             //if all finished open ticket+ notify slack
-            if all_finished {
+            if is_all_finished(message_map, &dev_path)?  {
                 let _ = notify_slack(
                     &config,
                     &format!(
@@ -1077,59 +885,7 @@ fn handle_operation_result(
                         dev_path.display(),
                     ),
                 );
-                // get the path of the disk
-                let path = get_request_keys(&dev_path)?.0;
-
-                // get the current op associated with the disk
-                if let Some(current_op) = get_map_op(message_map, &path)? {
-                    let description = match current_op.description {
-                        Some(d) => d,
-                        None => {
-                            return Err(BynarError::from(format!(
-                                "Disk {} is missing a description",
-                                path.display()
-                            )))
-                        }
-                    };
-                    let op_id = match current_op.operation_id {
-                        None => {
-                            error!("Operation not recorded for {}", path.display());
-                            0
-                        }
-                        Some(i) => i,
-                    };
-                    //open JIRA ticket+ notify slack
-                    debug!("Creating support ticket");
-                    match create_support_ticket(config, "Bynar: Dead disk", &description) {
-                        Ok(ticket_id) => {
-                            debug!("Recording ticket id {} in database", ticket_id);
-                            // update operation detials in DB
-                            let mut operation_detail =
-                                OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                            operation_detail.set_tracking_id(ticket_id);
-                            add_or_update_operation_detail(pool, &mut operation_detail)?;
-                        }
-                        Err(e) => {
-                            let _ =
-                                notify_slack(config, &format!("Unable to create ticket {:?}", e));
-                        }
-                    }
-                    // temporarily disable ticket erroring out
-                    /*
-                    let ticket_id =
-                        create_support_ticket(config, "Bynar: Dead disk", &description)?;
-                    debug!("Recording ticket id {} in database", ticket_id);
-                    // update operation detials in DB
-                    let mut operation_detail =
-                        OperationDetail::new(op_id, OperationType::WaitingForReplacement);
-                    operation_detail.set_tracking_id(ticket_id);
-                    add_or_update_operation_detail(pool, &mut operation_detail)?;*/
-                    return Ok(());
-                }
-                return Err(BynarError::from(format!(
-                    "Disk {} is missing the current operation",
-                    path.display()
-                )));
+                open_jira_ticket(message_map, host_info, pool, config, &dev_path)?;
             }
             Ok(())
         }
