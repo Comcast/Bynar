@@ -295,7 +295,7 @@ pub struct DBConfig {
 
 /// get message(s) from the socket
 pub fn get_messages(s: &Socket) -> BynarResult<Vec<u8>> {
-    let id = s.recv_bytes(0)?;
+    let _id = s.recv_bytes(0)?;
     if s.get_rcvmore()? {
         return Ok(s.recv_bytes(0)?);
     }
@@ -344,20 +344,17 @@ macro_rules! get_first_instance {
             return None;
         }
         while !copy.is_empty() {
-            match parse_from_bytes::<$mess_type>(&copy) {
-                Ok(mess) => {
-                    let bytes = mess.write_to_bytes().unwrap();
-                    let size = bytes.len();
-                    //println!("compare {:?} with {:?}", bytes, copy);
-                    if $message.starts_with(&bytes) {
-                        $message.drain(0..size);
-                        return Some(mess);
-                    }
+            if let Ok(mess) = parse_from_bytes::<$mess_type>(&copy) {
+                let bytes = mess.write_to_bytes().unwrap();
+                let size = bytes.len();
+                //println!("compare {:?} with {:?}", bytes, copy);
+                if $message.starts_with(&bytes) {
+                    $message.drain(0..size);
+                    return Some(mess);
                 }
                 // we can't error out early since
                 // the tag/wire bits are at the end and we can't tell
                 // how long a message might be or what kind(s) are in the vec
-                Err(_) => {}
             }
             // parse from bytes grabs from the end of the byte array
             //so, remove half the length of bytes from the end of the message and try again

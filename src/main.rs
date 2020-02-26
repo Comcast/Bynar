@@ -95,7 +95,7 @@ fn create_msg_map(
     let db_devices: Vec<PathBuf> =
         in_progress::get_devices_from_db(pool, host_mapping.storage_detail_id)?
             .into_iter()
-            .map(|(id, name, path)| path)
+            .map(|(_id, _name, path)| path)
             .collect();
     let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
 
@@ -140,34 +140,30 @@ fn create_msg_map(
 fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
     if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
         Ok((parent, dev_path))
+    } else if dev_path.exists() {
+        Ok((dev_path.to_path_buf(), dev_path))
     } else {
-        if dev_path.exists() {
-            Ok((dev_path.to_path_buf(), dev_path))
+        // partition was destroyed...probably
+        // make parent path
+        let mut str_path = dev_path.to_string_lossy().to_string();
+        while str_path.chars().last().unwrap().is_digit(10) {
+            str_path = str_path[0..str_path.len() - 1].to_string();
+        }
+        let path = PathBuf::from(str_path.to_string());
+        if path.exists() {
+            Ok((path, dev_path)) // partition probably
+        } else if str_path.starts_with("/dev/sd")
+            || str_path.starts_with("/dev/hd")
+            || str_path.starts_with("/dev/nvme")
+        {
+            Ok((dev_path.to_path_buf(), dev_path)) // disk...probably
         } else {
-            // partition was destroyed...probably
-            // make parent path
-            let mut str_path = dev_path.to_string_lossy().to_string();
-            while str_path.chars().last().unwrap().is_digit(10) {
-                str_path = str_path[0..str_path.len() - 1].to_string();
-            }
-            let path = PathBuf::from(str_path.to_string());
-            if path.exists() {
-                Ok((path, dev_path)) // partition probably
-            } else {
-                if str_path.starts_with("/dev/sd")
-                    || str_path.starts_with("/dev/hd")
-                    || str_path.starts_with("/dev/nvme")
-                {
-                    Ok((dev_path.to_path_buf(), dev_path)) // disk...probably
-                } else {
-                    // path just doesn't exist, so error...
-                    error!("Path {} does not exist, nor does its parent.", dev_path.display());
-                    return Err(BynarError::from(format!(
-                        "Path {} does not exist, nor does its parent.",
-                        dev_path.display()
-                    )));
-                }
-            }
+            // path just doesn't exist, so error...
+            error!("Path {} does not exist, nor does its parent.", dev_path.display());
+            Err(BynarError::from(format!(
+                "Path {} does not exist, nor does its parent.",
+                dev_path.display()
+            )))
         }
     }
 }
@@ -321,15 +317,13 @@ fn add_disk_to_description(
 }
 
 fn check_for_failed_disks(
-    config: &ConfigSettings,
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
     host_info: &Host,
     pool: &Pool<ConnectionManager>,
     host_mapping: &HostDetailsMapping,
-    simulate: bool,
+    _simulate: bool,
 ) -> BynarResult<()> {
-    let public_key = get_public_key(config, &host_info)?;
     //Host information to use in ticket creation
     let mut description = format!("A disk on {} failed. Please replace.", host_info.hostname);
     description.push_str(&format!(
@@ -895,7 +889,7 @@ fn handle_operation_result(
             // check if all ops in the disk have finished
             let disk = get_disk_map_op(message_map, &dev_path)?;
             let mut all_finished = true;
-            disk.iter().for_each(|(k, v)| {
+            disk.iter().for_each(|(_, v)| {
                 //check if value finished
                 if let Some(val) = v {
                     if let Some(ret) = &val.ret_val {
@@ -979,11 +973,11 @@ fn handle_operation_result(
                 )));
             }
             //otherwise error....
-            return Err(BynarError::from(format!(
+            Err(BynarError::from(format!(
                 "{} on host {} does not have a currently running operation!",
                 dev_path.display(),
                 host_info.hostname
-            )));
+            )))
         }
         Op::Remove => {
             //check if successful or not and send to slack
@@ -1065,7 +1059,7 @@ fn handle_operation_result(
             // check if all ops in the disk have finished
             let disk = get_disk_map_op(message_map, &dev_path)?;
             let mut all_finished = true;
-            disk.iter().for_each(|(k, v)| {
+            disk.iter().for_each(|(_, v)| {
                 //check if value finished
                 if let Some(val) = v {
                     if val.ret_val.is_none() {
@@ -1141,10 +1135,10 @@ fn handle_operation_result(
         }
         _ => {
             // these operations should never get called by Bynar
-            return Err(BynarError::from(format!(
+            Err(BynarError::from(format!(
                 "{} could not have run this operation!",
                 op_res.get_disk()
-            )));
+            )))
         }
     }
 }
@@ -1223,9 +1217,9 @@ fn send_and_recieve(
                 None => {
                     //Actually, this is a problem since Bynar only sends Add/SafeToRemove/Remove requests
                     error!("Message is not an OpOutcomeResult");
-                    return Err(BynarError::from(format!(
-                        "Message received is not an OpOutcomeResult"
-                    )));
+                    return Err(BynarError::from(
+                        "Message received is not an OpOutcomeResult".to_string(),
+                    ));
                 }
             }
         }
@@ -1306,7 +1300,7 @@ fn main() {
         );
         return;
     }
-    let config: ConfigSettings = config.expect("Failed to load config");
+    let mut config: ConfigSettings = config.expect("Failed to load config");
     let _ = CombinedLogger::init(loggers);
     let pidfile = format!("/var/log/{}", config.daemon_pid);
     //check if the pidfile exists
@@ -1418,7 +1412,6 @@ fn main() {
     'outer: loop {
         let now = Instant::now();
         match check_for_failed_disks(
-            &config,
             &mut message_map,
             &mut message_queue,
             &host_info,
@@ -1496,8 +1489,7 @@ fn main() {
                                 .expect("Unable to connect to slack");
                                 return;
                             }
-                            let config: ConfigSettings =
-                                config_file.expect("Failed to load config");
+                            config = config_file.expect("Failed to load config");
                         }
                         signal_hook::SIGINT | signal_hook::SIGCHLD => {
                             //skip this

@@ -389,7 +389,7 @@ impl CephBackend {
         let new_osd_id = osd_create(&self.cluster_handle, id, simulate)?;
         debug!("New osd id created: {:?}", new_osd_id);
         let osd_fsid = uuid::Uuid::new_v4();
-        let (lv_dev_name, vg_size) =
+        let (lv_dev_name, _vg_size) =
             self.create_lvm(&osd_fsid, new_osd_id, &dev_path, journal.as_ref())?;
 
         // Mount the drive
@@ -722,7 +722,7 @@ impl CephBackend {
     // is a block.wal journal partition).  Do nothing if there is no journal
     fn remove_journal(&self, journal_path: &Path) -> BynarResult<()> {
         trace!("Journal path is {}", journal_path.display());
-        if let (Some(part_id), device) = block_utils::get_device_from_path(&journal_path)? {
+        if let (Some(part_id), _) = block_utils::get_device_from_path(&journal_path)? {
             trace!("Partition number is {}", part_id);
             if let Some(parent_path) = block_utils::get_parent_devpath_from_path(&journal_path)? {
                 //check if parent device is in journal devices
@@ -982,7 +982,7 @@ impl CephBackend {
     }
 
     // check if the osd is out of the cluster
-    fn is_osd_out(&self, osd_id: u64, simulate: bool) -> BynarResult<bool> {
+    fn is_osd_out(&self, osd_id: u64, _simulate: bool) -> BynarResult<bool> {
         let out_tree = osd_tree_status(&self.cluster_handle, ceph::cmd::CrushNodeStatus::Out)?;
         for node in out_tree.nodes {
             if node.id as u64 == osd_id {
@@ -1250,7 +1250,6 @@ impl CephBackend {
     // weight the osd slowly to the target weight so as not to introduce too
     // much latency into the cluster
     fn gradual_weight(&self, osd_id: u64, is_add: bool, simulate: bool) -> BynarResult<()> {
-        let crush_tree = osd_tree(&self.cluster_handle)?;
         debug!("Gradually weighting osd: {}", osd_id);
         //set noscrub (remember to handle error by unsetting noscrub)
         self.set_noscrub(simulate)?;
@@ -1301,22 +1300,10 @@ impl Backend for CephBackend {
         }
         //check if manual bluestore
         let osd_config = get_osd_config_by_path(&self.config, device)?;
-        let path_check;
-        let mut part2: String = device.to_string_lossy().to_string();
-        if !osd_config.is_lvm {
-            if let Some(e) = block_utils::get_parent_devpath_from_path(device)? {
-                part2.truncate(part2.len() - 1);
-                part2.push_str("2");
-                path_check = Path::new(&part2);
-            } else {
-                part2.push_str("2");
-                path_check = Path::new(&part2);
-            }
-        } else {
-            path_check = device;
-        }
+        let path_check =
+            if !osd_config.is_lvm { get_second_partition(device)? } else { device.to_path_buf() };
         // check if the disk is already out of the cluster
-        if !is_device_in_cluster(&self.cluster_handle, path_check)? {
+        if !is_device_in_cluster(&self.cluster_handle, &path_check)? {
             debug!("Device {} is already out of the cluster.  Skipping", device.display());
             return Ok(OpOutcome::SkipRepeat);
         }
@@ -1347,7 +1334,7 @@ impl Backend for CephBackend {
         Ok(OpOutcome::Success)
     }
 
-    fn safe_to_remove(&self, device: &Path, simulate: bool) -> BynarResult<(OpOutcome, bool)> {
+    fn safe_to_remove(&self, device: &Path, _simulate: bool) -> BynarResult<(OpOutcome, bool)> {
         // check if the disk is a system disk or journal disk first and skip evaluation if so.
         if is_system_disk(&self.config.system_disks, device)
             || is_journal(&self.config.journal_devices, device)
@@ -1358,27 +1345,34 @@ impl Backend for CephBackend {
         //check if manual bluestore
         let osd_config = get_osd_config_by_path(&self.config, device)?;
         let osd_id = if !osd_config.is_lvm {
-            if let Some(e) = block_utils::get_parent_devpath_from_path(device)? {
-                let mut part2: String = device.to_string_lossy().to_string();
-                part2.truncate(part2.len() - 1);
-                part2.push_str("2");
-                let part2 = Path::new(&part2);
-                debug!("CHECKING PATH {}", part2.display());
-                //get the osd id
-                get_osd_id_from_device(&self.cluster_handle, part2)?
-            } else {
-                let mut part2: String = device.to_string_lossy().to_string();
-                part2.push_str("2");
-                let part2 = Path::new(&part2);
-                debug!("CHECKING PATH {}", part2.display());
-                get_osd_id_from_device(&self.cluster_handle, part2)?
-            }
+            let part2 = &get_second_partition(device)?;
+            debug!("CHECKING PATH {}", part2.display());
+            //get the osd id
+            get_osd_id_from_device(&self.cluster_handle, part2)?
         } else {
             //get the osd id
             get_osd_id_from_device(&self.cluster_handle, device)?
         };
         // create and send the command to check if the osd is safe to remove
         Ok((OpOutcome::Success, osd_safe_to_destroy(&self.cluster_handle, osd_id)))
+    }
+}
+
+//get second partition if it exists, and check if the path is valid
+fn get_second_partition(device: &Path) -> BynarResult<PathBuf> {
+    let mut str_path = device.to_string_lossy().to_string();
+    while !str_path.is_empty() && str_path.chars().last().unwrap().is_digit(10) {
+        str_path = str_path[0..str_path.len() - 1].to_string();
+    }
+    str_path.push_str("2");
+    let path = PathBuf::from(str_path);
+    if path.exists() {
+        Ok(path)
+    } else {
+        Err(BynarError::from(format!(
+            "Unable to get second partition for path {}",
+            device.display()
+        )))
     }
 }
 

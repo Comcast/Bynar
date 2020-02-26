@@ -49,7 +49,6 @@ fn add_disk(
                     }
                     ResultType::ERR => {
                         if op_result.has_error_msg() {
-                            let msg = op_result.get_error_msg();
                             return Err(BynarError::from(op_result.get_error_msg()));
                         } else {
                             error!("error_msg not set");
@@ -116,7 +115,6 @@ fn remove_disk(
                     }
                     ResultType::ERR => {
                         if op_result.has_error_msg() {
-                            let msg = op_result.get_error_msg();
                             return Err(BynarError::from(op_result.get_error_msg()));
                         } else {
                             error!("error_msg not set");

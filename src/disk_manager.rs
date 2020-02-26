@@ -310,7 +310,7 @@ fn listen(
                     let mut msg = responder.recv_bytes(0)?;
                     debug!("Got msg len: {}", msg.len());
                     trace!("Parsing msg {:?} as hex", msg);
-                    if msg.len() == 0 {
+                    if msg.is_empty() {
                         continue;
                     }
                     while !msg.is_empty() {
@@ -318,23 +318,20 @@ fn listen(
                             Ok(bytes) => bytes,
                             Err(e) => {
                                 error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
-                                break 'outer Ok(());
                                 continue;
                             }
                         };
                         let client_id = client_id.clone();
                         let size = operation.write_to_bytes()?.len();
                         msg.drain((msg.len() - size)..msg.len());
-                        let send_res = send_res.clone();
-                        let send_disk = send_disk.clone();
-                        let send_ticket = send_ticket.clone();
+                        let (send_res, send_disk, send_ticket) = (send_res.clone(), send_disk.clone(), send_ticket.clone());
 
                         debug!("Operation requested: {:?}", operation.get_Op_type());
                         if op_no_disk(&responder, &operation) {
                             continue;
                         }
                         // check if op is currently running.  If so, skip it
-                        if op_running!(&mut req_map, &operation) {
+                        if op_running!(&req_map, &operation) {
                             trace!("Operation {:?} cannot be run, disk is already running an operation", operation);
                             //build OpOutcomeResult with SkipRepeat, send to output?
                             let mut op_res = OpOutcomeResult::new();
@@ -343,7 +340,7 @@ fn listen(
                             op_res.set_op_type(operation.get_Op_type());
                             op_res.set_result(ResultType::OK);
                             op_res.set_value(false);
-                            send_res.send((client_id, op_res));
+                            let _ = send_res.send((client_id, op_res)); // this shouldn't error unless the channel breaks
                             continue;
                         }
                         op_insert(&mut req_map, &operation);
