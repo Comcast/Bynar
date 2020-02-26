@@ -732,11 +732,11 @@ fn open_jira_ticket(
         */
         return Ok(());
     }
-    return Err(BynarError::from(format!(
+    Err(BynarError::from(format!(
         "Disk {} on host {} is missing the current operation",
         path.display(),
         host_info.hostname
-    )));
+    )))
 }
 
 //handle return of Operation
@@ -876,7 +876,7 @@ fn handle_operation_result(
             //update map
             update_map_result(message_map, host_info, &dev_path, op_res)?;
             //if all finished open ticket+ notify slack
-            if is_all_finished(message_map, &dev_path)?  {
+            if is_all_finished(message_map, &dev_path)? {
                 let _ = notify_slack(
                     &config,
                     &format!(
@@ -917,9 +917,9 @@ fn send_and_recieve(
         if let Some((mess, desc, op_id)) = message_queue.pop_front() {
             // if mess.op_type() == Op::Remove, check if Safe-To-Remove in map complete
             // if not, send to end of queue (push_back)
-            let path = Path::new(mess.get_disk()).to_path_buf();
+            let path = PathBuf::from(mess.get_disk());
             //check if there was a previous request, and whether it was completed
-            if let Some(disk_op) = get_map_op(&message_map, &path.to_path_buf())? {
+            if let Some(disk_op) = get_map_op(&message_map, &path)? {
                 // check if Safe-to-remove returned yet
                 if let Some(val) = disk_op.ret_val {
                     // check if mess is a Remove op
@@ -1291,7 +1291,6 @@ fn main() {
 mod tests {
     use super::*;
     use block_utils::*;
-
     // list of devices to use in some test functions
     fn get_devices() -> Vec<PathBuf> {
         [
@@ -1326,14 +1325,8 @@ mod tests {
             .into_iter()
             .filter(|b| {
                 !(if let Some(p) = b.as_path().file_name() {
-                    p.to_string_lossy().starts_with("sr")
-                } else {
-                    true
-                })
-            })
-            .filter(|b| {
-                !(if let Some(p) = b.as_path().file_name() {
-                    p.to_string_lossy().starts_with("loop")
+                    (p.to_string_lossy().starts_with("sr")
+                        || p.to_string_lossy().starts_with("loop"))
                 } else {
                     true
                 })
@@ -1363,14 +1356,8 @@ mod tests {
             .into_iter()
             .filter(|b| {
                 !(if let Some(p) = b.as_path().file_name() {
-                    p.to_string_lossy().starts_with("sr")
-                } else {
-                    true
-                })
-            })
-            .filter(|b| {
-                !(if let Some(p) = b.as_path().file_name() {
-                    p.to_string_lossy().starts_with("loop")
+                    (p.to_string_lossy().starts_with("sr")
+                        || p.to_string_lossy().starts_with("loop"))
                 } else {
                     true
                 })
