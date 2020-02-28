@@ -802,12 +802,7 @@ fn handle_operation_result(
                 );
                 open_jira_ticket(message_map, host_info, pool, config, &dev_path)?;
             }
-            //otherwise error....
-            Err(BynarError::from(format!(
-                "{} on host {} does not have a currently running operation!",
-                dev_path.display(),
-                host_info.hostname
-            )))
+            Ok(())
         }
         Op::Remove => {
             //check if successful or not and send to slack
