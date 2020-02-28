@@ -19,6 +19,8 @@ use api::service::{
 mod backend;
 mod in_progress;
 mod test_disk;
+#[macro_use]
+mod util;
 
 use crate::backend::BackendType;
 use block_utils::{Device, MediaType};
@@ -47,7 +49,7 @@ fn create_req_map() -> BynarResult<HashMap<PathBuf, Option<Op>>> {
         .into_iter()
         .filter(|b| {
             !(if let Some(p) = b.as_path().file_name() {
-                (p.to_string_lossy().starts_with("sr") ||  p.to_string_lossy().starts_with("loop"))
+                (p.to_string_lossy().starts_with("sr") || p.to_string_lossy().starts_with("loop"))
             } else {
                 true
             })
@@ -98,6 +100,21 @@ macro_rules! op_running {
                 }
             }
         }
+    }};
+}
+
+macro_rules! set_outcome_result {
+    (err => $result:ident, $outcome:expr) => {{
+        $result.set_result(ResultType::ERR);
+        $result.set_error_msg($outcome);
+    }};
+    (ok =>$result:ident,  $outcome:expr) => {{
+        $result.set_result(ResultType::OK);
+        $result.set_outcome($outcome);
+    }};
+    (ok => $result:ident, $outcome:expr, $val:expr) => {{
+        $result.set_value($val);
+        set_outcome_result!(ok => $result, $outcome)
     }};
 }
 
@@ -221,21 +238,14 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
 fn op_no_disk(responder: &Socket, op: &Operation) -> bool {
     if !op.has_disk() {
         match op.get_Op_type() {
-            Op::Add => error!("Add operation must include disk field.  Ignoring request"),
-            Op::AddPartition => {
-                error!("Add Partition operation must include disk field.  Ignoring request")
-            }
-            Op::Remove => error!("Remove operation must include disk field.  Ignoring request"),
-            Op::SafeToRemove => {
-                error!("Safe to remove operation must include disk field.  Ignoring request")
+            Op::Add | Op::AddPartition | Op::Remove | Op::SafeToRemove => {
+                error!("Add operation must include disk field.  Ignoring request")
             }
             _ => return false,
         }
         // We still have to respond with an error message
         let mut result = OpOutcomeResult::new();
-        result.set_result(ResultType::ERR);
-        result.set_error_msg("missing operation field in protocol. Ignoring request".to_string());
-
+        set_outcome_result!(err => result, "missing operation field in protocol. Ignoring request".to_string());
         let _ = respond_to_client(&result, &responder);
         return true;
     }
@@ -277,14 +287,7 @@ fn listen(
     pool.scope(|s| 'outer: loop {
         if let Ok(responder) = responder.try_lock() {
             let now = Instant::now();
-            let events = match responder.get_events() {
-                Err(zmq::Error::EBUSY) => {
-                    trace!("Socket Busy, skip");
-                    continue;
-                }
-                Err(e) => return Err(BynarError::from(e)),
-                Ok(e) => e as zmq::PollEvents,
-            };
+            let events = poll_events!(responder, continue);
             // is the socket readable?
             if events.contains(zmq::PollEvents::POLLIN) {
                 //get the id first {STREAM sockets get messages with id prepended}
@@ -318,13 +321,10 @@ fn listen(
                         // check if op is currently running.  If so, skip it
                         if op_running!(&req_map, &operation) {
                             trace!("Operation {:?} cannot be run, disk is already running an operation", operation);
-                            //build OpOutcomeResult with SkipRepeat, send to output?
                             let mut op_res = OpOutcomeResult::new();
                             op_res.set_disk(operation.get_disk().to_string());
-                            op_res.set_outcome(OpOutcome::SkipRepeat);
                             op_res.set_op_type(operation.get_Op_type());
-                            op_res.set_result(ResultType::OK);
-                            op_res.set_value(false);
+                            set_outcome_result!(ok => op_res, OpOutcome::SkipRepeat, false);
                             let _ = send_res.send((client_id, op_res)); // this shouldn't error unless the channel breaks
                             continue;
                         }
@@ -399,9 +399,7 @@ fn listen(
                                         }
                                         Ok((OpOutcome::Skipped, val)) => {
                                             debug!("Disk skipped");
-                                            result.set_outcome(OpOutcome::Skipped);
-                                            result.set_value(val);
-                                            result.set_result(ResultType::OK);
+                                            set_outcome_result!(ok => result, OpOutcome::Skipped, val);
                                             let _ = send_res.send((client_id, result));
                                         }
                                         Ok((OpOutcome::SkipRepeat, val)) => {
@@ -465,13 +463,11 @@ fn listen(
                     }
                 }
             }
-            // send completed requests (or error messages)
             if events.contains(zmq::PollEvents::POLLOUT) {
                 //check disks first, since those are faster requests than add/remove reqs
                 match recv_disk.try_recv() {
                     Ok((client_id, result)) => {
                         // send result back to client
-                        //send client id back first
                         let _ = responder.send(&client_id, zmq::SNDMORE);
                         let _ = respond_to_client(&result, &responder);
                     }
@@ -479,14 +475,12 @@ fn listen(
                         // check if there are tickets (also takes a while, but not as long as add/remove/safe-to-remove)
                         match recv_ticket.try_recv() {
                             Ok((client_id, result)) => {
-                                // send result back to client
                                 let _ = responder.send(&client_id, zmq::SNDMORE);
                                 let _ = respond_to_client(&result, &responder);
                             }
                             Err(_) => {
                                 // no disks in the queue, check if any add/remove/safe-to-remove req results
                                 if let Ok((client_id, result)) = recv_res.try_recv() {
-                                    // send result back to client
                                     //check if result is SkipRepeat, if so, skipp the assert! and insert
                                     debug!("Send {:?}", result);
                                     if  OpOutcome::SkipRepeat != result.get_outcome() {
@@ -506,23 +500,18 @@ fn listen(
                     for signal in signals.pending() {
                         match signal as c_int {
                             signal_hook::SIGHUP => {
-                                //Reload the config file
-                                debug!("Reload Config File");
-                                let config_file =
-                                    helpers::load_config(config_dir, "disk-manager.json");
-                                if let Err(e) = config_file {
-                                    error!(
-                                        "Failed to load config file {}. error: {}",
-                                        config_dir.join("disk-manager.json").display(),
-                                        e
-                                    );
-                                    return Ok(());
-                                }
-                                let config: DiskManagerConfig =
-                                    config_file.expect("Failed to load config");
+                                // Don't actually need to reload the config, since it gets reloaded on every call to backend...
+                                debug!("Requested to reload config file");
+                                let config: DiskManagerConfig = match helpers::load_config(&config_dir, "disk-manager.json") {
+                                    Ok(p) => p,
+                                    Err(e) => {
+                                        error!("Failed to load config file {}", e);
+                                        continue
+                                    }
+                                };
                                 notify_slack(
                                     &config,
-                                    &"Reload disk-manager config file".to_string(),
+                                    &"Requested to reload config, ignoring request: config changes already loaded".to_string(),
                                 )
                                 .expect("Unable to connect to slack");
                             }
@@ -556,23 +545,8 @@ fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResul
     Ok(())
 }
 
-macro_rules! set_outcome_result {
-    (err => $result:ident, $outcome:expr) => {{
-        $result.set_result(ResultType::ERR);
-        $result.set_error_msg($outcome);
-    }};
-    (out =>$result:ident,  $outcome:expr) => {{
-        $result.set_result(ResultType::OK);
-        $result.set_outcome($outcome);
-    }};
-    (out => $result:ident, $outcome:expr, $val:expr) => {{
-        $result.set_value($val);
-        set_outcome_result!(out => $result, $outcome)
-    }};
-}
-
 #[test]
-fn test_set_outcome_result(){
+fn test_set_outcome_result() {
     let mut result = OpOutcomeResult::new();
     result.set_disk("/dev/sdc".to_string());
     result.set_op_type(Op::Add);
@@ -582,12 +556,12 @@ fn test_set_outcome_result(){
     result.set_disk("/dev/sdc".to_string());
     result.set_op_type(Op::Add);
     let outcome = OpOutcome::Success;
-    set_outcome_result!(out => result, outcome);
+    set_outcome_result!(ok => result, outcome);
     println!("Success Outcome: {:#?}", result);
     let mut result = OpOutcomeResult::new();
     result.set_disk("/dev/sdc".to_string());
     result.set_op_type(Op::Add);
-    set_outcome_result!(out => result, outcome, true);
+    set_outcome_result!(ok => result, outcome, true);
     println!("Success Outcome: {:#?}", result);
 }
 
@@ -616,7 +590,7 @@ fn add_disk(
     //Send back OpOutcomeResult
     match backend.add_disk(&Path::new(d), id, false) {
         Ok(outcome) => {
-            set_outcome_result!(out => result, outcome);
+            set_outcome_result!(ok => result, outcome);
         }
         Err(e) => {
             set_outcome_result!(err => result, e.to_string());
@@ -714,7 +688,7 @@ fn remove_disk(
     };
     match backend.remove_disk(&Path::new(d), false) {
         Ok(outcome) => {
-            set_outcome_result!(out => result, outcome);
+            set_outcome_result!(ok => result, outcome);
         }
         Err(e) => {
             set_outcome_result!(err => result, e.to_string());
@@ -748,7 +722,7 @@ fn safe_to_remove_disk(
     match safe_to_remove(&Path::new(d), &backend, &config_dir) {
         Ok((outcome, val)) => {
             debug!("Safe to remove: {}", val);
-            set_outcome_result!(out => result, outcome, val);
+            set_outcome_result!(ok => result, outcome, val);
         }
         Err(e) => {
             debug!("Safe to remove err: {}", e);
@@ -771,9 +745,7 @@ pub fn get_jira_tickets(
         Ok(p) => p,
         Err(e) => {
             error!("Failed to load config file {}", e);
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
+            set_outcome_result!(err => result, e.to_string());
             // unable to load config file
             let _ = sender.send((client_id, result));
             return Ok(());
@@ -784,9 +756,7 @@ pub fn get_jira_tickets(
         Ok(p) => p,
         Err(e) => {
             error!("Failed to create database pool {}", e);
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
+            set_outcome_result!(err => result, e.to_string());
             // unable to create DB connection
             let _ = sender.send((client_id, result));
             return Ok(());
