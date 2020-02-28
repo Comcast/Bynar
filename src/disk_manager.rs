@@ -47,14 +47,7 @@ fn create_req_map() -> BynarResult<HashMap<PathBuf, Option<Op>>> {
         .into_iter()
         .filter(|b| {
             !(if let Some(p) = b.as_path().file_name() {
-                p.to_string_lossy().starts_with("sr")
-            } else {
-                true
-            })
-        })
-        .filter(|b| {
-            !(if let Some(p) = b.as_path().file_name() {
-                p.to_string_lossy().starts_with("loop")
+                (p.to_string_lossy().starts_with("sr") ||  p.to_string_lossy().starts_with("loop"))
             } else {
                 true
             })
@@ -81,14 +74,6 @@ macro_rules! get_op_pathbuf {
 
 // check if a disk already has a request.  Return true if an op is already running (false otherwise or if
 // op is List or GetCreatedTickets)
-fn is_op_running(req_map: &mut HashMap<PathBuf, Option<Op>>, op: &Operation) -> bool {
-    // if op_type is List or GetCreatedTickets, return false
-    match op.get_Op_type() {
-        Op::List | Op::GetCreatedTickets => false,
-        _ => req_map.get(&get_op_pathbuf!(op)).is_some(),
-    }
-}
-
 macro_rules! op_running {
     ($req_map:expr,$op:expr) => {{
         match $op.get_Op_type() {
@@ -571,6 +556,41 @@ fn respond_to_client<T: protobuf::Message>(result: &T, s: &Socket) -> BynarResul
     Ok(())
 }
 
+macro_rules! set_outcome_result {
+    (err => $result:ident, $outcome:expr) => {{
+        $result.set_result(ResultType::ERR);
+        $result.set_error_msg($outcome);
+    }};
+    (out =>$result:ident,  $outcome:expr) => {{
+        $result.set_result(ResultType::OK);
+        $result.set_outcome($outcome);
+    }};
+    (out => $result:ident, $outcome:expr, $val:expr) => {{
+        $result.set_value($val);
+        set_outcome_result!(out => $result, $outcome)
+    }};
+}
+
+#[test]
+fn test_set_outcome_result(){
+    let mut result = OpOutcomeResult::new();
+    result.set_disk("/dev/sdc".to_string());
+    result.set_op_type(Op::Add);
+    set_outcome_result!(err => result, "Error was set".to_string());
+    println!("Error Outcome: {:#?}", result);
+    let mut result = OpOutcomeResult::new();
+    result.set_disk("/dev/sdc".to_string());
+    result.set_op_type(Op::Add);
+    let outcome = OpOutcome::Success;
+    set_outcome_result!(out => result, outcome);
+    println!("Success Outcome: {:#?}", result);
+    let mut result = OpOutcomeResult::new();
+    result.set_disk("/dev/sdc".to_string());
+    result.set_op_type(Op::Add);
+    set_outcome_result!(out => result, outcome, true);
+    println!("Success Outcome: {:#?}", result);
+}
+
 // add disk request function.  Send the result through the sender channel back to the main thread.
 fn add_disk(
     sender: &crossbeam_channel::Sender<(Vec<u8>, OpOutcomeResult)>,
@@ -586,9 +606,7 @@ fn add_disk(
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(backend) => backend,
         Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
+            set_outcome_result!(err => result, e.to_string());
             // Bail early.  We can't load the backend
             let _ = sender.send((client_id, result));
             return Ok(());
@@ -598,12 +616,10 @@ fn add_disk(
     //Send back OpOutcomeResult
     match backend.add_disk(&Path::new(d), id, false) {
         Ok(outcome) => {
-            result.set_outcome(outcome);
-            result.set_result(ResultType::OK);
+            set_outcome_result!(out => result, outcome);
         }
         Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
+            set_outcome_result!(err => result, e.to_string());
         }
     };
     let _ = sender.send((client_id, result));
@@ -672,11 +688,6 @@ fn list_disks(
 
     let mut disks = Disks::new();
     disks.set_disk(RepeatedField::from_vec(disk_list));
-    /*debug!("Encoding disk list");
-    let encoded = disks.write_to_bytes()?;
-
-    debug!("Responding to client with msg len: {}", encoded.len());
-    s.send(&encoded, 0)?;*/
     let _ = c.send((client_id, disks));
     Ok(())
 }
@@ -695,9 +706,7 @@ fn remove_disk(
     let backend = match backend::load_backend(backend, Some(config_dir)) {
         Ok(b) => b,
         Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
-
+            set_outcome_result!(err => result, e.to_string());
             // Bail early.  We can't load the backend
             let _ = sender.send((client_id, result));
             return Ok(());
@@ -705,12 +714,10 @@ fn remove_disk(
     };
     match backend.remove_disk(&Path::new(d), false) {
         Ok(outcome) => {
-            result.set_outcome(outcome);
-            result.set_result(ResultType::OK);
+            set_outcome_result!(out => result, outcome);
         }
         Err(e) => {
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
+            set_outcome_result!(err => result, e.to_string());
         }
     };
     let _ = sender.send((client_id, result));
@@ -724,7 +731,6 @@ fn safe_to_remove(
 ) -> BynarResult<(OpOutcome, bool)> {
     let backend = backend::load_backend(backend, Some(config_dir))?;
     let safe = backend.safe_to_remove(d, false)?;
-
     Ok(safe)
 }
 
@@ -742,14 +748,11 @@ fn safe_to_remove_disk(
     match safe_to_remove(&Path::new(d), &backend, &config_dir) {
         Ok((outcome, val)) => {
             debug!("Safe to remove: {}", val);
-            result.set_result(ResultType::OK);
-            result.set_value(val);
-            result.set_outcome(outcome);
+            set_outcome_result!(out => result, outcome, val);
         }
         Err(e) => {
             debug!("Safe to remove err: {}", e);
-            result.set_result(ResultType::ERR);
-            result.set_error_msg(e.to_string());
+            set_outcome_result!(err => result, e.to_string());
             let _ = sender.send((client_id, result));
             return Err(BynarError::new(format!("safe to remove error: {}", e)));
         }
