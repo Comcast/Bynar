@@ -658,10 +658,12 @@ fn is_all_finished(
     let mut all_finished = true;
     disk.iter().for_each(|(_, v)| {
         //check if value finished
+        // if OpOutcome:: Success and OpSafeToRemove, then false
+        // if OpOutcome:: Success + Op::Remove, is fine?
         if let Some(val) = v {
             if let Some(ret) = &val.ret_val {
-                if !(ret.get_outcome() != OpOutcome::Success
-                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove))
+                if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
+                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
                 {
                     all_finished = false;
                 }
@@ -717,7 +719,7 @@ fn open_jira_ticket(
                 add_or_update_operation_detail(pool, &mut operation_detail)?;
             }
             Err(e) => {
-                let _ = notify_slack(config, &format!("Unable to create ticket {:?}", e));
+                let _ = notify_slack(config, &format!("Unable to create ticket {:?} with description:\n {}", e, description));
             }
         }
         /*
@@ -2328,8 +2330,10 @@ mod tests {
         disk_paths.iter().for_each(|path| {
             let mut safe_to_rem = OpOutcomeResult::new();
             let mut op = Operation::new();
+            safe_to_rem.set_result(ResultType::OK);
             safe_to_rem.set_outcome(OpOutcome::Skipped);
             if path == &PathBuf::from("/dev/sda") {
+                safe_to_rem.set_outcome(OpOutcome::Success);
                 safe_to_rem.set_op_type(Op::Remove);
                 op.set_Op_type(Op::Remove);
             } else {
@@ -2347,9 +2351,8 @@ mod tests {
             //check if value finished
             if let Some(val) = v {
                 if let Some(ret) = &val.ret_val {
-                    if !(ret.get_outcome() != OpOutcome::Success
-                        && (ret.get_op_type() == Op::SafeToRemove
-                            || ret.get_op_type() == Op::Remove))
+                    if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
+                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
                     {
                         all_finished = false;
                     }
@@ -2375,6 +2378,7 @@ mod tests {
         disk_paths.iter().for_each(|path| {
             let mut safe_to_rem = OpOutcomeResult::new();
             let mut op = Operation::new();
+            safe_to_rem.set_result(ResultType::OK);
             if path == &PathBuf::from("/dev/sda2") {
                 safe_to_rem.set_outcome(OpOutcome::Success);
             } else {
@@ -2398,9 +2402,8 @@ mod tests {
             //check if value finished
             if let Some(val) = v {
                 if let Some(ret) = &val.ret_val {
-                    if !(ret.get_outcome() != OpOutcome::Success
-                        && (ret.get_op_type() == Op::SafeToRemove
-                            || ret.get_op_type() == Op::Remove))
+                    if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
+                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
                     {
                         all_finished = false;
                     }
@@ -2412,5 +2415,50 @@ mod tests {
             }
         });
         assert!(!all_finished);
+    }
+    #[test]
+    // test all finished check where disk_map is finished and everything error'd
+    fn test_all_finished_err() {
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+        let mut disk_map: HashMap<PathBuf, Option<DiskOp>> = HashMap::new();
+
+        let disk_paths =
+            [PathBuf::from("/dev/sda"), PathBuf::from("/dev/sda1"), PathBuf::from("/dev/sda2")]
+                .to_vec();
+        disk_paths.iter().for_each(|path| {
+            let mut safe_to_rem = OpOutcomeResult::new();
+            let mut op = Operation::new();
+            safe_to_rem.set_result(ResultType::ERR);
+            if path == &PathBuf::from("/dev/sda") {
+                safe_to_rem.set_op_type(Op::Remove);
+                op.set_Op_type(Op::Remove);
+            } else {
+                safe_to_rem.set_op_type(Op::SafeToRemove);
+                op.set_Op_type(Op::SafeToRemove);
+            }
+            let mut disk_op = DiskOp::new(op, None, None);
+            disk_op.ret_val = Some(safe_to_rem);
+            disk_map.insert(path.to_path_buf(), Some(disk_op));
+        });
+        println!("Initial Disk Map: {:#?}", disk_map);
+
+        let mut all_finished = true;
+        disk_map.iter().for_each(|(k, v)| {
+            //check if value finished
+            if let Some(val) = v {
+                if let Some(ret) = &val.ret_val {
+                    if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
+                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
+                    {
+                        all_finished = false;
+                    }
+                } else {
+                    all_finished = false;
+                }
+            } else {
+                all_finished = false;
+            }
+        });
+        assert!(all_finished);
     }
 }
