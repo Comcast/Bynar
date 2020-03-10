@@ -80,7 +80,7 @@ fn list_disks(s: &Socket, client_id: Vec<u8>) -> BynarResult<Vec<Disk>> {
                 for disk in disks.get_disk() {
                     d.push(disk.clone());
                 }
-                println!("disk list: {:?}", d);
+                trace!("disk list: {:?}", d);
                 return Ok(d);
             }
         }

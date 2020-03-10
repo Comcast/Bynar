@@ -802,7 +802,7 @@ impl CephBackend {
         // check if the device path exists (partition may have been deleted)
         if part1.exists() {
             // check if the osd_dir is mounted (might not be if partitions have been deleted)
-            if block_utils::is_mounted(&osd_dir)? {
+            if let Ok(true) = block_utils::is_mounted(&osd_dir) {
                 // unmount the partition
                 debug!("Unmount {}", part1.display());
                 block_utils::unmount_device(&part1)?;
