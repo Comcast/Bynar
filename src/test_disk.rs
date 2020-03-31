@@ -1520,24 +1520,22 @@ fn repair_ext(device: &Path) -> BynarResult<()> {
 fn run_smartctl_check(device: &Path) -> BynarResult<bool> {
     // Enable Smart Scan
     let out = Command::new("smartctl").args(&["-s", "on", &device.to_string_lossy()]).output()?;
-    let status = match out.status.code() {
+    match out.status.code() {
         Some(code) => match code {
             // no errors, smart enabled
-            0 => {
-                let out =
-                    Command::new("smartctl").args(&["-H", &device.to_string_lossy()]).output()?; //Run overall health scan
-                match out.status.code() {
-                    Some(code) => match code {
-                        // no errors, health scan successful
-                        0 => true,
-                        _ => false,
-                    },
-                    //Process terminated by signal
-                    None => return Err(BynarError::from("smartctl terminated by signal")),
-                }
-            }
-            // could not enable smart checks
-            _ => return Err(BynarError::from("smartctl could not enable smart checks")),
+            0 => trace!("smartctl enabled"),
+            // could not enable smart checks, should still be able to run smart health checks though
+            _ => error!("smartctl could not enable smart checks"),
+        },
+        //Process terminated by signal
+        None => return Err(BynarError::from("smartctl terminated by signal")),
+    }
+    let out = Command::new("smartctl").args(&["-H", &device.to_string_lossy()]).output()?; //Run overall health scan
+    let status = match out.status.code() {
+        Some(code) => match code {
+            // no errors, health scan successful
+            0 => true,
+            _ => false,
         },
         //Process terminated by signal
         None => return Err(BynarError::from("smartctl terminated by signal")),

@@ -52,34 +52,39 @@ use std::process;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-// a specific operation and its outcome
+/// a specific operation and its outcome
 #[derive(Debug, Clone)]
 struct DiskOp {
-    pub op_type: Op, // operation type
-    // the description for a JIRA ticket if necessary (None if not Safe-to-remove/Remove-disk)
-    // Or, if an add_disk request, description is the ticket_id
+    /// the operation type
+    pub op_type: Op,
+    /// the description for a JIRA ticket if necessary (None if not Safe-to-remove/Remove-disk)
+    /// Or, if an add_disk request, description is the ticket_id
     pub description: Option<String>,
-    pub operation_id: Option<u32>, // the operation id if one exists (for safe-to-remove, remove request handling)
-    pub ret_val: Option<OpOutcomeResult>, //None if outcome not yet determined
+    /// the operation id in the database if one exists for Safe-To-Remove/Remove requst handling
+    pub operation_id: Option<u32>, 
+    /// This value is None if the outcome has not yet been recieved
+    pub ret_val: Option<OpOutcomeResult>, 
 }
 
 impl DiskOp {
+    /// create a new DiskOp from an operation, description, and operation id
     pub fn new(op: Operation, description: Option<String>, operation_id: Option<u32>) -> DiskOp {
         DiskOp { op_type: op.get_Op_type(), description, operation_id, ret_val: None }
     }
 }
 
-// create a message map to handle list of disk-manager requests
+// create a message map to handle a list of disk-manager requests
+// The message map is a nested HashMap, mapping a disk to a list of partitions (including the disk path itself), which maps associated operations in progress
 fn create_msg_map(
     pool: &Pool<ConnectionManager>,
     host_mapping: &HostDetailsMapping,
 ) -> BynarResult<HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>> {
-    // List out currently mounted block_devices
+    // List out currently mounted block_devices, filtering out loop and cd/rom devices
     let mut devices: Vec<PathBuf> = block_utils::get_block_devices()?
         .into_iter()
-        .filter(|b| {
-            !(if let Some(p) = b.as_path().file_name() {
-                (p.to_string_lossy().starts_with("sr") || p.to_string_lossy().starts_with("loop"))
+        .filter(|block_device| {
+            !(if let Some(path) = block_device.as_path().file_name() {
+                (path.to_string_lossy().starts_with("sr") || path.to_string_lossy().starts_with("loop"))
             } else {
                 true
             })
@@ -92,19 +97,21 @@ fn create_msg_map(
             .collect();
     let mut map: HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>> = HashMap::new();
 
+    // get a list of partition device paths
     let partitions: Vec<PathBuf> = db_devices
         .clone()
         .into_iter()
-        .filter(|p| match block_utils::is_disk(p) {
-            Err(_) => p.to_string_lossy().chars().last().unwrap().is_digit(10),
-            Ok(b) => b,
+        .filter(|path| match block_utils::is_disk(path) {
+            Err(_) => path.to_string_lossy().chars().last().unwrap().is_digit(10), // check if the last character is a digit (in case the disk is unmounted)
+            Ok(is_disk) => is_disk,
         })
         .collect();
+    // get the list of disk paths from the database devices 
     let mut disks: Vec<PathBuf> = db_devices
         .into_iter()
-        .filter(|p| match block_utils::is_disk(p) {
-            Err(_) => !p.to_string_lossy().chars().last().unwrap().is_digit(10),
-            Ok(b) => b,
+        .filter(|path| match block_utils::is_disk(path) {
+            Err(_) => !path.to_string_lossy().chars().last().unwrap().is_digit(10),
+            Ok(is_disk) => is_disk,
         })
         .collect();
     devices.append(&mut disks);
@@ -128,8 +135,8 @@ fn create_msg_map(
     Ok(map)
 }
 
-// given a path, return a parent-child, or parent-parent tuple to
-// look through the request map with, or error
+// given a path, return a (parent,child), or (parent,parent) tuple to
+// look through the request map with, or error out
 fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
     if let Some(parent) = block_utils::get_parent_devpath_from_path(dev_path)? {
         Ok((parent, dev_path))
@@ -139,6 +146,7 @@ fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
         // partition was destroyed...probably
         // make parent path
         let mut str_path = dev_path.to_string_lossy().to_string();
+        // device and partition naming conventions have ssd and hard disks end in the partition number for a partition, remove the numbers and you get the disk path
         while str_path.chars().last().unwrap().is_digit(10) {
             str_path = str_path[0..str_path.len() - 1].to_string();
         }
@@ -147,9 +155,9 @@ fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
             Ok((path, dev_path)) // partition probably
         } else if str_path.starts_with("/dev/sd")
             || str_path.starts_with("/dev/hd")
-            || str_path.starts_with("/dev/nvme")
+            || str_path.starts_with("/dev/nvme") //note nvme devices are slightly different in naming convention
         {
-            Ok((dev_path.to_path_buf(), dev_path)) // disk...probably
+            Ok((dev_path.to_path_buf(), dev_path)) // this is the disk path, unless the path is an nvme device
         } else {
             // path just doesn't exist, so error...
             error!("Path {} does not exist, nor does its parent.", dev_path.display());
@@ -662,8 +670,11 @@ fn is_all_finished(
         // if OpOutcome:: Success + Op::Remove, is fine?
         if let Some(val) = v {
             if let Some(ret) = &val.ret_val {
-                if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
-                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
+                if !(ret.get_result() == ResultType::ERR)
+                    && !(ret.get_outcome() != OpOutcome::Success
+                        && (ret.get_op_type() == Op::SafeToRemove
+                            || ret.get_op_type() == Op::Remove))
+                    && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
                 {
                     all_finished = false;
                 }
@@ -719,7 +730,10 @@ fn open_jira_ticket(
                 add_or_update_operation_detail(pool, &mut operation_detail)?;
             }
             Err(e) => {
-                let _ = notify_slack(config, &format!("Unable to create ticket {:?} with description:\n {}", e, description));
+                let _ = notify_slack(
+                    config,
+                    &format!("Unable to create ticket {:?} with description:\n {}", e, description),
+                );
             }
         }
         /*
@@ -2351,8 +2365,12 @@ mod tests {
             //check if value finished
             if let Some(val) = v {
                 if let Some(ret) = &val.ret_val {
-                    if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
-                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
+                    if !(ret.get_result() == ResultType::ERR)
+                        && !(ret.get_outcome() != OpOutcome::Success
+                            && (ret.get_op_type() == Op::SafeToRemove
+                                || ret.get_op_type() == Op::Remove))
+                        && !(ret.get_outcome() == OpOutcome::Success
+                            && ret.get_op_type() == Op::Remove)
                     {
                         all_finished = false;
                     }
@@ -2402,8 +2420,12 @@ mod tests {
             //check if value finished
             if let Some(val) = v {
                 if let Some(ret) = &val.ret_val {
-                    if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
-                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
+                    if !(ret.get_result() == ResultType::ERR)
+                        && !(ret.get_outcome() != OpOutcome::Success
+                            && (ret.get_op_type() == Op::SafeToRemove
+                                || ret.get_op_type() == Op::Remove))
+                        && !(ret.get_outcome() == OpOutcome::Success
+                            && ret.get_op_type() == Op::Remove)
                     {
                         all_finished = false;
                     }
@@ -2447,8 +2469,12 @@ mod tests {
             //check if value finished
             if let Some(val) = v {
                 if let Some(ret) = &val.ret_val {
-                    if !(ret.get_result() == ResultType::ERR) && !(ret.get_outcome() != OpOutcome::Success
-                    && (ret.get_op_type() == Op::SafeToRemove || ret.get_op_type() == Op::Remove)) && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
+                    if !(ret.get_result() == ResultType::ERR)
+                        && !(ret.get_outcome() != OpOutcome::Success
+                            && (ret.get_op_type() == Op::SafeToRemove
+                                || ret.get_op_type() == Op::Remove))
+                        && !(ret.get_outcome() == OpOutcome::Success
+                            && ret.get_op_type() == Op::Remove)
                     {
                         all_finished = false;
                     }
