@@ -540,8 +540,9 @@ fn listen(
                     }
                 }
             }
-        } else {
             std::thread::sleep(Duration::from_millis(10));
+        } else {
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
     Ok(())

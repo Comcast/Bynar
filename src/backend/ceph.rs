@@ -455,6 +455,7 @@ impl CephBackend {
         ceph_bluestore_tool(&lv_dev_name, &mount_point, simulate)?;
 
         let host_info = Host::new()?;
+        // There are 1,073,741,824 bytes in a gibibyte
         //let gb_capacity = vg_size / 1_073_741_824;
         let osd_weight = 0.0;
         debug!(
