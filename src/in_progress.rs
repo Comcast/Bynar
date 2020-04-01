@@ -1064,7 +1064,7 @@ pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> 
 
     // TODO[SD]: make sure there is one ticket with this ID
     let stmt = format!(
-        "UPDATE operation_details SET status='{}' WHERE ticket_id='{}'",
+        "UPDATE operation_details SET status='{}' WHERE tracking_id='{}'",
         OperationStatus::Complete,
         ticket_id
     );
