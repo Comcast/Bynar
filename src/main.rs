@@ -61,9 +61,9 @@ struct DiskOp {
     /// Or, if an add_disk request, description is the ticket_id
     pub description: Option<String>,
     /// the operation id in the database if one exists for Safe-To-Remove/Remove requst handling
-    pub operation_id: Option<u32>, 
+    pub operation_id: Option<u32>,
     /// This value is None if the outcome has not yet been recieved
-    pub ret_val: Option<OpOutcomeResult>, 
+    pub ret_val: Option<OpOutcomeResult>,
 }
 
 impl DiskOp {
@@ -84,7 +84,8 @@ fn create_msg_map(
         .into_iter()
         .filter(|block_device| {
             !(if let Some(path) = block_device.as_path().file_name() {
-                (path.to_string_lossy().starts_with("sr") || path.to_string_lossy().starts_with("loop"))
+                (path.to_string_lossy().starts_with("sr")
+                    || path.to_string_lossy().starts_with("loop"))
             } else {
                 true
             })
@@ -106,7 +107,7 @@ fn create_msg_map(
             Ok(is_disk) => is_disk,
         })
         .collect();
-    // get the list of disk paths from the database devices 
+    // get the list of disk paths from the database devices
     let mut disks: Vec<PathBuf> = db_devices
         .into_iter()
         .filter(|path| match block_utils::is_disk(path) {
@@ -155,7 +156,8 @@ fn get_request_keys(dev_path: &PathBuf) -> BynarResult<(PathBuf, &PathBuf)> {
             Ok((path, dev_path)) // partition probably
         } else if str_path.starts_with("/dev/sd")
             || str_path.starts_with("/dev/hd")
-            || str_path.starts_with("/dev/nvme") //note nvme devices are slightly different in naming convention
+            || str_path.starts_with("/dev/nvme")
+        //note nvme devices are slightly different in naming convention
         {
             Ok((dev_path.to_path_buf(), dev_path)) // this is the disk path, unless the path is an nvme device
         } else {
@@ -258,13 +260,14 @@ fn get_disk_map_op(
 }
 
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
-    let c = config.clone();
-    let slack = Slack::new(c.slack_webhook.expect("slack webhook option is None").as_ref())?;
-    let slack_channel = c.slack_channel.unwrap_or_else(|| "".to_string());
-    let bot_name = c.slack_botname.unwrap_or_else(|| "".to_string());
-    let p = PayloadBuilder::new().text(msg).channel(slack_channel).username(bot_name).build()?;
+    let conf = config.clone();
+    let slack = Slack::new(conf.slack_webhook.expect("slack webhook option is None").as_ref())?;
+    let slack_channel = conf.slack_channel.unwrap_or_else(|| "".to_string());
+    let bot_name = conf.slack_botname.unwrap_or_else(|| "".to_string());
+    let payload =
+        PayloadBuilder::new().text(msg).channel(slack_channel).username(bot_name).build()?;
 
-    let res = slack.send(&p);
+    let res = slack.send(&payload);
     match res {
         Ok(_) => debug!("Slack notified"),
         Err(e) => error!("Slack error: {:?}", e),
@@ -664,17 +667,23 @@ fn is_all_finished(
     // check if all ops in the disk have finished
     let disk = get_disk_map_op(message_map, &dev_path)?;
     let mut all_finished = true;
-    disk.iter().for_each(|(_, v)| {
+    disk.iter().for_each(|(_partition, operation)| {
         //check if value finished
-        // if OpOutcome:: Success and OpSafeToRemove, then false
+        // if OpOutcome:: Success and OpSafeToRemove, then true
+        //if safeToRemove Success and false => true
         // if OpOutcome:: Success + Op::Remove, is fine?
-        if let Some(val) = v {
-            if let Some(ret) = &val.ret_val {
+        if let Some(op) = operation {
+            if let Some(ret) = &op.ret_val {
+                //if Err, then its done
+                // if its safeToRemove Success + false then all_finished is true
                 if !(ret.get_result() == ResultType::ERR)
                     && !(ret.get_outcome() != OpOutcome::Success
                         && (ret.get_op_type() == Op::SafeToRemove
                             || ret.get_op_type() == Op::Remove))
                     && !(ret.get_outcome() == OpOutcome::Success && ret.get_op_type() == Op::Remove)
+                    && !(ret.get_outcome() == OpOutcome::Success
+                        && !ret.get_value()
+                        && ret.get_op_type() == Op::SafeToRemove)
                 {
                     all_finished = false;
                 }
@@ -1289,9 +1298,8 @@ fn main() {
                 }
                 _ => info!("Send and Recieve successfully ran"),
             };
-            debug!("Message Queue after looping {:?}", message_queue);
         }
-        debug!("Request Map after looping {:?}", message_map);
+        trace!("Request Map after looping {:?}", message_map);
     }
     debug!("Bynar exited successfully");
     notify_slack(&config, &format!("Bynar on host  {} has stopped", host_info.hostname))

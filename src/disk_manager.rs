@@ -321,6 +321,7 @@ fn listen(
                             "Operation {:?} cannot be run, disk is already running an operation",
                             operation
                         );
+                        trace!("Operations: {:?}", req_map);
                         let mut op_res = OpOutcomeResult::new();
                         op_res.set_disk(operation.get_disk().to_string());
                         op_res.set_op_type(operation.get_Op_type());
@@ -494,9 +495,9 @@ fn listen(
                                 debug!("Send {:?}", result);
                                 if OpOutcome::SkipRepeat != result.get_outcome() {
                                     assert!(op_running!(req_map, &result, true));
-                                    req_map.insert(get_op_pathbuf!(&result), None);
-                                    // set entry in req_map to None
                                 }
+                                // set entry in req_map to None
+                                req_map.insert(get_op_pathbuf!(&result), None);
                                 let _ = responder.send(&client_id, zmq::SNDMORE);
                                 let _ = respond_to_client(&result, &responder);
                             }

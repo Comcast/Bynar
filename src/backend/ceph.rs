@@ -1379,7 +1379,11 @@ fn get_second_partition(device: &Path) -> BynarResult<PathBuf> {
 }
 
 // Check if a device path is already in the cluster
-fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path, is_lvm: bool) -> BynarResult<bool> {
+fn is_device_in_cluster(
+    cluster_handle: &Rados,
+    dev_path: &Path,
+    is_lvm: bool,
+) -> BynarResult<bool> {
     debug!("Check if device {} is in cluster", dev_path.display());
     let host = get_hostname().ok_or_else(|| BynarError::from("hostname not found"))?;
     trace!("Hostname is {:?}", host);
@@ -1388,22 +1392,24 @@ fn is_device_in_cluster(cluster_handle: &Rados, dev_path: &Path, is_lvm: bool) -
     for osd in osd_meta {
         match osd.objectstore_meta {
             ObjectStoreMeta::Bluestore { bluestore_bdev_partition_path, .. } => {
-                if is_lvm{
-                if bluestore_bdev_partition_path == path && osd.hostname == host {
-                    return Ok(true);
+                if is_lvm {
+                    if bluestore_bdev_partition_path == path && osd.hostname == host {
+                        return Ok(true);
+                    }
+                } else {
+                    // osd metadate with have either /dev/xx1 or /dev/xx2
+                    while path.chars().last().unwrap().is_digit(10) {
+                        path = path[0..path.len() - 1].to_string();
+                    }
+                    let path1 = format!("{}1", path);
+                    let path2 = format!("{}2", path);
+                    if (bluestore_bdev_partition_path == path1
+                        || bluestore_bdev_partition_path == path2)
+                        && osd.hostname == host
+                    {
+                        return Ok(true);
+                    }
                 }
-            }
-            else{
-                // osd metadate with have either /dev/xx1 or /dev/xx2
-                while path.chars().last().unwrap().is_digit(10) {
-                    path = path[0..path.len() - 1].to_string();
-                }
-                let path1 = format!("{}1", path);
-                let path2 = format!("{}2", path);
-                if (bluestore_bdev_partition_path == path1 || bluestore_bdev_partition_path == path2) && osd.hostname == host{
-                    return Ok(true);
-                }
-            }
             }
 
             ObjectStoreMeta::Filestore { backend_filestore_partition_path, .. } => {
