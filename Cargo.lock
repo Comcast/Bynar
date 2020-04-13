@@ -124,6 +124,11 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "base64"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "bindgen"
 version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -198,7 +203,7 @@ dependencies = [
 [[package]]
 name = "block-utils"
 version = "0.6.2"
-source = "git+https://github.com/mzhong1/block-utils.git#79c534b33270a07035709c58dae07c3b3b609ad3"
+source = "git+https://github.com/mzhong1/block-utils.git#11457007ff4a274d13a40dc515827fd7f3dfb10f"
 dependencies = [
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -222,7 +227,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "bynar"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "api 0.1.0",
  "blkid 0.2.1 (git+https://github.com/cholcombe973/blkid.git)",
@@ -240,7 +245,7 @@ dependencies = [
  "gluster 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "goji 0.2.4 (git+https://github.com/cholcombe973/goji.git)",
  "gpt 1.0.0 (git+https://github.com/Quyzi/gpt)",
- "hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)",
+ "hashicorp_vault 1.0.0 (git+https://github.com/cholcombe973/vault-rs.git)",
  "hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "init-daemon 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "json 0.11.15 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -885,13 +890,13 @@ dependencies = [
 
 [[package]]
 name = "hashicorp_vault"
-version = "0.6.1"
-source = "git+https://github.com/cholcombe973/vault-rs.git#f6cb10222299895a2ccd236bc1a5975a8c69a7f4"
+version = "1.0.0"
+source = "git+https://github.com/cholcombe973/vault-rs.git#db058913a3bf4ebdb307257a4f11d6c45704ce14"
 dependencies = [
+ "base64 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "http 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.11.27 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "quick-error 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3094,6 +3099,7 @@ dependencies = [
 "checksum backtrace-sys 0.1.32 (registry+https://github.com/rust-lang/crates.io-index)" = "5d6575f128516de27e3ce99689419835fce9643a9b215a14d2b5b685be018491"
 "checksum base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e"
 "checksum base64 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
+"checksum base64 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7d5ca2cd0adc3f48f9e9ea5a6bbdf9ccc0bfade884847e484d452414c7ccffb3"
 "checksum base64 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "96434f987501f0ed4eb336a411e0631ecd1afa11574fe148587adc4ff96143c9"
 "checksum base64 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "489d6c0ed21b11d038c31b6ceccca973e65d73ba3bd8ecb9a2babf5546164643"
 "checksum bindgen 0.40.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8f4c4ffe91e0f26bdcc5a8dd58cbf0358ad772b8ec1ae274a11a0ba54ec175f4"
@@ -3177,7 +3183,7 @@ dependencies = [
 "checksum goji 0.2.4 (git+https://github.com/cholcombe973/goji.git)" = "<none>"
 "checksum gpt 1.0.0 (git+https://github.com/Quyzi/gpt)" = "<none>"
 "checksum h2 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)" = "a5b34c246847f938a410a03c5458c7fee2274436675e76d8b903c08efc29c462"
-"checksum hashicorp_vault 0.6.1 (git+https://github.com/cholcombe973/vault-rs.git)" = "<none>"
+"checksum hashicorp_vault 1.0.0 (git+https://github.com/cholcombe973/vault-rs.git)" = "<none>"
 "checksum hermit-abi 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "1010591b26bbfe835e9faeabeb11866061cc7dcebffd56ad7d0942d0e61aefd8"
 "checksum hex 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d6a22814455d41612f41161581c2883c0c6a1c41852729b17d5ed88f01e153aa"
 "checksum hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"

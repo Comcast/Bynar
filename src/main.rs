@@ -259,6 +259,7 @@ fn get_disk_map_op(
     Err(BynarError::from(format!("Path {} is not a disk in the map", dev_path.display())))
 }
 
+// Send a message to Slack
 fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     let conf = config.clone();
     let slack = Slack::new(conf.slack_webhook.expect("slack webhook option is None").as_ref())?;
@@ -275,6 +276,7 @@ fn notify_slack(config: &ConfigSettings, msg: &str) -> BynarResult<()> {
     Ok(())
 }
 
+// get the public key needed to connect to the disk-manager
 fn get_public_key(config: &ConfigSettings, host_info: &Host) -> BynarResult<Vec<u8>> {
     // If vault_endpoint and token are set we should get the key from vault
     // Otherwise we need to know where the public_key is located?
@@ -318,6 +320,8 @@ fn add_disk_to_description(
         .push_str(&format!("\nDisk vendor: {:?}", state_machine.block_device.scsi_info.vendor));
 }
 
+// run the state machine and check for failed disks.
+// failed disks are sent to the message queue to check and attempt automatic removal
 fn check_for_failed_disks(
     message_map: &mut HashMap<PathBuf, HashMap<PathBuf, Option<DiskOp>>>,
     message_queue: &mut VecDeque<(Operation, Option<String>, Option<u32>)>,
@@ -342,7 +346,7 @@ fn check_for_failed_disks(
         test_disk::check_all_disks(&host_info, pool, host_mapping)?.into_iter().collect();
     // separate the states into Ok and Errors
     let usable_states: Vec<StateMachine> = match all_states {
-        Ok(s) => s,
+        Ok(state) => state,
         Err(e) => {
             error!("check_all_disks failed with error: {:?}", e);
             return Err(BynarError::new(format!("check_all_disks failed with error: {:?}", e)));
@@ -384,7 +388,7 @@ fn check_for_failed_disks(
             add_or_update_map_op(message_map, &state_machine.block_device.dev_path, None)?;
         }
         let disks = get_disk_map_op(message_map, &state_machine.block_device.dev_path)?;
-        // uh, get list of keys in disks and filter usable list for keypath?
+        // get list of keys in disks and filter usable list for keypath
         let mut add: Vec<_> = usable_states
             .iter()
             .filter(|state_machine| {
@@ -461,6 +465,7 @@ fn check_for_failed_disks(
     Ok(())
 }
 
+// Evaluate the hardware information returned from redfish
 fn evaluate(
     results: Vec<BynarResult<()>>,
     config: &ConfigSettings,
