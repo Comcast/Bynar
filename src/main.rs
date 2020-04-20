@@ -1039,7 +1039,7 @@ fn main() {
             Arg::with_name("time")
                 .help("Time in seconds between Bynar runs")
                 .long("time")
-                .default_value("5"),
+                .default_value("60"),
         )
         .get_matches();
 
@@ -1301,12 +1301,12 @@ fn main() {
                     error!("Send or Receive messages failed with error: {}", e);
                     break 'outer;
                 }
-                _ => info!("Send and Recieve successfully ran"),
+                _ => trace!("Send and Recieve successfully ran"),
             };
         }
         trace!("Request Map after looping {:?}", message_map);
     }
-    debug!("Bynar exited successfully");
+    info!("Bynar exited successfully");
     notify_slack(&config, &format!("Bynar on host  {} has stopped", host_info.hostname))
         .expect("Unable to connect to slack");
 }

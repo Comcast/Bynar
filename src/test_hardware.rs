@@ -22,11 +22,6 @@ pub struct HardwareHealthSummary {
 }
 
 fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSummary> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .build()?;
-
     if config.redfish_ip.is_none() {
         debug!("Redfish ip address not specified.  Skipping checks");
         return Ok(HardwareHealthSummary {
@@ -38,6 +33,10 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
             thermals: vec![],
         });
     }
+    let client = Client::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()?;
     let redfish_config = Config {
         user: config.redfish_username.clone(),
         password: config.redfish_password.clone(),

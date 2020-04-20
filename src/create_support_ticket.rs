@@ -13,13 +13,15 @@ pub fn create_support_ticket(
 ) -> BynarResult<String> {
     let issue_description = CreateIssue {
         fields: Fields {
-            assignee: Assignee { name: settings.jira_ticket_assignee.clone() },
+            assignee: Assignee { name: settings.jira_user.clone() },
             components: vec![Component { name: "Ceph".into() }],
             description: description.into(),
             issuetype: IssueType { id: settings.jira_issue_type.clone() },
             priority: Priority { id: settings.jira_priority.clone() },
             project: Project { key: settings.jira_project_id.clone() },
             summary: title.into(),
+            reporter: Assignee { name: settings.jira_ticket_assignee.clone() },
+            environment: "".to_string(),
         },
     };
     let jira: Jira = match settings.proxy {
