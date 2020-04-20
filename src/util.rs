@@ -27,6 +27,7 @@ macro_rules! poll_events {
         match $s.get_events() {
             Err(zmq::Error::EBUSY) => {
                 debug!("Socket Busy, skip");
+                std::thread::sleep(std::time::Duration::from_millis(100));
                 $ret;
             }
             Err(e) => {

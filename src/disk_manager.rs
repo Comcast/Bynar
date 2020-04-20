@@ -298,7 +298,7 @@ fn listen(
                 debug!("Got msg len: {}", msg.len());
                 trace!("Parsing msg {:?} as hex", msg);
                 if msg.is_empty() {
-                    continue;
+                    continue; // its the ID message, so skip
                 }
                 while !msg.is_empty() {
                     let operation = match parse_from_bytes::<Operation>(&msg.clone()) {
@@ -545,6 +545,7 @@ fn listen(
         } else {
             std::thread::sleep(Duration::from_millis(100));
         }
+        std::thread::sleep(Duration::from_millis(100));
     }
     Ok(())
 }
