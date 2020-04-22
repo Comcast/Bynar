@@ -284,111 +284,112 @@ fn listen(
     debug!("Create request map");
     let mut req_map = create_req_map()?;
     let mut messages: VecDeque<(Operation, Vec<u8>)> = VecDeque::new();
-    loop {
+    'outer: loop {
         let now = Instant::now();
-        let events = poll_events!(responder, continue);
-        // is the socket readable?
-        if events.contains(zmq::PollEvents::POLLIN) {
-            //get the id first {STREAM sockets get messages with id prepended}
-            let client_id = responder.recv_bytes(0)?; //leave as Vec<u8>, not utf8 friendly
-            trace!("Client ID {:?}", client_id);
-            // get actual message
-            while responder.get_rcvmore()? {
-                let mut msg = responder.recv_bytes(0)?;
-                debug!("Got msg len: {}", msg.len());
-                trace!("Parsing msg {:?} as hex", msg);
-                if msg.is_empty() {
-                    continue; // its the ID message, so skip
-                }
-                while !msg.is_empty() {
-                    let operation = match parse_from_bytes::<Operation>(&msg.clone()) {
-                        Ok(bytes) => bytes,
-                        Err(e) => {
-                            error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
-                            continue;
+        match responder.get_events() {
+            Ok(events) => {
+                // is the socket readable?
+                if events.contains(zmq::PollEvents::POLLIN) {
+                    //get the id first {STREAM sockets get messages with id prepended}
+                    let client_id = responder.recv_bytes(0)?; //leave as Vec<u8>, not utf8 friendly
+                    trace!("Client ID {:?}", client_id);
+                    // get actual message
+                    while responder.get_rcvmore()? {
+                        let mut msg = responder.recv_bytes(0)?;
+                        debug!("Got msg len: {}", msg.len());
+                        trace!("Parsing msg {:?} as hex", msg);
+                        if msg.is_empty() {
+                            continue; // its the ID message, so skip
                         }
-                    };
-                    let size = operation.write_to_bytes()?.len();
-                    msg.drain((msg.len() - size)..msg.len());
-                    let client_id = client_id.clone();
-                    debug!("Operation requested: {:?}", operation.get_Op_type());
-                    if op_no_disk(&responder, &operation) {
-                        continue;
-                    }
-                    // check if op is currently running.  If so, skip it
-                    if op_running!(&req_map, &operation) {
-                        trace!(
+                        while !msg.is_empty() {
+                            let operation = match parse_from_bytes::<Operation>(&msg.clone()) {
+                                Ok(bytes) => bytes,
+                                Err(e) => {
+                                    error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
+                                    continue;
+                                }
+                            };
+                            let size = operation.write_to_bytes()?.len();
+                            msg.drain((msg.len() - size)..msg.len());
+                            let client_id = client_id.clone();
+                            debug!("Operation requested: {:?}", operation.get_Op_type());
+                            if op_no_disk(&responder, &operation) {
+                                continue;
+                            }
+                            // check if op is currently running.  If so, skip it
+                            if op_running!(&req_map, &operation) {
+                                trace!(
                             "Operation {:?} cannot be run, disk is already running an operation",
                             operation
                         );
-                        trace!("Operations: {:?}", req_map);
-                        let mut op_res = OpOutcomeResult::new();
-                        op_res.set_disk(operation.get_disk().to_string());
-                        op_res.set_op_type(operation.get_Op_type());
-                        set_outcome_result!(ok => op_res, OpOutcome::SkipRepeat, false);
-                        let _ = send_res.send((client_id, op_res)); // this shouldn't error unless the channel breaks
-                        continue;
-                    }
-                    op_insert(&mut req_map, &operation);
-                    messages.push_back((operation, client_id));
-                }
-            }
-        }
-        if !messages.is_empty() {
-            for _ in 0..messages.len() {
-                let (operation, client_id) = messages.pop_front().unwrap(); //this should be safe assuming !empty
-                let client_id = client_id.clone();
-                let (send_res, send_disk, send_ticket) =
-                    (send_res.clone(), send_disk.clone(), send_ticket.clone());
-                let backend_type = backend_type.clone();
-                let config_dir = config_dir.to_path_buf();
-                match operation.get_Op_type() {
-                    Op::Add => {
-                        let id = if operation.has_osd_id() {
-                            Some(operation.get_osd_id())
-                        } else {
-                            None
-                        };
-                        pool.spawn(move || {
-                            let disk = operation.get_disk();
-                            match add_disk(
-                                &send_res,
-                                disk,
-                                &backend_type,
-                                id,
-                                config_dir.to_path_buf(),
-                                client_id,
-                            ) {
-                                Ok(_) => {
-                                    info!("Add disk finished");
-                                }
-                                Err(e) => {
-                                    error!("Add disk error: {:?}", e);
-                                }
+                                trace!("Operations: {:?}", req_map);
+                                let mut op_res = OpOutcomeResult::new();
+                                op_res.set_disk(operation.get_disk().to_string());
+                                op_res.set_op_type(operation.get_Op_type());
+                                set_outcome_result!(ok => op_res, OpOutcome::SkipRepeat, false);
+                                let _ = send_res.send((client_id, op_res)); // this shouldn't error unless the channel breaks
+                                continue;
                             }
-                        });
+                            op_insert(&mut req_map, &operation);
+                            messages.push_back((operation, client_id));
+                        }
                     }
-                    Op::AddPartition => {
-                        //
-                    }
-                    Op::List => {
-                        pool.spawn(move || {
-                            match list_disks(&send_disk, client_id) {
-                                Ok(_) => {
-                                    info!("List disks finished");
-                                }
-                                Err(e) => {
-                                    error!("List disks error: {:?}", e);
-                                }
-                            };
-                        });
-                    }
-                    Op::Remove => {
-                        let mut result = OpOutcomeResult::new();
-                        result.set_disk(operation.get_disk().to_string());
-                        result.set_op_type(Op::Remove);
+                }
+                if !messages.is_empty() {
+                    for _ in 0..messages.len() {
+                        let (operation, client_id) = messages.pop_front().unwrap(); //this should be safe assuming !empty
+                        let client_id = client_id.clone();
+                        let (send_res, send_disk, send_ticket) =
+                            (send_res.clone(), send_disk.clone(), send_ticket.clone());
+                        let backend_type = backend_type.clone();
+                        let config_dir = config_dir.to_path_buf();
+                        match operation.get_Op_type() {
+                            Op::Add => {
+                                let id = if operation.has_osd_id() {
+                                    Some(operation.get_osd_id())
+                                } else {
+                                    None
+                                };
+                                pool.spawn(move || {
+                                    let disk = operation.get_disk();
+                                    match add_disk(
+                                        &send_res,
+                                        disk,
+                                        &backend_type,
+                                        id,
+                                        config_dir.to_path_buf(),
+                                        client_id,
+                                    ) {
+                                        Ok(_) => {
+                                            info!("Add disk finished");
+                                        }
+                                        Err(e) => {
+                                            error!("Add disk error: {:?}", e);
+                                        }
+                                    }
+                                });
+                            }
+                            Op::AddPartition => {
+                                //
+                            }
+                            Op::List => {
+                                pool.spawn(move || {
+                                    match list_disks(&send_disk, client_id) {
+                                        Ok(_) => {
+                                            info!("List disks finished");
+                                        }
+                                        Err(e) => {
+                                            error!("List disks error: {:?}", e);
+                                        }
+                                    };
+                                });
+                            }
+                            Op::Remove => {
+                                let mut result = OpOutcomeResult::new();
+                                result.set_disk(operation.get_disk().to_string());
+                                result.set_op_type(Op::Remove);
 
-                        pool.spawn(move || {
+                                pool.spawn(move || {
                             match safe_to_remove(
                                 &Path::new(operation.get_disk()),
                                 &backend_type,
@@ -441,71 +442,81 @@ fn listen(
                                 }
                             };
                         });
-                    }
-                    Op::SafeToRemove => {
-                        pool.spawn(move || {
-                            match safe_to_remove_disk(
-                                &send_res,
-                                operation.get_disk(),
-                                &backend_type,
-                                &config_dir,
-                                client_id,
-                            ) {
-                                Ok(_) => {
-                                    info!("Safe to remove disk finished");
-                                }
-                                Err(e) => {
-                                    error!("Safe to remove error: {:?}", e);
-                                }
-                            };
-                        });
-                    }
-                    Op::GetCreatedTickets => {
-                        match get_jira_tickets(&send_ticket, &config_dir, client_id) {
-                            Ok(_) => {
-                                info!("Fetching jira tickets finished");
                             }
-                            Err(e) => {
-                                error!("Fetching jira error: {:?}", e);
+                            Op::SafeToRemove => {
+                                pool.spawn(move || {
+                                    match safe_to_remove_disk(
+                                        &send_res,
+                                        operation.get_disk(),
+                                        &backend_type,
+                                        &config_dir,
+                                        client_id,
+                                    ) {
+                                        Ok(_) => {
+                                            info!("Safe to remove disk finished");
+                                        }
+                                        Err(e) => {
+                                            error!("Safe to remove error: {:?}", e);
+                                        }
+                                    };
+                                });
                             }
-                        };
+                            Op::GetCreatedTickets => {
+                                match get_jira_tickets(&send_ticket, &config_dir, client_id) {
+                                    Ok(_) => {
+                                        info!("Fetching jira tickets finished");
+                                    }
+                                    Err(e) => {
+                                        error!("Fetching jira error: {:?}", e);
+                                    }
+                                };
+                            }
+                        }
                     }
                 }
-            }
-        }
-        if events.contains(zmq::PollEvents::POLLOUT) {
-            //check disks first, since those are faster requests than add/remove reqs
-            match recv_disk.try_recv() {
-                Ok((client_id, result)) => {
-                    // send result back to client
-                    let _ = responder.send(&client_id, zmq::SNDMORE);
-                    let _ = respond_to_client(&result, &responder);
-                }
-                Err(_) => {
-                    // check if there are tickets (also takes a while, but not as long as add/remove/safe-to-remove)
-                    match recv_ticket.try_recv() {
+                if events.contains(zmq::PollEvents::POLLOUT) {
+                    //check disks first, since those are faster requests than add/remove reqs
+                    match recv_disk.try_recv() {
                         Ok((client_id, result)) => {
+                            // send result back to client
                             let _ = responder.send(&client_id, zmq::SNDMORE);
                             let _ = respond_to_client(&result, &responder);
                         }
                         Err(_) => {
-                            // no disks in the queue, check if any add/remove/safe-to-remove req results
-                            if let Ok((client_id, result)) = recv_res.try_recv() {
-                                //check if result is SkipRepeat, if so, skipp the assert! and insert
-                                debug!("Send {:?}", result);
-                                if OpOutcome::SkipRepeat != result.get_outcome() {
-                                    assert!(op_running!(req_map, &result, true));
+                            // check if there are tickets (also takes a while, but not as long as add/remove/safe-to-remove)
+                            match recv_ticket.try_recv() {
+                                Ok((client_id, result)) => {
+                                    let _ = responder.send(&client_id, zmq::SNDMORE);
+                                    let _ = respond_to_client(&result, &responder);
                                 }
-                                // set entry in req_map to None
-                                req_map.insert(get_op_pathbuf!(&result), None);
-                                let _ = responder.send(&client_id, zmq::SNDMORE);
-                                let _ = respond_to_client(&result, &responder);
+                                Err(_) => {
+                                    // no disks in the queue, check if any add/remove/safe-to-remove req results
+                                    if let Ok((client_id, result)) = recv_res.try_recv() {
+                                        //check if result is SkipRepeat, if so, skipp the assert! and insert
+                                        debug!("Send {:?}", result);
+                                        if OpOutcome::SkipRepeat != result.get_outcome() {
+                                            assert!(op_running!(req_map, &result, true));
+                                        }
+                                        // set entry in req_map to None
+                                        req_map.insert(get_op_pathbuf!(&result), None);
+                                        let _ = responder.send(&client_id, zmq::SNDMORE);
+                                        let _ = respond_to_client(&result, &responder);
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            Err(zmq::Error::EBUSY) => {
+                debug!("Socket Busy, skip");
+            }
+            Err(e) => {
+                error!("Get Client Socket Events errored...{:?}", e);
+                return Err(BynarError::from(e));
+            }
         }
+
         if daemon {
             while now.elapsed() < Duration::from_millis(10) {
                 for signal in signals.pending() {
@@ -535,7 +546,7 @@ fn listen(
                         signal_hook::SIGTERM => {
                             //"gracefully" exit
                             debug!("Exit Process");
-                            break;
+                            break 'outer;
                         }
                         _ => unreachable!(),
                     }

@@ -1268,7 +1268,7 @@ fn main() {
                                     ),
                                 )
                                 .expect("Unable to connect to slack");
-                                return;
+                                continue;
                             }
                             config = config_file.expect("Failed to load config");
                         }
