@@ -36,6 +36,20 @@ macro_rules! poll_events {
             Ok(e) => e,
         }
     };
+    ($s:expr, $ret:expr, $sleep:expr) => {
+        match $s.get_events() {
+            Err(zmq::Error::EBUSY) => {
+                trace!("Socket Busy, skip");
+                std::thread::sleep(std::time::Duration::from_millis($sleep));
+                $ret;
+            }
+            Err(e) => {
+                error!("Get Client Socket Events errored...{:?}", e);
+                return Err(BynarError::from(e));
+            }
+            Ok(e) => e,
+        }
+    };
 }
 
 #[macro_export]

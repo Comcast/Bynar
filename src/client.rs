@@ -32,7 +32,7 @@ fn add_disk(
     let mut sent = false;
     //loop until socket is readable, then get the response
     loop {
-        let events = poll_events!(s, continue);
+        let events = poll_events!(s, continue, 5000);
         //check if writable before sending request
         if events.contains(zmq::PollEvents::POLLOUT) && !sent {
             helpers::add_disk_request(s, path, id, client_id.clone(), simulate)?;
@@ -65,7 +65,7 @@ fn list_disks(s: &Socket, client_id: Vec<u8>) -> BynarResult<Vec<Disk>> {
     //loop until socket is readable, then get the response
     let mut sent = false;
     loop {
-        let events = poll_events!(s, continue);
+        let events = poll_events!(s, continue, 100);
         //check if writable before sending request
         if events.contains(zmq::PollEvents::POLLOUT) && !sent {
             helpers::list_disks_request(s, client_id.clone())?;
@@ -98,7 +98,7 @@ fn remove_disk(
 
     //loop until socket is readable, then get the response
     loop {
-        let events = poll_events!(s, continue);
+        let events = poll_events!(s, continue, 1000);
         //check if writable before sending request
         if events.contains(zmq::PollEvents::POLLOUT) && !sent {
             helpers::remove_disk_request(s, path, id, client_id.clone(), simulate)?;
@@ -173,7 +173,7 @@ fn handle_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     let mut sent = false;
     //loop until socket is readable, then get the response
     loop {
-        let events = poll_events!(s, continue);
+        let events = poll_events!(s, continue, 1000);
         //check if writable before sending request
         if events.contains(zmq::PollEvents::POLLOUT) && !sent {
             helpers::get_jira_tickets(s, client_id.clone())?;
