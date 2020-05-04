@@ -58,7 +58,7 @@ hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 hostname = "~0.1"
 init-daemon = "~0.1"
 json = "~0.11"
-libatasmart = "~0.1"
+libatasmart = {git = "https://github.com/mzhong1/libatasmart-1.git"}#"~0.1"
 libc = "~0.2"
 libredfish = {git = "https://github.com/cholcombe973/libredfish", branch = "generic"}
 log = "~0.4"

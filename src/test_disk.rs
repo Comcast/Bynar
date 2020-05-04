@@ -735,7 +735,7 @@ impl Transition for Scan {
         debug!("thread {} running Scan transition", process::id());
         let raid_backed = is_raid_backed(&scsi_info);
         match (raid_backed.0, raid_backed.1) {
-            (false, _) => match run_smart_checks(&Path::new(&device.dev_path)) {
+            (false, _) => match run_smart_checks(&device.dev_path) {
                 Ok(stat) => {
                     device.smart_passed = stat;
                     // If the device is a Disk, and is not mounted then end the state machine here.
@@ -753,7 +753,7 @@ impl Transition for Scan {
                     to_state
                 }
                 Err(e) => {
-                    error!("Smart test failed: {:?}", e);
+                    debug!("Smart test failed: {:?}", e);
                     State::Fail
                 }
             },
@@ -1525,7 +1525,7 @@ fn run_smartctl_check(device: &Path) -> BynarResult<bool> {
             // no errors, smart enabled
             0 => trace!("smartctl enabled"),
             // could not enable smart checks, should still be able to run smart health checks though
-            _ => error!("smartctl could not enable smart checks"),
+            _ => debug!("smartctl could not enable smart checks"),
         },
         //Process terminated by signal
         None => return Err(BynarError::from("smartctl terminated by signal")),
@@ -1551,16 +1551,16 @@ fn run_smart_checks(device: &Path) -> BynarResult<bool> {
             match smart.get_smart_status() {
                 Ok(stat) => stat,
                 Err(e) => {
-                    error!("Error {:?} Run SmartMonTools", e);
+                    debug!("Error {:?} Run SmartMonTools", e);
                     // If ata smart fails, run smartmontools
-                    return run_smartctl_check(device);
+                    run_smartctl_check(device)?
                 }
             }
         }
         Err(e) => {
-            error!("Error {:?} Run SmartMonTools", e);
+            debug!("Error {:?} Run SmartMonTools", e);
             // If ata smart fails, run smartmontools
-            return run_smartctl_check(device);
+            run_smartctl_check(device)?
         }
     };
 
