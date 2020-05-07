@@ -250,7 +250,7 @@ dependencies = [
  "init-daemon 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "json 0.11.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "libatasmart 0.1.5 (git+https://github.com/mzhong1/libatasmart-1.git)",
+ "libatasmart 0.1.5 (git+https://github.com/cholcombe973/libatasmart.git)",
  "libc 0.2.67 (registry+https://github.com/rust-lang/crates.io-index)",
  "libredfish 0.1.0 (git+https://github.com/cholcombe973/libredfish?branch=generic)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1131,7 +1131,7 @@ dependencies = [
 [[package]]
 name = "libatasmart"
 version = "0.1.5"
-source = "git+https://github.com/mzhong1/libatasmart-1.git#9e53ce34c637a97e677301bf35e5c50259adbe20"
+source = "git+https://github.com/cholcombe973/libatasmart.git#f95e055885ec7d66ecd9b36bb5807e6f40d2194a"
 dependencies = [
  "libatasmart-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "nix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3202,7 +3202,7 @@ dependencies = [
 "checksum language-tags 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a91d884b6667cd606bb5a69aa0c99ba811a115fc68915e7056ec08a46e93199a"
 "checksum lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 "checksum lexical-core 0.6.7 (registry+https://github.com/rust-lang/crates.io-index)" = "f86d66d380c9c5a685aaac7a11818bdfa1f733198dfd9ec09c70b762cd12ad6f"
-"checksum libatasmart 0.1.5 (git+https://github.com/mzhong1/libatasmart-1.git)" = "<none>"
+"checksum libatasmart 0.1.5 (git+https://github.com/cholcombe973/libatasmart.git)" = "<none>"
 "checksum libatasmart-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "deff6b65973033ac013e467b85af14cc7f9484e7cc8f9d3f11ee54db3e17e841"
 "checksum libc 0.2.67 (registry+https://github.com/rust-lang/crates.io-index)" = "eb147597cdf94ed43ab7a9038716637d2d1bf2bc571da995d0028dec06bd3018"
 "checksum libloading 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f2b111a074963af1d37a139918ac6d49ad1d0d5e47f72fd55388619691a7d753"
