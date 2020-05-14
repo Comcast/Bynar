@@ -305,7 +305,7 @@ fn listen(
                             let operation = match parse_from_bytes::<Operation>(&msg.clone()) {
                                 Ok(bytes) => bytes,
                                 Err(e) => {
-                                    error!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
+                                    debug!("Failed to parse_from_bytes {:?}.  Ignoring request", e);
                                     continue;
                                 }
                             };
