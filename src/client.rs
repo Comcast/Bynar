@@ -1,39 +1,133 @@
 /// This is built into a separate binary called bynar-client
 //mod disk_manager;
 use std::fs::{read_to_string, File};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::str::FromStr;
 
 //use disk_manager::disk_manager;
-use api::service::{Disk, OpOutcome};
+use api::service::{
+    Disk, Disks, JiraInfo, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, ResultType,
+};
 use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
-use helpers::error::BynarResult;
+use helpers::error::{BynarError, BynarResult};
 use hostname::get_hostname;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
 use zmq::Socket;
+
+#[macro_use]
+mod util;
 /*
     CLI client to call functions over RPC
 */
 
-fn add_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
-    let outcome = helpers::add_disk_request(s, path, id, simulate)?;
-    Ok(outcome)
+fn add_disk(
+    s: &Socket,
+    path: &Path,
+    id: Option<u64>,
+    client_id: Vec<u8>,
+    simulate: bool,
+) -> BynarResult<OpOutcomeResult> {
+    let mut sent = false;
+    //loop until socket is readable, then get the response
+    loop {
+        let events = poll_events!(s, continue, 5000);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::add_disk_request(s, path, id, client_id.clone(), simulate)?;
+            sent = true;
+        }
+        // got response
+        if events.contains(zmq::PollEvents::POLLIN) {
+            let message = helpers::get_messages(s)?;
+            if !message.is_empty() {
+                let op_result = get_message!(OpOutcomeResult, &message)?;
+                match op_result.get_result() {
+                    ResultType::OK => {
+                        return Ok(op_result);
+                    }
+                    ResultType::ERR => {
+                        if op_result.has_error_msg() {
+                            return Err(BynarError::from(op_result.get_error_msg()));
+                        } else {
+                            error!("error_msg not set");
+                            return Err(BynarError::from("error_msg not set"));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-fn list_disks(s: &Socket) -> BynarResult<Vec<Disk>> {
-    let disks = helpers::list_disks_request(s)?;
-    println!("disk list: {:?}", disks);
-
-    Ok(disks)
+fn list_disks(s: &Socket, client_id: Vec<u8>) -> BynarResult<Vec<Disk>> {
+    //loop until socket is readable, then get the response
+    let mut sent = false;
+    loop {
+        let events = poll_events!(s, continue, 100);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::list_disks_request(s, client_id.clone())?;
+            sent = true;
+        }
+        // got response
+        if events.contains(zmq::PollEvents::POLLIN) {
+            let message = helpers::get_messages(s)?;
+            if !message.is_empty() {
+                let disks = get_message!(Disks, &message)?;
+                let mut d: Vec<Disk> = Vec::new();
+                for disk in disks.get_disk() {
+                    d.push(disk.clone());
+                }
+                trace!("disk list: {:?}", d);
+                return Ok(d);
+            }
+        }
+    }
 }
 
-fn remove_disk(s: &Socket, path: &Path, id: Option<u64>, simulate: bool) -> BynarResult<OpOutcome> {
-    let outcome = helpers::remove_disk_request(s, path, id, simulate)?;
-    Ok(outcome)
+fn remove_disk(
+    s: &Socket,
+    path: &Path,
+    id: Option<u64>,
+    client_id: Vec<u8>,
+    simulate: bool,
+) -> BynarResult<OpOutcomeResult> {
+    let mut sent = false;
+
+    //loop until socket is readable, then get the response
+    loop {
+        let events = poll_events!(s, continue, 1000);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::remove_disk_request(s, path, id, client_id.clone(), simulate)?;
+            sent = true;
+        }
+        // got response
+        if events.contains(zmq::PollEvents::POLLIN) {
+            let message = helpers::get_messages(s)?;
+            if !message.is_empty() {
+                let op_result = get_message!(OpOutcomeResult, &message)?;
+                match op_result.get_result() {
+                    ResultType::OK => {
+                        return Ok(op_result);
+                    }
+                    ResultType::ERR => {
+                        if op_result.has_error_msg() {
+                            return Err(BynarError::from(op_result.get_error_msg()));
+                        } else {
+                            error!("error_msg not set");
+                            return Err(BynarError::from("error_msg not set"));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
+fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>, client_id: Vec<u8>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Adding disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -44,11 +138,17 @@ fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
         Some(s) => bool::from_str(&s).unwrap(),
         None => false,
     };
-    match add_disk(s, &p, id, simulate) {
-        Ok(outcome) => match outcome {
+    match add_disk(s, &p, id, client_id, simulate) {
+        Ok(outcome) => match outcome.get_outcome() {
             OpOutcome::Success => println!("Adding disk successful"),
             OpOutcome::Skipped => println!("Disk cannot be added, Skipping"),
-            OpOutcome::SkipRepeat => println!("Disk already added, Skipping"),
+            OpOutcome::SkipRepeat => {
+                if outcome.has_value() {
+                    println!("Disk has an operation ongoing, Skipping")
+                } else {
+                    println!("Disk already added, Skipping")
+                }
+            }
         },
         Err(e) => {
             println!("Adding disk failed: {}", e);
@@ -56,9 +156,9 @@ fn handle_add_disk(s: &Socket, matches: &ArgMatches<'_>) {
     };
 }
 
-fn handle_list_disks(s: &Socket) {
+fn handle_list_disks(s: &Socket, client_id: Vec<u8>) {
     info!("Listing disks");
-    match list_disks(s) {
+    match list_disks(s, client_id) {
         Ok(disks) => {
             println!("Disk list: {:?}", disks);
         }
@@ -68,14 +168,54 @@ fn handle_list_disks(s: &Socket) {
     };
 }
 
-fn handle_jira_tickets(s: &Socket) -> BynarResult<()> {
+fn handle_jira_tickets(s: &Socket, client_id: Vec<u8>) -> BynarResult<()> {
     trace!("handle_jira_tickets called");
-    helpers::get_jira_tickets(s)?;
-    trace!("handle_jira_tickets Finished");
-    Ok(())
+    let mut sent = false;
+    //loop until socket is readable, then get the response
+    loop {
+        let events = poll_events!(s, continue, 1000);
+        //check if writable before sending request
+        if events.contains(zmq::PollEvents::POLLOUT) && !sent {
+            helpers::get_jira_tickets(s, client_id.clone())?;
+            sent = true;
+        }
+        // got response
+        if events.contains(zmq::PollEvents::POLLIN) {
+            let message = helpers::get_messages(s)?;
+            if !message.is_empty() {
+                let tickets = get_message!(OpJiraTicketsResult, &message)?;
+                match tickets.get_result() {
+                    ResultType::OK => {
+                        debug!("got tickets successfully");
+                        let proto_jira = tickets.get_tickets();
+                        for JiraInfo in proto_jira {
+                            println!("get_ticket_id: {}", JiraInfo.get_ticket_id());
+                            println!("get_server_name: {}", JiraInfo.get_server_name());
+                        }
+                        if proto_jira.is_empty() {
+                            println!("No outstanding tickets");
+                        }
+                        return Ok(());
+                    }
+                    ResultType::ERR => {
+                        if tickets.has_error_msg() {
+                            let msg = tickets.get_error_msg();
+                            error!("get jira tickets failed : {}", msg);
+                            return Err(BynarError::from(tickets.get_error_msg()));
+                        } else {
+                            error!("Get jira tickets failed but error_msg not set");
+                            return Err(BynarError::from(
+                                "Get jira tickets failed but error_msg not set",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
+fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>, client_id: Vec<u8>) {
     let p = Path::new(matches.value_of("path").unwrap());
     info!("Removing disk: {}", p.display());
     let id = match matches.value_of("id") {
@@ -86,11 +226,17 @@ fn handle_remove_disk(s: &Socket, matches: &ArgMatches<'_>) {
         Some(s) => bool::from_str(&s).unwrap(),
         None => false,
     };
-    match remove_disk(s, &p, id, simulate) {
-        Ok(outcome) => match outcome {
+    match remove_disk(s, &p, id, client_id, simulate) {
+        Ok(outcome) => match outcome.get_outcome() {
             OpOutcome::Success => println!("Removing disk successful"),
             OpOutcome::Skipped => println!("Disk cannot be removed.  Skipping"),
-            OpOutcome::SkipRepeat => println!("Disk already removed.  Skipping"),
+            OpOutcome::SkipRepeat => {
+                if outcome.has_value() {
+                    println!("Disk has an operation ongoing, Skipping")
+                } else {
+                    println!("Disk already removed, Skipping")
+                }
+            }
         },
         Err(e) => {
             println!("Removing disk failed: {}", e);
@@ -189,20 +335,13 @@ fn get_cli_args(default_server_key: &str) -> ArgMatches<'_> {
                         .takes_value(true),
                 ),
         )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
+        .arg(Arg::with_name("v").short("v").multiple(true).help("Sets the level of verbosity"))
         .get_matches()
 }
 
 fn main() {
-    let server_key = format!(
-        "/etc/bynar/{}.pem",
-        get_hostname().unwrap_or_else(|| "ecpubkey".to_string())
-    );
+    let server_key =
+        format!("/etc/bynar/{}.pem", get_hostname().unwrap_or_else(|| "ecpubkey".to_string()));
     let matches = get_cli_args(&server_key);
     let level = match matches.occurrences_of("v") {
         0 => log::LevelFilter::Info, //default
@@ -220,7 +359,9 @@ fn main() {
         ),
     ]);
     info!("Starting up");
-    let server_pubkey = read_to_string(matches.value_of("server_key").unwrap()).unwrap();
+    let mut server_pubkey = Vec::new();
+    let mut keyfile = File::open(matches.value_of("server_key").unwrap()).unwrap();
+    keyfile.read_to_end(&mut server_pubkey).unwrap();
 
     let s = match helpers::connect(host, port, &server_pubkey) {
         Ok(s) => s,
@@ -229,17 +370,19 @@ fn main() {
             return;
         }
     };
+    let client_id: Vec<u8> = s.get_identity().unwrap();
+    debug!("Client ID {:?}, len {}", client_id, client_id.len());
     if let Some(ref matches) = matches.subcommand_matches("add") {
-        handle_add_disk(&s, matches);
+        handle_add_disk(&s, matches, client_id.clone());
     }
     if matches.subcommand_matches("list").is_some() {
-        handle_list_disks(&s);
+        handle_list_disks(&s, client_id.clone());
     }
     if let Some(ref matches) = matches.subcommand_matches("remove") {
-        handle_remove_disk(&s, matches);
+        handle_remove_disk(&s, matches, client_id.clone());
     }
     if let Some(ref _matches) = matches.subcommand_matches("get_jira_tickets") {
-        match handle_jira_tickets(&s) {
+        match handle_jira_tickets(&s, client_id) {
             Ok(()) => {}
             Err(e) => println!("Get JIRA tickets failed {}", e),
         };

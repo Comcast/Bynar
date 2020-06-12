@@ -17,7 +17,7 @@ use std::time::Duration;
 #[cfg(test)]
 mod tests {
     use super::super::ConfigSettings;
-    use block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
+    use block_utils::{Device, DeviceType, FilesystemType, MediaType, ScsiInfo};
     use simplelog::{Config, TermLogger};
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
@@ -56,6 +56,7 @@ mod tests {
                 id: Some(drive_uuid),
                 name: dev_name,
                 media_type: MediaType::Rotational,
+                device_type: DeviceType::Disk,
                 capacity: 26214400,
                 fs_type: FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -92,10 +93,7 @@ mod tests {
         println!("Added operation with ID {}", o_id);
 
         // call add_disk_detail again for same device
-        println!(
-            "Re-adding same disk with id {} again to the database",
-            dev_id
-        );
+        println!("Re-adding same disk with id {} again to the database", dev_id);
         let _disk_result2 = super::add_disk_detail(&pool, &mut d).unwrap();
 
         // Clear device_database_id to mimic re-run and add again
@@ -106,10 +104,7 @@ mod tests {
             None => 0,
             Some(i) => i,
         };
-        println!(
-            "Dev-id after reinsert attempt {}, old {}",
-            new_dev_id, dev_id
-        );
+        println!("Dev-id after reinsert attempt {}, old {}", new_dev_id, dev_id);
 
         // now update operation
         println!("Updating first operation with snapshot time");
@@ -155,10 +150,7 @@ mod tests {
 
         // get state again, and compare -- they should be same
         let new_state_result = super::get_state(&pool, &d).unwrap();
-        println!(
-            "State for dev name {} is {:#?}",
-            d.device.name, new_state_result
-        );
+        println!("State for dev name {} is {:#?}", d.device.name, new_state_result);
         assert_eq!(new_state, new_state_result);
 
         let tickets =
@@ -172,11 +164,7 @@ mod tests {
             None,
         )
         .unwrap();
-        println!(
-            "disk {} needs repair {}",
-            d.dev_path.display(),
-            is_repair_needed
-        );
+        println!("disk {} needs repair {}", d.dev_path.display(), is_repair_needed);
 
         let all_devices = super::get_devices_from_db(&pool, result.storage_detail_id).unwrap();
         println!("All devices {:#?}", all_devices);
@@ -208,12 +196,7 @@ impl DiskPendingTicket {
         device_path: String,
         device_id: i32,
     ) -> DiskPendingTicket {
-        DiskPendingTicket {
-            ticket_id,
-            device_name,
-            device_path,
-            device_id,
-        }
+        DiskPendingTicket { ticket_id, device_name, device_path, device_id }
     }
 }
 
@@ -226,11 +209,7 @@ pub struct HostDetailsMapping {
 
 impl HostDetailsMapping {
     pub fn new(entry_id: u32, region_id: u32, storage_detail_id: u32) -> HostDetailsMapping {
-        HostDetailsMapping {
-            entry_id,
-            region_id,
-            storage_detail_id,
-        }
+        HostDetailsMapping { entry_id, region_id, storage_detail_id }
     }
 }
 
@@ -259,12 +238,15 @@ impl OperationInfo {
             done_time: None,
         }
     }
+
     fn set_operation_id(&mut self, op_id: u32) {
         self.operation_id = Some(op_id);
     }
+
     pub fn set_done_time(&mut self, done_time: DateTime<Utc>) {
         self.done_time = Some(done_time);
     }
+
     pub fn set_snapshot_time(&mut self, snapshot_time: DateTime<Utc>) {
         self.snapshot_time = snapshot_time;
     }
@@ -335,6 +317,7 @@ impl OperationDetail {
             done_time: None,
         }
     }
+
     fn set_operation_detail_id(&mut self, op_detail_id: u32) {
         self.op_detail_id = Some(op_detail_id);
     }
@@ -369,10 +352,8 @@ pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<Conne
         .database(&db_config.dbname)
         .build(Host::Tcp(db_config.endpoint.to_string()));
     let manager = ConnectionManager::new(connection_params, TlsMode::None)?;
-    let db_pool = Pool::builder()
-        .max_size(10)
-        .connection_timeout(Duration::from_secs(300))
-        .build(manager)?;
+    let db_pool =
+        Pool::builder().max_size(10).connection_timeout(Duration::from_secs(300)).build(manager)?;
     Ok(db_pool)
 }
 
@@ -464,10 +445,7 @@ pub fn deregister_from_process_manager() -> BynarResult<()> {
 // Checks for the region in the database, inserts if it does not exist
 // and returns the region_id
 fn update_region(conn: &Transaction<'_>, region: &str) -> BynarResult<u32> {
-    let stmt = format!(
-        "SELECT region_id FROM regions WHERE region_name = '{}'",
-        region
-    );
+    let stmt = format!("SELECT region_id FROM regions WHERE region_name = '{}'", region);
     let stmt_query = conn.query(&stmt, &[])?;
     let mut region_id: u32 = 0;
 
@@ -570,11 +548,7 @@ pub fn add_disk_detail(
     let stmt_query = conn.query(
         "SELECT device_id FROM hardware WHERE device_path=$1
             AND detail_id=$2 AND device_name=$3",
-        &[
-            &format!("{}", disk_info.dev_path.display()),
-            &detail_id,
-            &disk_info.device.name,
-        ],
+        &[&format!("{}", disk_info.dev_path.display()), &detail_id, &disk_info.device.name],
     )?;
     if stmt_query.is_empty() {
         // A record doesn't exist, insert
@@ -583,10 +557,8 @@ pub fn add_disk_detail(
         let mut hardware_type: i32 = 2; // this is the usual value added to DB for disk type
 
         // Get hardware_type id from DB
-        let stmt2 = conn.query(
-            "SELECT hardware_id FROM hardware_types WHERE hardware_type='disk'",
-            &[],
-        )?;
+        let stmt2 =
+            conn.query("SELECT hardware_id FROM hardware_types WHERE hardware_type='disk'", &[])?;
         if let Some(res) = stmt2.into_iter().next() {
             hardware_type = res.get("hardware_id");
         }
@@ -758,9 +730,7 @@ pub fn add_or_update_operation(
                 op_info.set_operation_id(oid as u32);
                 Ok(())
             } else {
-                Err(BynarError::new(
-                    "Query to insert operation into DB failed".to_string(),
-                ))
+                Err(BynarError::new("Query to insert operation into DB failed".to_string()))
             }
         }
         Some(_) => {
@@ -867,25 +837,16 @@ pub fn save_state(
     device_detail: &BlockDevice,
     state: State,
 ) -> BynarResult<()> {
-    debug!(
-        "Saving state as {} for device {}",
-        state, device_detail.device.name
-    );
+    debug!("Saving state as {} for device {}", state, device_detail.device.name);
     let conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
         // Device is in database, update the state. Start a transaction to roll back if needed.
         // transaction rolls back by default.
         let transaction = conn.transaction()?;
-        let stmt = format!(
-            "UPDATE hardware SET state = '{}' WHERE device_id={}",
-            state, dev_id
-        );
+        let stmt = format!("UPDATE hardware SET state = '{}' WHERE device_id={}", state, dev_id);
         let stmt_query = transaction.execute(&stmt, &[])?;
-        info!(
-            "Updated {} rows in database with state information",
-            stmt_query
-        );
+        info!("Updated {} rows in database with state information", stmt_query);
         if stmt_query != 1 {
             // Only one device should  be updated. Rollback
             transaction.set_rollback();
@@ -927,10 +888,7 @@ pub fn save_smart_result(
             smart_passed, dev_id
         );
         let stmt_query = transaction.execute(&stmt, &[])?;
-        info!(
-            "Updated {} rows in database with smart check result",
-            stmt_query
-        );
+        info!("Updated {} rows in database with smart check result", stmt_query);
         if stmt_query != 1 {
             // Only one device should  be updated. Rollback
             transaction.set_rollback();
@@ -992,10 +950,8 @@ pub fn get_state(
     match device_detail.device_database_id {
         Some(dev_id) => {
             let dev_id = dev_id as i32;
-            let stmt_query = conn.query(
-                "SELECT state FROM hardware WHERE device_id = $1",
-                &[&dev_id],
-            )?;
+            let stmt_query =
+                conn.query("SELECT state FROM hardware WHERE device_id = $1", &[&dev_id])?;
             if stmt_query.len() != 1 || stmt_query.is_empty() {
                 // Database doesn't know about the device.  Must be new disk.
                 Ok(State::Unscanned)
@@ -1029,10 +985,7 @@ pub fn get_smart_result(
     let conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
-        let stmt = format!(
-            "SELECT smart_passed FROM hardware WHERE device_id = {}",
-            dev_id
-        );
+        let stmt = format!("SELECT smart_passed FROM hardware WHERE device_id = {}", dev_id);
         let stmt_query = conn.query(&stmt, &[])?;
         if stmt_query.len() != 1 || stmt_query.is_empty() {
             // Query didn't return anything. Assume smart checks have not been done/passed
@@ -1053,11 +1006,7 @@ pub fn get_smart_result(
 }
 
 fn row_to_ticket(row: &Row<'_>) -> DiskRepairTicket {
-    DiskRepairTicket {
-        ticket_id: row.get(0),
-        device_name: row.get(1),
-        device_path: row.get(2),
-    }
+    DiskRepairTicket { ticket_id: row.get(0), device_name: row.get(1), device_path: row.get(2) }
 }
 
 /// Get a list of ticket IDs (JIRA/other ids) that belong to me.
@@ -1078,17 +1027,14 @@ pub fn get_outstanding_repair_tickets(
      tracking_id IS NOT NULL ORDER BY operations.start_time";
 
     let detail_id = storage_detail_id as i32;
-    let stmt_query = conn.query(
-        &stmt,
-        &[
-            &OperationStatus::InProgress.to_string(),
-            &OperationStatus::Pending.to_string(),
-            &OperationType::WaitingForReplacement.to_string(),
-            &State::WaitingForReplacement.to_string(),
-            &State::Good.to_string(),
-            &detail_id,
-        ],
-    )?;
+    let stmt_query = conn.query(&stmt, &[
+        &OperationStatus::InProgress.to_string(),
+        &OperationStatus::Pending.to_string(),
+        &OperationType::WaitingForReplacement.to_string(),
+        &State::WaitingForReplacement.to_string(),
+        &State::Good.to_string(),
+        &detail_id,
+    ])?;
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
     if stmt_query.is_empty() {
         debug!(
@@ -1118,15 +1064,12 @@ pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> 
 
     // TODO[SD]: make sure there is one ticket with this ID
     let stmt = format!(
-        "UPDATE operation_details SET status='{}' WHERE ticket_id='{}'",
+        "UPDATE operation_details SET status='{}' WHERE tracking_id='{}'",
         OperationStatus::Complete,
         ticket_id
     );
     let stmt_query = conn.execute(&stmt, &[])?;
-    info!(
-        "Updated {} rows in database. Ticket {} marked as complete.",
-        stmt_query, ticket_id
-    );
+    info!("Updated {} rows in database. Ticket {} marked as complete.", stmt_query, ticket_id);
     Ok(())
 }
 
@@ -1254,16 +1197,13 @@ pub fn get_all_pending_tickets(
      type_id = (SELECT type_id FROM operation_types WHERE op_name= $3) AND
      hardware.state in ($4, $5) AND tracking_id IS NOT NULL ORDER BY operations.start_time";
 
-    let stmt_query = conn.query(
-        &stmt,
-        &[
-            &OperationStatus::InProgress.to_string(),
-            &OperationStatus::Pending.to_string(),
-            &OperationType::WaitingForReplacement.to_string(),
-            &State::WaitingForReplacement.to_string(),
-            &State::Good.to_string(),
-        ],
-    )?;
+    let stmt_query = conn.query(&stmt, &[
+        &OperationStatus::InProgress.to_string(),
+        &OperationStatus::Pending.to_string(),
+        &OperationType::WaitingForReplacement.to_string(),
+        &State::WaitingForReplacement.to_string(),
+        &State::Good.to_string(),
+    ])?;
 
     if stmt_query.is_empty() {
         debug!("No pending tickets for any host ");
@@ -1272,12 +1212,7 @@ pub fn get_all_pending_tickets(
         let mut tickets: Vec<DiskPendingTicket> = Vec::with_capacity(stmt_query.len());
         debug!("{} pending tickets for all hosts ", stmt_query.len());
         for row in stmt_query.iter() {
-            tickets.push(DiskPendingTicket::new(
-                row.get(0),
-                row.get(1),
-                row.get(2),
-                row.get(3),
-            ));
+            tickets.push(DiskPendingTicket::new(row.get(0), row.get(1), row.get(2), row.get(3)));
         }
         Ok(tickets)
     }

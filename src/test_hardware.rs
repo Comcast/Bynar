@@ -22,11 +22,6 @@ pub struct HardwareHealthSummary {
 }
 
 fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSummary> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .build()?;
-
     if config.redfish_ip.is_none() {
         debug!("Redfish ip address not specified.  Skipping checks");
         return Ok(HardwareHealthSummary {
@@ -38,6 +33,10 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
             thermals: vec![],
         });
     }
+    let client = Client::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()?;
     let redfish_config = Config {
         user: config.redfish_username.clone(),
         password: config.redfish_password.clone(),
@@ -63,14 +62,8 @@ fn collect_redfish_info(config: &ConfigSettings) -> BynarResult<HardwareHealthSu
             disk_drives.push(redfish.get_physical_drive(disk_id as u64, controller_id as u64)?);
         }
     }
-    let controller_results = array_controllers
-        .into_iter()
-        .map(evaluate_storage)
-        .collect();
-    let enclosure_results = storage_enclosures
-        .into_iter()
-        .map(evaluate_storage)
-        .collect();
+    let controller_results = array_controllers.into_iter().map(evaluate_storage).collect();
+    let enclosure_results = storage_enclosures.into_iter().map(evaluate_storage).collect();
     let disk_drive_results = disk_drives.into_iter().map(evaluate_storage).collect();
     let manager = redfish.get_manager_status()?;
     let manager_result = evaluate_manager(&manager);

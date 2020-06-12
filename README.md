@@ -210,6 +210,10 @@ CLI command to install all the dependencies:
 sudo apt install libzmq3-dev libprotobuf-dev librados2 libatasmart-dev libssl-dev libblkid-dev libudev-dev librados-dev pkg-config libclang-dev llvm libdevmapper-dev liblvm2-dev liblvm2app2.2 gcc clang smartmontools parted
 ```
 
+CentOS7
+```
+yum install -y zeromq-devel protobuf-devel librados2 libatasmart-devel openssl-devel libblkid-devel libudev-devel librados2-devel pkgconfig clang-devel zeromq llvm  device-mapper-devel gcc clang smartmontools parted
+```
 
 ### Working Rust environment
 
