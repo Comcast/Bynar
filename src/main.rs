@@ -586,6 +586,7 @@ fn add_repaired_disks(
                 );
                 let tid = Some(ticket.ticket_id.to_string());
                 message_queue.push_back((op, tid, None));
+                let _ = notify_slack(config, &format!("Creating Add disk operation request for {}", &ticket.device_path));
             }
             Ok(false) => {}
             Err(e) => {
@@ -621,9 +622,12 @@ fn handle_add_disk_res(
     pool: &Pool<ConnectionManager>,
     outcome: &OpOutcomeResult,
     ticket_id: String,
+    config: &ConfigSettings,
+    disk_name: &str,
 ) {
     match outcome.get_outcome() {
-        OpOutcome::Success => debug!("Disk added successfully. Updating database record"),
+        OpOutcome::Success => {debug!("Disk added successfully. Updating database record");
+        let _ = notify_slack(config, &format!("Disk {} added successfully", disk_name));},
         // Disk was either boot or something that shouldn't be added via backend
         OpOutcome::Skipped => debug!("Disk Skipped.  Updating database record"),
         // Disk is already in the cluster
@@ -782,6 +786,7 @@ fn handle_operation_result(
         match op_res.get_op_type() {
             Op::Add => {
                 error!("Add disk failed : {}", msg);
+                notify_slack(config, &format!("Add disk failed : {}", msg));
                 return Err(BynarError::from(msg));
             }
             Op::Remove => {
@@ -803,9 +808,15 @@ fn handle_operation_result(
         Op::Add => {
             if let Some(disk_op) = get_map_op(message_map, &dev_path.to_path_buf())? {
                 if let Some(ticket_id) = disk_op.description {
-                    handle_add_disk_res(pool, &op_res, ticket_id);
+                    handle_add_disk_res(pool, &op_res, ticket_id, config, op_res.get_disk());
                     //update result in the map (in otherwords, just set it to None)
-                    remove_map_op(message_map, &dev_path.to_path_buf())?;
+                    let map = get_disk_map_op(message_map, &dev_path.to_path_buf())?;
+                    info!("Disk map: {:X?}", map);
+                    for (path, _) in map {
+                        info!("Path: {}", path.display());
+                        let _ = remove_map_op(message_map, &path.to_path_buf())?;
+                    }
+                    info!("{:X?}", message_map);
                     return Ok(());
                 }
             }
