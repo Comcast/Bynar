@@ -243,7 +243,7 @@ dependencies = [
  "dmi 0.1.0 (git+https://github.com/cholcombe973/dmi)",
  "fstab 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gluster 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "goji 0.2.4 (git+https://github.com/cholcombe973/goji.git?rev=96aef5ea21d8b5ec3d83209de708fa2e13cd5c96)",
+ "goji 0.2.4 (git+https://github.com/cholcombe973/goji.git?rev=e0006da520c1afb443e1fbc2c201ccaed50345d9)",
  "gpt 1.0.0 (git+https://github.com/Quyzi/gpt)",
  "hashicorp_vault 1.0.0 (git+https://github.com/cholcombe973/vault-rs.git)",
  "hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "goji"
 version = "0.2.4"
-source = "git+https://github.com/cholcombe973/goji.git?rev=96aef5ea21d8b5ec3d83209de708fa2e13cd5c96#96aef5ea21d8b5ec3d83209de708fa2e13cd5c96"
+source = "git+https://github.com/cholcombe973/goji.git?rev=e0006da520c1afb443e1fbc2c201ccaed50345d9#e0006da520c1afb443e1fbc2c201ccaed50345d9"
 dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.24 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3174,7 +3174,7 @@ dependencies = [
 "checksum getrandom 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "7abc8dd8451921606d809ba32e95b6111925cd2906060d2dcc29c070220503eb"
 "checksum glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
 "checksum gluster 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "74fb74c4d5972b3aa616a9ceacc93f43d8ff9c189fd8530243d3feb32a672d62"
-"checksum goji 0.2.4 (git+https://github.com/cholcombe973/goji.git?rev=96aef5ea21d8b5ec3d83209de708fa2e13cd5c96)" = "<none>"
+"checksum goji 0.2.4 (git+https://github.com/cholcombe973/goji.git?rev=e0006da520c1afb443e1fbc2c201ccaed50345d9)" = "<none>"
 "checksum gpt 1.0.0 (git+https://github.com/Quyzi/gpt)" = "<none>"
 "checksum h2 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)" = "a5b34c246847f938a410a03c5458c7fee2274436675e76d8b903c08efc29c462"
 "checksum hashicorp_vault 1.0.0 (git+https://github.com/cholcombe973/vault-rs.git)" = "<none>"

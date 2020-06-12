@@ -52,7 +52,7 @@ dirs = "~2.0"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
 fstab = "~0.3"
 gluster = "~1.0"
-goji = { git = "https://github.com/cholcombe973/goji.git", rev = "96aef5ea21d8b5ec3d83209de708fa2e13cd5c96" }
+goji = { git = "https://github.com/cholcombe973/goji.git", rev = "e0006da520c1afb443e1fbc2c201ccaed50345d9"}
 gpt = { git = "https://github.com/Quyzi/gpt"}
 hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
 hostname = "~0.1"
