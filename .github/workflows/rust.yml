@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y libatasmart-dev libblkid-dev liblvm2-dev libprotobuf-dev librados2 librados-dev libssl-dev libudev-dev libzmq3-dev
+
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --verbose
