@@ -27,6 +27,7 @@ use lvm::*;
 use mocktopus::macros::*;
 use petgraph::graphmap::GraphMap;
 use petgraph::Directed;
+use postgres::NoTls;
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use std::collections::{BTreeMap, HashSet};
@@ -1305,7 +1306,7 @@ fn filter_disks(devices: &[PathBuf], storage_detail_id: u32) -> BynarResult<Vec<
 // Add in any disks that the database knew about that linux can no longer find
 fn add_previous_devices(
     devices: &mut Vec<BlockDevice>,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     host_mapping: &HostDetailsMapping,
 ) -> BynarResult<()> {
     // Sometimes failed devices are removed from sys/udev and we can no
@@ -1374,7 +1375,7 @@ fn add_previous_devices(
 /// the final state in the database before returning a vector of StateMachine
 pub fn check_all_disks(
     host_info: &Host,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     host_mapping: &HostDetailsMapping,
 ) -> BynarResult<Vec<BynarResult<StateMachine>>> {
     // Udev will only show the disks that are currently attached to the tree

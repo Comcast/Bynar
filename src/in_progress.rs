@@ -5,9 +5,9 @@ use chrono::offset::Utc;
 use chrono::DateTime;
 use helpers::{error::*, host_information::Host as MyHost, DBConfig};
 use log::{debug, error, info};
-use postgres::{params::ConnectParams, params::Host, rows::Row, transaction::Transaction};
+use postgres::{config::Config, row::Row, Transaction};
 use r2d2::{Pool, PooledConnection};
-use r2d2_postgres::{PostgresConnectionManager as ConnectionManager, TlsMode};
+use r2d2_postgres::{PostgresConnectionManager as ConnectionManager, postgres::NoTls};
 use std::fmt::{Display, Formatter, Result as fResult};
 use std::path::PathBuf;
 use std::process::id;
@@ -353,22 +353,24 @@ impl OperationDetail {
 }
 
 /// Reads the config file to establish a pool of database connections
-pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<ConnectionManager>> {
+pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<ConnectionManager<NoTls>>> {
     debug!(
         "Establishing a connection to database {} at {}:{} using {}",
         db_config.dbname, db_config.endpoint, db_config.port, db_config.username
     );
     // Postgres expects an &str here instead of Option<String>
-    let password: Option<&str> = match db_config.password.as_ref() {
-        Some(v) => Some(v),
-        None => None,
+    let password: &str = match db_config.password.as_ref() {
+        Some(v) => v,
+        None => "",
     };
-    let connection_params = ConnectParams::builder()
-        .user(&db_config.username, password)
+    let mut connection_params: postgres::Config = Config::new();
+        connection_params
+        .host(&db_config.endpoint.to_string())
+        .user(&db_config.username)
+        .password(password)
         .port(db_config.port)
-        .database(&db_config.dbname)
-        .build(Host::Tcp(db_config.endpoint.to_string()));
-    let manager = ConnectionManager::new(connection_params, TlsMode::None)?;
+        .dbname(&db_config.dbname);
+    let manager = ConnectionManager::new(connection_params, NoTls);
     let db_pool = Pool::builder()
         .max_size(10)
         .connection_timeout(Duration::from_secs(300))
@@ -378,8 +380,8 @@ pub fn create_db_connection_pool(db_config: &DBConfig) -> BynarResult<Pool<Conne
 
 /// return one connection from the pool
 pub fn get_connection_from_pool(
-    pool: &Pool<ConnectionManager>,
-) -> BynarResult<PooledConnection<ConnectionManager>> {
+    pool: &Pool<ConnectionManager<NoTls>>,
+) -> BynarResult<PooledConnection<ConnectionManager<NoTls>>> {
     let connection = pool.get()?;
     Ok(connection)
 }
@@ -389,36 +391,35 @@ pub fn get_connection_from_pool(
 /// TODO: return conn, entry_id, region_id, detail_id
 pub fn update_storage_info(
     s_info: &MyHost,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
 ) -> BynarResult<HostDetailsMapping> {
     debug!("Adding datacenter and host information to database");
 
     // Get a database connection
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
     // extract ip address to a &str
     let ip_address: String = s_info.ip.to_string();
 
     // Do all these three in a transaction, rolls back by default.
-    let transaction = conn.transaction()?;
+    let mut transaction = conn.transaction()?;
     info!("Started transaction to update storage information in database");
-    let entry_id = register_to_process_manager(&transaction, &ip_address)?;
-    let region_id = update_region(&transaction, &s_info.region)?;
-    let detail_id = update_storage_details(&transaction, &s_info, region_id)?;
+    let entry_id = register_to_process_manager(&mut transaction, &ip_address)?;
+    let region_id = update_region(&mut transaction, &s_info.region)?;
+    let detail_id = update_storage_details(&mut transaction, &s_info, region_id)?;
 
     let host_detail_mapping = if entry_id == 0 || region_id == 0 || detail_id == 0 {
         return Err(BynarError::new(
             "Failed to update storage information in the database".to_string(),
         ));
     } else {
-        transaction.set_commit();
         HostDetailsMapping::new(entry_id, region_id, detail_id)
     };
-    let _ = transaction.finish();
+    let _ = transaction.commit();
     Ok(host_detail_mapping)
 }
 
 /// responsible to store the pid, ip of the system on which bynar is running
-fn register_to_process_manager(conn: &Transaction<'_>, ip: &str) -> BynarResult<u32> {
+fn register_to_process_manager(conn: &mut Transaction<'_>, ip: &str) -> BynarResult<u32> {
     // get process id
     let pid = id();
     debug!("Adding daemon details with pid {} to process manager", pid);
@@ -463,7 +464,7 @@ pub fn deregister_from_process_manager() -> BynarResult<()> {
 
 // Checks for the region in the database, inserts if it does not exist
 // and returns the region_id
-fn update_region(conn: &Transaction<'_>, region: &str) -> BynarResult<u32> {
+fn update_region(conn: &mut Transaction<'_>, region: &str) -> BynarResult<u32> {
     let stmt = format!(
         "SELECT region_id FROM regions WHERE region_name = '{}'",
         region
@@ -494,7 +495,7 @@ fn update_region(conn: &Transaction<'_>, region: &str) -> BynarResult<u32> {
 }
 
 fn update_storage_details(
-    conn: &Transaction<'_>,
+    conn: &mut Transaction<'_>,
     s_info: &MyHost,
     region_id: u32,
 ) -> BynarResult<u32> {
@@ -561,10 +562,10 @@ fn update_storage_details(
 
 // Inserts disk informatation record into bynar.hardware and adds the device_database_id to struct
 pub fn add_disk_detail(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     disk_info: &mut BlockDevice,
 ) -> BynarResult<()> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
     let detail_id = disk_info.storage_detail_id as i32;
 
     let stmt_query = conn.query(
@@ -572,7 +573,7 @@ pub fn add_disk_detail(
             AND detail_id=$2 AND device_name=$3",
         &[
             &format!("{}", disk_info.dev_path.display()),
-            &detail_id,
+            &detail_id.to_string(),
             &disk_info.device.name,
         ],
     )?;
@@ -669,12 +670,12 @@ pub fn add_disk_detail(
 
 /// Get the Operation ID associated with an op_info, return true if successful, false otherwise
 fn get_operation_id(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     op_info: &mut OperationInfo,
 ) -> BynarResult<()> {
     let mut stmt = String::new();
 
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
     stmt.push_str(&format!(
         "SELECT * FROM operations WHERE entry_id = {} AND device_id = {}",
         op_info.entry_id, op_info.device_id
@@ -693,12 +694,12 @@ fn get_operation_id(
 // inserts the operation record. If successful insert, the provided input op_info
 // is modified. Returns error if insert or update fails.
 pub fn add_or_update_operation(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     op_info: &mut OperationInfo,
 ) -> BynarResult<()> {
     let mut stmt = String::new();
 
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
     get_operation_id(pool, op_info)?;
     match op_info.operation_id {
         None => {
@@ -771,10 +772,10 @@ pub fn add_or_update_operation(
 }
 
 pub fn add_or_update_operation_detail(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     operation_detail: &mut OperationDetail,
 ) -> BynarResult<()> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
     let mut stmt = String::new();
     match operation_detail.op_detail_id {
         None => {
@@ -791,14 +792,15 @@ pub fn add_or_update_operation_detail(
                     operation_detail.op_type
                 )));
             }
-            if stmt_query.is_empty() {
+            let mut type_id: i32 = -1;
+            if let Some(row) = stmt_query.get(0) {
+              type_id = row.get("type_id");
+            } else {
                 return Err(BynarError::new(format!(
                     "No record in database for operation {}",
                     operation_detail.op_type
                 )));
             }
-            let row = stmt_query.get(0);
-            let type_id: i32 = row.get("type_id");
 
             stmt.push_str(
                 "INSERT INTO operation_details (operation_id, type_id,
@@ -863,7 +865,7 @@ pub fn add_or_update_operation_detail(
 }
 
 pub fn save_state(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     device_detail: &BlockDevice,
     state: State,
 ) -> BynarResult<()> {
@@ -871,12 +873,12 @@ pub fn save_state(
         "Saving state as {} for device {}",
         state, device_detail.device.name
     );
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
         // Device is in database, update the state. Start a transaction to roll back if needed.
         // transaction rolls back by default.
-        let transaction = conn.transaction()?;
+        let mut transaction = conn.transaction()?;
         let stmt = format!(
             "UPDATE hardware SET state = '{}' WHERE device_id={}",
             state, dev_id
@@ -888,14 +890,12 @@ pub fn save_state(
         );
         if stmt_query != 1 {
             // Only one device should  be updated. Rollback
-            transaction.set_rollback();
-            let _ = transaction.finish();
+            transaction.rollback();
             Err(BynarError::new(
                 "Attempt to update more than one device in database. Rolling back.".to_string(),
             ))
         } else {
-            transaction.set_commit();
-            let _ = transaction.finish();
+            let _ = transaction.commit();
             Ok(())
         }
     } else {
@@ -908,7 +908,7 @@ pub fn save_state(
 }
 
 pub fn save_smart_result(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     device_detail: &BlockDevice,
     smart_passed: bool,
 ) -> BynarResult<()> {
@@ -916,12 +916,12 @@ pub fn save_smart_result(
         "Saving smart check result as {} for device {}",
         smart_passed, device_detail.device.name
     );
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
         // Device is in database, update smart_passed. Start a transaction to roll back if needed.
         // transaction rolls back by default.
-        let transaction = conn.transaction()?;
+        let mut transaction = conn.transaction()?;
         let stmt = format!(
             "UPDATE hardware SET smart_passed = {} WHERE device_id={}",
             smart_passed, dev_id
@@ -933,14 +933,12 @@ pub fn save_smart_result(
         );
         if stmt_query != 1 {
             // Only one device should  be updated. Rollback
-            transaction.set_rollback();
-            transaction.finish()?;
+            transaction.rollback();
             Err(BynarError::new(
                 "Attempt to update more than one device in database. Rolling back.".to_string(),
             ))
         } else {
-            transaction.set_commit();
-            transaction.finish()?;
+            transaction.commit()?;
             Ok(())
         }
     } else {
@@ -954,11 +952,11 @@ pub fn save_smart_result(
 
 // Returns the currently known disks from the database.
 pub fn get_devices_from_db(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     storage_detail_id: u32,
 ) -> BynarResult<Vec<(u32, String, PathBuf)>> {
     debug!("Retrieving devices from DB",);
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     let detail_id = storage_detail_id as i32;
     let stmt_query = conn.query(
@@ -980,14 +978,14 @@ pub fn get_devices_from_db(
 /// Returns error if no record of device is found in the database.
 /// Returns the default state if state was not previously saved.
 pub fn get_state(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     device_detail: &BlockDevice,
 ) -> BynarResult<State> {
     debug!(
         "Retrieving state for device {} with storage detail id {} from DB",
         device_detail.device.name, device_detail.storage_detail_id
     );
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     match device_detail.device_database_id {
         Some(dev_id) => {
@@ -996,13 +994,13 @@ pub fn get_state(
                 "SELECT state FROM hardware WHERE device_id = $1",
                 &[&dev_id],
             )?;
-            if stmt_query.len() != 1 || stmt_query.is_empty() {
-                // Database doesn't know about the device.  Must be new disk.
-                Ok(State::Unscanned)
-            } else {
-                let row = stmt_query.get(0);
+
+            if let Some(row) = stmt_query.get(0) {
                 let retrieved_state: String = row.get("state");
                 Ok(State::from_str(&retrieved_state).unwrap_or(State::Unscanned))
+            } else {
+                // Database doesn't know about the device.  Must be new disk.
+                Ok(State::Unscanned)
             }
         }
         None => {
@@ -1019,29 +1017,28 @@ pub fn get_state(
 /// Returns error if no record of device is found in the database.
 /// Returns false if not previously saved.
 pub fn get_smart_result(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     device_detail: &BlockDevice,
 ) -> BynarResult<bool> {
     debug!(
         "Retrieving smart check result for device {} with storage detail id {} from DB",
         device_detail.device.name, device_detail.storage_detail_id
     );
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     if let Some(dev_id) = device_detail.device_database_id {
         let stmt = format!(
             "SELECT smart_passed FROM hardware WHERE device_id = {}",
             dev_id
         );
-        let stmt_query = conn.query(&stmt, &[])?;
-        if stmt_query.len() != 1 || stmt_query.is_empty() {
-            // Query didn't return anything. Assume smart checks have not been done/passed
-            Ok(false)
-        } else {
+        let stmt_query: Vec<Row> = conn.query(&stmt, &[])?;
+        if let Some(row) = stmt_query.get(0) {
             // got something from the database
-            let row = stmt_query.get(0);
             let smart_passed = row.get("smart_passed");
             Ok(smart_passed)
+        } else {
+            // Query didn't return anything. Assume smart checks have not been done/passed
+            Ok(false)
         }
     } else {
         // No entry of this device in database table. Cannot get smart_cheks info
@@ -1052,7 +1049,7 @@ pub fn get_smart_result(
     }
 }
 
-fn row_to_ticket(row: &Row<'_>) -> DiskRepairTicket {
+fn row_to_ticket(row: &Row) -> DiskRepairTicket {
     DiskRepairTicket {
         ticket_id: row.get(0),
         device_name: row.get(1),
@@ -1063,10 +1060,10 @@ fn row_to_ticket(row: &Row<'_>) -> DiskRepairTicket {
 /// Get a list of ticket IDs (JIRA/other ids) that belong to me.
 /// that are pending in op_type=waitForReplacement
 pub fn get_outstanding_repair_tickets(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     storage_detail_id: u32,
 ) -> BynarResult<Vec<DiskRepairTicket>> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     // Get all tickets of myself with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
     let stmt = "SELECT tracking_id, device_name, device_path FROM operation_details JOIN operations USING (operation_id)
@@ -1079,14 +1076,14 @@ pub fn get_outstanding_repair_tickets(
 
     let detail_id = storage_detail_id as i32;
     let stmt_query = conn.query(
-        &stmt,
+        stmt,
         &[
             &OperationStatus::InProgress.to_string(),
             &OperationStatus::Pending.to_string(),
             &OperationType::WaitingForReplacement.to_string(),
             &State::WaitingForReplacement.to_string(),
             &State::Good.to_string(),
-            &detail_id,
+            &detail_id.to_string(),
         ],
     )?;
     let mut tickets: Vec<DiskRepairTicket> = Vec::new();
@@ -1112,8 +1109,8 @@ pub fn get_outstanding_repair_tickets(
 
 /// Sets status=Complete for the record that has the given ticket_id.
 /// Equivalent to calling add_or_update_operation_detail() with appropriate fields set
-pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> BynarResult<()> {
-    let conn = get_connection_from_pool(pool)?;
+pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager<NoTls>>, ticket_id: &str) -> BynarResult<()> {
+    let mut conn = get_connection_from_pool(pool)?;
     debug!("Attempting to resolve ticket {}", ticket_id);
 
     // TODO[SD]: make sure there is one ticket with this ID
@@ -1131,12 +1128,12 @@ pub fn resolve_ticket_in_db(pool: &Pool<ConnectionManager>, ticket_id: &str) -> 
 }
 
 pub fn is_hardware_waiting_repair(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     storage_detail_id: u32,
     device_name: &str,
     serial_number: Option<&str>,
 ) -> BynarResult<bool> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
     // is there is any operation for this hardware that is waiting for replacement
     let mut stmt = "SELECT status FROM operation_details 
     JOIN operations USING (operation_id) 
@@ -1149,7 +1146,7 @@ pub fn is_hardware_waiting_repair(
     let detail_id = storage_detail_id as i32;
     let operation_type = OperationType::WaitingForReplacement.to_string();
     let state_type = State::WaitingForReplacement.to_string();
-    let mut params: Vec<&dyn postgres::types::ToSql> =
+    let mut params: Vec<&(dyn postgres::types::ToSql + Sync)> =
         vec![&device_name, &detail_id, &operation_type, &state_type];
     // Add the serial_number to the query if given
     if let Some(ref serial) = serial_number {
@@ -1157,16 +1154,16 @@ pub fn is_hardware_waiting_repair(
         params.push(serial);
     }
 
-    let stmt_query = conn.query(&stmt, &params)?;
+    let stmt_query = conn.query(&stmt, &params[0..])?;
     Ok(!stmt_query.is_empty())
 }
 
 /// Get region id based on the region name.
 pub fn get_region_id(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     region_name: &str,
 ) -> BynarResult<Option<u32>> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     // Get region Id from region name
     let stmt = "SELECT region_id FROM regions WHERE region_name = $1";
@@ -1186,14 +1183,14 @@ pub fn get_region_id(
 
 /// Get storage id based on the storage type.
 pub fn get_storage_id(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     storage_type: &str,
 ) -> BynarResult<Option<u32>> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     // Get storage Id from storage type
     let stmt = "SELECT storage_id FROM storage_types WHERE storage_type= $1 ";
-    let stmt_query = conn.query(&stmt, &[&storage_type])?;
+    let stmt_query = conn.query(stmt, &[&storage_type])?;
 
     if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return storage_id
@@ -1209,17 +1206,17 @@ pub fn get_storage_id(
 
 /// Get storage detail id based on the storage id, region id and hotsname
 pub fn get_storage_detail_id(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     storage_id: u32,
     region_id: u32,
     host_name: &str,
 ) -> BynarResult<Option<u32>> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     // Get storage detail Id
     let stmt = "SELECT detail_id FROM storage_details WHERE storage_id = $1
             AND region_id = $2 AND hostname = $3 ";
-    let stmt_query = conn.query(&stmt, &[&storage_id, &region_id, &host_name])?;
+    let stmt_query = conn.query(stmt, &[&storage_id, &region_id, &host_name])?;
 
     if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return storage_id
@@ -1243,9 +1240,9 @@ pub fn get_storage_detail_id(
 /// Get a list of ticket IDs (JIRA/other ids) that belong to all servers.
 /// that are in pending state  and outstanding tickets
 pub fn get_all_pending_tickets(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
 ) -> BynarResult<Vec<DiskPendingTicket>> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     // Get all tickets with device.state=WaitingForReplacement and operation_detail.status = pending or in_progress
     let stmt = "SELECT tracking_id, device_name, device_path, device_id FROM operation_details JOIN operations
@@ -1255,7 +1252,7 @@ pub fn get_all_pending_tickets(
      hardware.state in ($4, $5) AND tracking_id IS NOT NULL ORDER BY operations.start_time";
 
     let stmt_query = conn.query(
-        &stmt,
+        stmt,
         &[
             &OperationStatus::InProgress.to_string(),
             &OperationStatus::Pending.to_string(),
@@ -1285,14 +1282,14 @@ pub fn get_all_pending_tickets(
 
 /// Get host name based on the device id
 pub fn get_host_name(
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     device_id: i32,
 ) -> BynarResult<Option<String>> {
-    let conn = get_connection_from_pool(pool)?;
+    let mut conn = get_connection_from_pool(pool)?;
 
     // Get host name
     let stmt = "SELECT hostname FROM storage_details JOIN hardware USING (detail_id) WHERE device_id = $1; ";
-    let stmt_query = conn.query(&stmt, &[&device_id])?;
+    let stmt_query = conn.query(stmt, &[&device_id.to_string()])?;
 
     if let Some(res) = stmt_query.into_iter().next() {
         // Exists, return host name

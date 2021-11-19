@@ -5,7 +5,7 @@ use libredfish::{
     storage::Hardware, storage::StorageEnclosure, thermal::Thermal, *,
 };
 use log::debug;
-use reqwest::Client;
+use reqwest::blocking::Client;
 
 /// Summary of all the hardware status information
 pub struct HardwareHealthSummary {

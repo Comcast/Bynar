@@ -33,6 +33,7 @@ use daemonize::Daemonize;
 use helpers::{error::*, host_information::Host, ConfigSettings};
 use libc::c_int;
 use log::{debug, error, info, trace, warn};
+use postgres::NoTls;
 use r2d2::Pool;
 use r2d2_postgres::PostgresConnectionManager as ConnectionManager;
 use signal_hook::iterator::Signals;
@@ -161,7 +162,7 @@ fn add_disk_to_description(
 fn check_for_failed_disks(
     config: &ConfigSettings,
     host_info: &Host,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     host_mapping: &HostDetailsMapping,
     simulate: bool,
 ) -> BynarResult<()> {
@@ -314,7 +315,7 @@ fn check_for_failed_disks(
 fn evaluate(
     results: Vec<BynarResult<()>>,
     config: &ConfigSettings,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     host_mapping: &HostDetailsMapping,
 ) -> BynarResult<()> {
     for result in results {
@@ -371,7 +372,7 @@ fn evaluate(
 fn check_for_failed_hardware(
     config: &ConfigSettings,
     host_info: &Host,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     host_mapping: &HostDetailsMapping,
     simulate: bool,
 ) -> BynarResult<()> {
@@ -411,7 +412,7 @@ fn check_for_failed_hardware(
 fn add_repaired_disks(
     config: &ConfigSettings,
     host_info: &Host,
-    pool: &Pool<ConnectionManager>,
+    pool: &Pool<ConnectionManager<NoTls>>,
     storage_detail_id: u32,
     simulate: bool,
 ) -> BynarResult<()> {
@@ -526,10 +527,10 @@ fn main() {
         _ => log::LevelFilter::Trace,
     };
     let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
-    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
+    let term_logger = TermLogger::new(level, Config::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto);
         //systemd doesn't use a terminal
         loggers.push(term_logger);
-    }
+
     loggers.push(WriteLogger::new(
         level,
         Config::default(),
@@ -588,11 +589,11 @@ fn main() {
             _ => {}
         }
     }
-    let signals = Signals::new(&[
-        signal_hook::SIGHUP,
-        signal_hook::SIGTERM,
-        signal_hook::SIGINT,
-        signal_hook::SIGCHLD,
+    let mut signals = Signals::new(&[
+        signal_hook::consts::signal::SIGHUP,
+        signal_hook::consts::signal::SIGTERM,
+        signal_hook::consts::signal::SIGINT,
+        signal_hook::consts::signal::SIGCHLD,
     ])
     .expect("Unable to create iterator signal handler");
     //Check if daemon, if so, start the daemon
@@ -621,9 +622,7 @@ fn main() {
             Err(e) => eprintln!("Error, {}", e),
         }
         println!("I'm child process and My pid is {}", process::id());
-    } else {
-        signals.close();
-    }
+    } 
 
     info!("------------------------------------------------\n\t\tStarting up");
 
@@ -711,7 +710,7 @@ fn main() {
             while now.elapsed() < dur {
                 for signal in signals.pending() {
                     match signal as c_int {
-                        signal_hook::SIGHUP => {
+                        signal_hook::consts::signal::SIGHUP => {
                             //Reload the config file
                             debug!("Reload Config File");
                             let _ = notify_slack(
@@ -740,12 +739,12 @@ fn main() {
                             let config: ConfigSettings =
                                 config_file.expect("Failed to load config");
                         }
-                        signal_hook::SIGINT | signal_hook::SIGCHLD => {
+                        signal_hook::consts::signal::SIGINT | signal_hook::consts::signal::SIGCHLD => {
                             //skip this
                             debug!("Ignore signal");
                             continue;
                         }
-                        signal_hook::SIGTERM => {
+                        signal_hook::consts::signal::SIGTERM => {
                             //"gracefully" exit
                             debug!("Exit Process");
                             break 'outer;

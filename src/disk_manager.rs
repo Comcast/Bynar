@@ -134,14 +134,14 @@ fn setup_curve(s: &Socket, config_dir: &Path, vault: bool) -> BynarResult<()> {
         let client = VaultClient::new(endpoint.as_str(), token)?;
         client.set_secret(
             format!("{}/{}.pem", config_dir.display(), hostname),
-            String::from_utf8_lossy(keypair.public_key.as_bytes()),
+            String::from_utf8_lossy(&keypair.public_key),
         )?;
         s.set_curve_secretkey(&keypair.secret_key)?;
     } else {
         debug!("Creating new curve keypair");
         s.set_curve_secretkey(&keypair.secret_key)?;
         let mut f = File::create(key_file)?;
-        f.write_all(keypair.public_key.as_bytes())?;
+        f.write_all(&keypair.public_key)?;
     }
     debug!("Server mechanism: {:?}", s.get_mechanism());
     debug!("Curve server: {:?}", s.is_curve_server());
@@ -181,7 +181,7 @@ fn listen(
     backend_type: &backend::BackendType,
     config_dir: &Path,
     listen_address: &str,
-    signals: &Signals,
+    signals: &mut Signals,
     daemon: bool,
     vault: bool,
 ) -> BynarResult<()> {
@@ -200,7 +200,7 @@ fn listen(
         let now = Instant::now();
         let events = responder.get_events()? as zmq::PollEvents;
         // is the socket readable?
-        if (events & zmq::POLLIN) != 0 {
+        if events.contains(zmq::POLLIN) {
             let msg = responder.recv_bytes(0)?;
             debug!("Got msg len: {}", msg.len());
             trace!("Parsing msg {:?} as hex", msg);
@@ -334,10 +334,10 @@ fn listen(
             };
         }
         if daemon {
-            while (now.elapsed() < Duration::from_millis(10)) {
+            while now.elapsed() < Duration::from_millis(10) {
                 for signal in signals.pending() {
                     match signal as c_int {
-                        signal_hook::SIGHUP => {
+                        signal_hook::consts::signal::SIGHUP => {
                             //Reload the config file
                             debug!("Reload Config File");
                             let config_file = helpers::load_config(config_dir, "disk-manager.json");
@@ -353,12 +353,12 @@ fn listen(
                                 config_file.expect("Failed to load config");
                             let _ = notify_slack(&config, &format!("Reload disk-manager config file")).expect("Unable to connect to slack");
                         }
-                        signal_hook::SIGINT | signal_hook::SIGCHLD => {
+                        signal_hook::consts::signal::SIGINT | signal_hook::consts::signal::SIGCHLD => {
                             //skip this
                             debug!("Ignore signal");
                             continue;
                         }
-                        signal_hook::SIGTERM => {
+                        signal_hook::consts::signal::SIGTERM => {
                             //"gracefully" exit
                             debug!("Exit Process");
                             break 'outer;
@@ -667,10 +667,10 @@ fn main() {
     };
     let log = Path::new(matches.value_of("log").unwrap());
     let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
-    if let Some(term_logger) = TermLogger::new(level, Config::default()) {
+    let term_logger = TermLogger::new(level, Config::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto);
         //systemd doesn't use a terminal
         loggers.push(term_logger);
-    }
+
     loggers.push(WriteLogger::new(
         level,
         Config::default(),
@@ -726,11 +726,11 @@ fn main() {
             _ => {}
         }
     }
-    let signals = Signals::new(&[
-        signal_hook::SIGHUP,
-        signal_hook::SIGTERM,
-        signal_hook::SIGINT,
-        signal_hook::SIGCHLD,
+    let mut signals = Signals::new(&[
+        signal_hook::consts::signal::SIGHUP,
+        signal_hook::consts::signal::SIGTERM,
+        signal_hook::consts::signal::SIGINT,
+        signal_hook::consts::signal::SIGCHLD,
     ])
     .expect("Unable to create iterator signal handler");
     //Check if daemon, if so, start the daemon
@@ -759,9 +759,7 @@ fn main() {
             Err(e) => eprintln!("Error, {}", e),
         }
         println!("I'm child process and My pid is {}", process::id());
-    } else {
-        signals.close();
-    }
+    } 
 
     info!("---------------------------------\nStarting up");
     let backend = BackendType::from_str(matches.value_of("backend").unwrap())
@@ -770,7 +768,7 @@ fn main() {
         bool::from_str(matches.value_of("vault").unwrap())
             .expect("unable to convert vault option to bool")
     };
-    let config = helpers::load_config(&config_dir, "disk-manager.json");
+    let config = helpers::load_config(config_dir, "disk-manager.json");
     if let Err(e) = config {
         error!(
             "Failed to load config file {}. error: {}",
@@ -792,7 +790,7 @@ fn main() {
         &backend,
         config_dir,
         matches.value_of("listen").unwrap(),
-        &signals,
+        &mut signals,
         daemon,
         vault_support,
     ) {

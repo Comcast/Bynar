@@ -7,9 +7,8 @@ use std::fs::{
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::{fs::symlink, io::AsRawFd};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command};
 use std::str::FromStr;
-use std::thread::*;
 use std::time::Duration;
 
 use crate::backend::Backend;
@@ -17,7 +16,7 @@ use api::service::OpOutcome;
 
 use blkid::BlkId;
 use ceph::ceph::{connect_to_ceph, Rados};
-use ceph::ceph_volume::{ceph_volume_list, Lvm as CephLvm, LvmData};
+use ceph::ceph_volume::{ceph_volume_list, LvmData};
 use ceph::cmd::*;
 use ceph::cmd::{pg_stat, PgStat};
 use ceph::CephVersion;
@@ -37,6 +36,7 @@ use pwd::Passwd;
 use serde_derive::*;
 use serde_json::*;
 use tempdir::TempDir;
+use uuid::Uuid;
 
 /// Ceph cluster
 pub struct CephBackend {
@@ -705,7 +705,7 @@ impl CephBackend {
                         // If uuid is STILL empty, Error
                         return Err(BynarError::from("Unable to get the partition UUID"));
                     }
-                    uuid::Uuid::from_str(&uuid)?
+                    Uuid::from_str(&uuid)?
                 }
             };
             // Get the partition uuid from the device
@@ -800,7 +800,7 @@ impl CephBackend {
             if let Some(parent_path) = block_utils::get_parent_devpath_from_path(&journal_path)? {
                 //check if parent device is in journal devices
                 trace!("Parent path is {}", parent_path.display());
-                let mut journal_devices = self
+                let journal_devices = self
                     .config
                     .journal_devices
                     .clone()
@@ -964,7 +964,7 @@ impl CephBackend {
             if let Some(tag) = fsid_tag {
                 let parts: Vec<String> = tag.split('=').map(ToString::to_string).collect();
                 if let Some(s) = parts.get(1) {
-                    osd_fsid = Some(uuid::Uuid::parse_str(s)?);
+                    osd_fsid = Some(Uuid::parse_str(s)?);
                 }
             }
         }
@@ -1356,7 +1356,7 @@ impl CephBackend {
         debug!("Gradually weighting osd: {}", osd_id);
         //set noscrub (remember to handle error by unsetting noscrub)
         self.set_noscrub(simulate)?;
-        while (self.incremental_weight_osd(osd_id, is_add, simulate)?) {
+        while self.incremental_weight_osd(osd_id, is_add, simulate)? {
             trace!("incrementally reweighting osd");
         }
         Ok(())
@@ -1657,7 +1657,7 @@ fn add_osd_to_fstab(
 
 // Look through all the /var/lib/ceph/osd/ directories and try to find
 // a partition id that matches this one.
-fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
+fn partition_in_use(partition_uuid: &Uuid) -> BynarResult<bool> {
     // Check every osd on the system
     for osd_dir in read_dir("/var/lib/ceph/osd/")? {
         let osd_dir = osd_dir?;
@@ -1726,7 +1726,7 @@ fn partition_in_use(partition_uuid: &uuid::Uuid) -> BynarResult<bool> {
         }
         // Get the partition uuid from the device
         trace!("Get the partition uuid");
-        let dev_partition_uuid = uuid::Uuid::from_str(&uuid)?;
+        let dev_partition_uuid = Uuid::from_str(&uuid)?;
         debug!("Journal partition uuid: {}", dev_partition_uuid);
         if partition_uuid == &dev_partition_uuid {
             return Ok(true);
@@ -2151,7 +2151,7 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
             //add partition
             debug!(
                 "Add partition {:?}",
-                disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0)?
+                disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0, None)?
             );
         }
     } else {
@@ -2159,7 +2159,7 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
         //add partition
         debug!(
             "Add partition number {:?}",
-            disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0)?
+            disk.add_partition("", 100 * 1024 * 1024, gpt::partition_types::LINUX_FS, 0, None)?
         );
     }
     disk.write()?;
@@ -2191,7 +2191,7 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
                 //add partition
                 debug!(
                     "Add partition number{:?}",
-                    disk.add_partition("", size * 512, gpt::partition_types::LINUX_FS, 0)?
+                    disk.add_partition("", size * 512, gpt::partition_types::LINUX_FS, 0, None)?
                 );
             }
         }
@@ -2210,7 +2210,7 @@ fn create_bluestore_man_partitions(path: &Path) -> BynarResult<()> {
             debug!("Sectors {:?}", size);
             debug!(
                 "Add partition number{:?}",
-                disk.add_partition("", size * 512, gpt::partition_types::LINUX_FS, 0)?
+                disk.add_partition("", size * 512, gpt::partition_types::LINUX_FS, 0, None)?
             );
         }
     }
@@ -2223,7 +2223,7 @@ fn create_journal(name: &str, size: u64, path: &Path) -> BynarResult<(u32, uuid:
     debug!("Creating journal on {} of size: {}", path.display(), size);
     let cfg = gpt::GptConfig::new().writable(true).initialized(true);
     let mut disk = cfg.open(path)?;
-    let part_id = disk.add_partition(name, size, gpt::partition_types::CEPH_JOURNAL, 0)?;
+    let part_id = disk.add_partition(name, size, gpt::partition_types::CEPH_JOURNAL, 0, None)?;
     // Write it out
     disk.write()?;
     update_partition_cache(&path)?;

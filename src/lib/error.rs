@@ -1,7 +1,6 @@
 use blkid::BlkidError;
 use block_utils::BlockUtilsError;
 use ceph::error::RadosError;
-use derive_error as de;
 use goji::Error as GojiError;
 use hashicorp_vault::client::error::Error as VaultError;
 use lvm::LvmError;
@@ -13,7 +12,7 @@ use r2d2::Error as R2d2Error;
 use reqwest::Error as ReqwestError;
 use serde_json::Error as SerdeJsonError;
 use slack_hook::Error as SlackError;
-use uuid::parser::ParseError as UuidError;
+use uuid::Error as UuidError;
 use zmq::Error as ZmqError;
 
 use std::fmt;
@@ -62,7 +61,7 @@ impl fmt::Display for HardwareError {
 }
 
 /// Custom error handling
-#[derive(Debug, de::Error)]
+#[derive(Debug, Error)]
 pub enum BynarError {
     BlkidError(BlkidError),
     BlockUtilsError(BlockUtilsError),
@@ -108,7 +107,7 @@ impl From<String> for BynarError {
     }
 }
 
-impl<'a> From<&'a str> for BynarError {
+impl From<&str> for BynarError {
     fn from(err: &str) -> BynarError {
         BynarError::new(err.to_string())
     }

@@ -4,6 +4,7 @@ use goji::{Credentials, Jira};
 use helpers::error::*;
 use log::debug;
 use serde_json::value::Value;
+use reqwest::blocking::Client;
 
 /// Create a new JIRA support ticket and return the ticket ID associated with it
 pub fn create_support_ticket(
@@ -20,6 +21,7 @@ pub fn create_support_ticket(
                 name: "Ceph".into(),
             }],
             description: description.into(),
+            environment: "".into(),
             issuetype: IssueType {
                 id: settings.jira_issue_type.clone(),
             },
@@ -29,12 +31,15 @@ pub fn create_support_ticket(
             project: Project {
                 key: settings.jira_project_id.clone(),
             },
+            reporter: Assignee {
+                name: settings.jira_user.clone(),
+            },
             summary: title.into(),
         },
     };
     let jira: Jira = match settings.proxy {
         Some(ref url) => {
-            let client = reqwest::Client::builder()
+            let client: reqwest::blocking::Client = Client::builder()
                 .proxy(reqwest::Proxy::all(url)?)
                 .build()?;
             Jira::from_client(
@@ -62,7 +67,7 @@ pub fn create_support_ticket(
 pub fn ticket_resolved(settings: &ConfigSettings, issue_id: &str) -> BynarResult<bool> {
     let jira: Jira = match settings.proxy {
         Some(ref url) => {
-            let client = reqwest::Client::builder()
+            let client = Client::builder()
                 .proxy(reqwest::Proxy::all(url)?)
                 .build()?;
             Jira::from_client(

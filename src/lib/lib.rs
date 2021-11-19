@@ -4,6 +4,8 @@ use serde_derive::*;
 use std::fs::read_to_string;
 use std::path::Path;
 
+#[macro_use]
+extern crate derive_error;
 use crate::error::{BynarError, BynarResult};
 use api::service::{
     Disk, JiraInfo, Op, OpJiraTicketsResult, OpOutcome, OpOutcomeResult, Operation, ResultType,
@@ -37,7 +39,7 @@ pub fn connect(host: &str, port: &str, server_publickey: &str) -> BynarResult<So
     let requester = context.socket(zmq::REQ)?;
     let client_keypair = zmq::CurveKeyPair::new()?;
     debug!("Created new keypair");
-    requester.set_curve_serverkey(server_publickey)?;
+    requester.set_curve_serverkey(server_publickey.as_bytes())?;
     requester.set_curve_publickey(&client_keypair.public_key)?;
     requester.set_curve_secretkey(&client_keypair.secret_key)?;
     debug!("Connecting to tcp://{}:{}", host, port);

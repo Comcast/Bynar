@@ -10,7 +10,7 @@ use clap::{crate_authors, crate_version, App, Arg, ArgMatches, SubCommand};
 use helpers::error::BynarResult;
 use hostname::get_hostname;
 use log::{error, info, trace};
-use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger};
+use simplelog::{CombinedLogger, Config, TermLogger, WriteLogger, TerminalMode, ColorChoice};
 use zmq::Socket;
 /*
     CLI client to call functions over RPC
@@ -212,7 +212,7 @@ fn main() {
     let host = matches.value_of("host").unwrap();
     let port = matches.value_of("port").unwrap();
     let _ = CombinedLogger::init(vec![
-        TermLogger::new(level, Config::default()).unwrap(),
+        TermLogger::new(level, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
         WriteLogger::new(
             level,
             Config::default(),
