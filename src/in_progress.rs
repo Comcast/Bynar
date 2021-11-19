@@ -17,22 +17,22 @@ use std::time::Duration;
 #[cfg(test)]
 mod tests {
     use super::super::ConfigSettings;
-    use block_utils::{Device, FilesystemType, MediaType, ScsiInfo};
-    use simplelog::{Config, TermLogger};
+    use block_utils::{Device, FilesystemType, MediaType, ScsiInfo, DeviceType};
+    use simplelog::{Config, TermLogger, TerminalMode, ColorChoice};
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
 
     #[test]
     fn test_new_host() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto);
         let info = super::MyHost::new().unwrap();
         println!("{:#?}", info);
     }
 
     #[test]
     fn test_db_apis() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto);
         let config_dir = Path::new("/newDevice/tests/");
         let config: ConfigSettings =
             helpers::load_config(config_dir, "bynar.json").expect("Failed to load config");
@@ -56,6 +56,7 @@ mod tests {
                 id: Some(drive_uuid),
                 name: dev_name,
                 media_type: MediaType::Rotational,
+                device_type: DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: FilesystemType::Xfs,
                 serial_number: Some("123456".into()),

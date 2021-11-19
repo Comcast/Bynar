@@ -79,7 +79,7 @@ mod tests {
     use lazy_static::lazy_static;
     use log::debug;
     use mocktopus::mocking::*;
-    use simplelog::{Config, TermLogger};
+    use simplelog::{Config, TermLogger, TerminalMode, ColorChoice};
     use tempdir::TempDir;
     use uuid::Uuid;
 
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_base() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto);
 
         // Mock smart to return Ok(true)
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
@@ -164,6 +164,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: super::DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -189,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_bad_filesystem() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto);
 
         // Mock smart to return Ok(true)
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
@@ -220,6 +221,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: super::DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -248,7 +250,7 @@ mod tests {
     fn test_state_machine_replace_disk() {
         use helpers::error::*;
         // Smart passes, write fails,  check_filesystem fails, attemptRepair and reformat fails
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto);
 
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
         super::check_writable
@@ -275,6 +277,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: super::DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
@@ -302,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_state_machine_replaced_disk() {
-        TermLogger::new(log::LevelFilter::Debug, Config::default()).unwrap();
+        TermLogger::new(log::LevelFilter::Debug, Config::default(), TerminalMode::Mixed, ColorChoice::Auto);
         super::run_smart_checks.mock_safe(|_| MockResult::Return(Ok(true)));
 
         let dev = create_loop_device();
@@ -321,6 +324,7 @@ mod tests {
                 id: Some(drive_id),
                 name: dev.file_name().unwrap().to_str().unwrap().to_string(),
                 media_type: super::MediaType::Rotational,
+                device_type: super::DeviceType::Partition,
                 capacity: 26214400,
                 fs_type: super::FilesystemType::Xfs,
                 serial_number: Some("123456".into()),
