@@ -35,55 +35,55 @@ conf-files = [
 [dev-dependencies]
 lazy_static = "~1.4"
 mocktopus = "~0.7.0" #{git = "https://github.com/asomers/Mocktopus.git", branch = "master"}
-rand = "~0.7"
+rand = "~0.8"
 
 [dependencies]
 api = { path = "api" }
-blkid = {git = "https://github.com/cholcombe973/blkid.git"}#"~0.2"
-block-utils = {git = "https://github.com/mzhong1/block-utils.git"}#"~0.6"
+blkid = {git = "https://github.com/cholcombe973/blkid.git"}
+block-utils = "~0.10"
 bytes = "*"
-ceph = {git = "https://github.com/mzhong1/ceph-rust"}#"~3.0"
+ceph = "~3" 
 chrono = "~0.4"
 clap = "~2"
 daemonize = "~0.4"
-derive-error = "0.0.4"
-dirs = "~2.0"
+derive-error = "0.0.5"
+dirs = "~4.0"
 dmi = {git = "https://github.com/cholcombe973/dmi"}
-fstab = "~0.3"
+fstab = "~0.4"
 gluster = "~1.0"
-goji = { git = "https://github.com/cholcombe973/goji.git" }
-gpt = { git = "https://github.com/mzhong1/gpt"}
-hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs.git" }
+goji = {git = "https://github.com/mzhong1/goji.git", branch = "upgrade-toml"}#{ git = "https://github.com/cholcombe973/goji.git" } #
+gpt = "~3"
+hashicorp_vault = { git = "https://github.com/cholcombe973/vault-rs" }
 hostname = "~0.1"
 init-daemon = "~0.1"
-json = "~0.11"
-libatasmart = "~0.1"
+json = "~0.12"
+libatasmart = "~0.3"
 libc = "~0.2"
-libredfish = {git = "https://github.com/cholcombe973/libredfish", branch = "generic"}
+libredfish = {git = "https://github.com/cholcombe973/libredfish"}
 log = "~0.4"
 lvm = "~0.3"
 nix = "~0.15"
-petgraph = "~0.4"
-pnet = "~0.23"
-postgres = "~0.15"
+petgraph = "~0.6"
+pnet = "~0.28"
+postgres = {version = "~0.19", features = ["with-serde_json-1", "with-uuid-0_8", "with-time-0_3"]}
 postgres-shared = "~0.4"
 protobuf = "~2"
 pwd = "~1.3"
 r2d2 = "~0.8"
-r2d2_postgres = "~0.14"
-rayon = "~1.0"
-reqwest = "~0.9"
+r2d2_postgres = "~0.18"
+rayon = "~1.5"
+reqwest = {version = "0.11", features = ["blocking", "json", "native-tls"]}
 serde = "~1"
 serde_derive = "~1"
 serde_json = "~1"
-signal-hook = "~0.1"
-simplelog = "~0.5"
+signal-hook = "~0.3"
+simplelog = "~0.10"
 slack-hook = "~0.8"
 tempdir = "~0.3"
-time = "~0.1"
+time = "~0.3"
 uname = "~0.1"
-uuid = { version="~0.7", features = ["serde", "v4"]}
-zmq = {version="~0.8"}
+uuid = { version="~0.8", features = ["serde", "v4"]}
+zmq = {version="~0.9"}
 
 
 
